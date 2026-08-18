@@ -1,0 +1,6 @@
+{
+  "name": "Spotui Music Player",
+  "description": "Full-featured Spotify & YouTube Music player with Samsung One UI Quick Panel integration, lyrics, and background playback.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

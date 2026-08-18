@@ -1,0 +1,8 @@
+# Appfile
+# Reference: https://docs.fastlane.tools/actions/appfile/
+
+# The package name of your Android Application
+package_name("com.music.spotui")
+
+# Path to your Google Play Service Account JSON key file
+# json_key_file("./play-store-credentials.json")
