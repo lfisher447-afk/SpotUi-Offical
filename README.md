@@ -2,6 +2,38 @@
 
 > **Current source release: v2.1.5 (version code 202610105).** A Kotlin and Jetpack Compose Android music-client project with a Media3 playback service, Material 3 interface controls, configurable audio processing, local download management, and resilient framed NovaAc archive workflows.
 
+## 🚀 What's New & Update Logs (v2.1.5 Latest)
+
+### 🌟 What's New*
+- **Dual-Mode Spotify Authentication Screen**:
+  - **Web Login Mode**: Refactored full-screen WebView with Google Chrome Desktop User-Agent (`Chrome/131.0.0.0`) preventing Spotify's blank/black screen anti-bot defense. Real-time visual loading progress bar with percentage counter and dynamic troubleshooting hints.
+  - **Direct Session Cookie Mode (`sp_dc`)**: Fast, 100% reliable bypass for browser/webview restrictions. Allows instant authentication via direct `sp_dc` cookie entry with a **1-tap "Paste from Clipboard"** button and cookie string sanitization.
+  - **External Browser Handoff**: 1-tap button to launch Spotify web authentication in external Chrome/default browser via Android Intent.
+  - **Direct Guest / Skip Mode**: Instant access to local downloads, device music library, and InnerTube streaming without requiring a Spotify login.
+- **Dedicated MrBean NovaAc Control Plane (v8)**:
+  - `MrbeanNovaAcController` with isolated archive-only adaptive I/O profiles (Fast, Balanced, Resilient).
+  - NovaAc v8 framed AES-GCM encryption with Header-Bound AEAD authenticated data (64 KiB chunks) preventing frame replay attacks.
+- **Enhanced Playback & Lyrics Engine**:
+  - AndroidX Media3 1.11.0 integration with 320ms equal-power gapless transitions and customizable crossfade.
+  - Synchronized millisecond-accurate LRCLIB lyrics overlay with on-device ML Kit language identification and translation caching.
+
+### 🔄 What's Updated*
+- **Spotify Authentication Flow**: Completely redesigned `SpotifyLoginScreen.kt` using Material 3 expressive components, custom tab pills, and seamless lifecycle cleanup.
+- **Cookie Detection & Auto-Sync**: Background polling for session cookies across `.spotify.com` subdomains with thread-safe atomic lock.
+- **Network Resilience & Timeouts**: Configurable MrBean socket connection pools, retry backoff on 429/503 errors, and automatic expired stream re-resolution.
+- **Theme & Appearance**: Material 3 Expressive theming with dynamic color, 5 color presets (System, Aurora, Ember, Oceanic, Monochrome), and customizable corner radius (0–48 dp).
+- **Navigation Architecture**: Smooth back-handler support across login, mini-player, queue, and detail screens.
+
+### 🛠️ Fixes & Improvements*
+- **Fixed Spotify Login Black/Blank Screen**: Fixed WebView white/black screen freeze caused by default Android WebView User-Agent (`Version/4.0`) being rejected by Spotify's web auth servers.
+- **Fixed WebView Rendering Layout Collapse**: Set explicit layout parameters (`MATCH_PARENT`) and background color in Compose `AndroidView` to eliminate rendering glitches and blank surfaces.
+- **Fixed SSL Handshake Errors in Restricted Environments**: Added graceful SSL handling in `WebViewClient` so proxy and emulator connections don't abort silently.
+- **Fixed WebView Render Process Crash**: Added `onRenderProcessGone` handler with informative error card and automatic suggestion to switch to Cookie Login.
+- **Fixed NovaAc Encryption Memory Spikes**: Replaced single-message AES-GCM cipher allocation with framed 64 KiB streams, eliminating 270+ MB heap allocation failures on large collections.
+- **Fixed Download Retry File Extensions**: Container extension recalculated dynamically on stream fallback (FLAC, Opus, WebM, M4A, MP3).
+
+---
+
 ## Repository scope
 
 This README is the complete GitHub documentation reference for **[lfisher447-afk/SpotUi-Offical](https://github.com/lfisher447-afk/SpotUi-Offical)**. It consolidates every project documentation source into one file while preserving the original source path of each section. The repository is Android source only; the separately hosted web project remains independent.
@@ -611,6 +643,11 @@ The 1.9 series moves interaction points from hidden or indirect menus to **colle
 | 1.9.3 | Adaptive-shell update: bottom, top, side, and rail navigation modes were connected to a shared root-route model. |
 | 1.9.4 | Visual configuration update: compact UI and a persisted 0鈥�48 dp corner-radius preference became live shell settings. |
 | 1.9.5 | Current integrated release: direct playlist and Liked Songs export buttons sit beside Download, with full archive configuration, verified release assembly, and v2 APK signature validation. |
+| 2.0.0 | Full architecture overhaul: Theme Studio presets, accessibility scaling, lossless routing, NovaAc v5 container tags, and YouTube Data API sync. |
+| 2.0.1 | Downloads archive safety: streamed chunk-based export, HTTP 206 range recovery, and standalone browser player controls. |
+| 2.0.2 | Portable browser archive workflow: Web Passphrase mode by default and in-browser playback/extraction tools. |
+| 2.1.0 | Playback hardening: Media3 service lifecycle stability, 320ms gapless transition engine, and direct OAuth consent flow. |
+| 2.1.5 | Latest release: dual-mode Spotify login (WebView Desktop UA + direct sp_dc cookie authentication + external browser fallback), NovaAc v8 framed AEAD control plane, and LRCLIB synchronized lyrics. |
 
 #### Release decision blueprint
 

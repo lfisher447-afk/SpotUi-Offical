@@ -1900,20 +1900,23 @@ fun SettingsScreen(navController: NavController) {
 
             Spacer(Modifier.height(12.dp))
             SectionTitle("Account")
+            val isSpotifyLoggedIn = remember(com.music.spotui.data.api.SpotifySession.spDc(context)) {
+                com.music.spotui.data.api.SpotifySession.spDc(context).isNotBlank()
+            }
             Text(
-                text = "Log out",
-                color = Color(0xFFE57373),
+                text = if (isSpotifyLoggedIn) "Log out" else "Log in to Spotify",
+                color = if (isSpotifyLoggedIn) Color(0xFFE57373) else Color(0xFF1ED760),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
                     .clickable {
-                        com.music.spotui.data.api.SpotifySession.setSpDc(context, "")
-                        com.music.spotui.data.api.Api.HomeCache.clear()
-                        navController.navigate(com.music.spotui.ui.navigation.Routes.Login.route) {
-                            popUpTo(0) { inclusive = true }
+                        if (isSpotifyLoggedIn) {
+                            com.music.spotui.data.api.SpotifySession.setSpDc(context, "")
+                            com.music.spotui.data.api.Api.HomeCache.clear()
                         }
+                        navController.navigate(com.music.spotui.ui.navigation.Routes.Login.route)
                     }
                     .padding(vertical = 14.dp)
             )

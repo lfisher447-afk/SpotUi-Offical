@@ -1,6 +1,8 @@
 package com.music.spotui
 
 import android.app.Application
+import androidx.hilt.work.HiltWorkerFactory
+import androidx.work.Configuration
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.YouTubeLocale
 import com.metrolist.music.utils.cipher.CipherDeobfuscator
@@ -13,9 +15,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import java.util.Locale
+import javax.inject.Inject
 
 @HiltAndroidApp
-class MyApplication : Application(){
+class MyApplication : Application(), Configuration.Provider {
+    @Inject lateinit var workerFactory: HiltWorkerFactory
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     companion object {
@@ -24,6 +28,11 @@ class MyApplication : Application(){
         lateinit var instance: MyApplication
             private set
     }
+
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setWorkerFactory(workerFactory)
+            .build()
 
     override fun onCreate() {
         super.onCreate()

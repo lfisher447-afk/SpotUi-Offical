@@ -1,35 +1,59 @@
+// File: app/src/main/java/com/music/spotui/engine/LyricsProvider.kt
 package com.music.spotui.engine
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.net.URL
+import com.music.spotui.data.models.LyricsModel
+import com.music.spotui.data.models.TrackModel
+import com.music.spotui.data.repository.LyricsRepository
+import com.music.spotui.util.Constants
+import com.music.spotui.util.Result
+import com.music.spotui.util.runSuspendCatching
+import io.ktor.client.HttpClient
+import io.ktor.client.call.body
+import io.ktor.client.request.get
+import io.ktor.client.request.parameter
+import io.ktor.http.isSuccess
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import javax.inject.Inject
+import javax.inject.Singleton
 
-/**
- * Version 1.5.1 - LyricsProvider
- * Open-source LRCLIB client fetching time-synced lyrics using track title, artist name, and duration matching.
- */
-object LyricsProvider {
-    suspend fun fetchLyrics(title: String, artist: String, durationMs: Long): String? = withContext(Dispatchers.IO) {
-        try {
-            val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
-            val encodedArtist = java.net.URLEncoder.encode(artist, "UTF-8")
-            val durationSec = durationMs / 1000
-            val url = URL("https://lrclib.net/api/get?track_name=$encodedTitle&artist_name=$encodedArtist&duration=$durationSec")
-            
-            val connection = url.openConnection() as java.net.HttpURLConnection
-            connection.requestMethod = "GET"
-            connection.setRequestProperty("User-Agent", "SpotUI/1.5.1")
-            
-            if (connection.responseCode == 200) {
-                val response = connection.inputStream.bufferedReader().readText()
-                val json = org.json.JSONObject(response)
-                val synced = json.optString("syncedLyrics", "").takeIf { it.isNotBlank() }
-                val plain = json.optString("plainLyrics", "").takeIf { it.isNotBlank() }
-                return@withContext synced ?: plain
-            }
-            null
-        } catch (e: Exception) {
-            null
+/** Fetches and caches LRCLIB lyrics for the active track. */
+@Singleton
+class LyricsProvider @Inject constructor(
+    private val client: HttpClient,
+    private val lyricsRepository: LyricsRepository,
+) {
+    /** Requests a fresh LRCLIB result for [track] and stores a successful match locally. */
+    suspend fun fetch(track: TrackModel): Result<LyricsModel?> = runSuspendCatching("Unable to load lyrics") {
+        val response = client.get("${Constants.LRCLIB_BASE_URL}api/get") {
+            parameter("track_name", track.title)
+            parameter("artist_name", track.artistNames.firstOrNull().orEmpty())
+            parameter("duration", track.durationMs / 1_000L)
         }
+        if (!response.status.isSuccess()) return@runSuspendCatching null
+        val remote = response.body<LrclibLyricsDto>()
+        val lyrics = LyricsModel(
+            trackId = track.id,
+            plainLyrics = remote.plainLyrics?.takeIf(String::isNotBlank),
+            syncedLyrics = remote.syncedLyrics?.takeIf(String::isNotBlank),
+            source = "LRCLIB",
+            languageCode = remote.language,
+        ).takeIf { !it.plainLyrics.isNullOrBlank() || !it.syncedLyrics.isNullOrBlank() }
+        lyrics?.let { saved ->
+            when (val result = lyricsRepository.save(saved)) {
+                is Result.Success -> Unit
+                is Result.Failure -> throw result.throwable
+                Result.Loading -> error("Lyrics cache did not complete")
+            }
+        }
+        lyrics
     }
 }
+
+/** LRCLIB response subset used by the app. */
+@Serializable
+data class LrclibLyricsDto(
+    @SerialName("plainLyrics") val plainLyrics: String? = null,
+    @SerialName("syncedLyrics") val syncedLyrics: String? = null,
+    @SerialName("language") val language: String? = null,
+)
