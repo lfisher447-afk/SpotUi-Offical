@@ -131,12 +131,12 @@ object YTPlayerUtils {
             val sigDeferred = async(Dispatchers.IO) {
                 getSignatureTimestampOrNull(videoId)
             }
-            val potDeferred = if (mainClientNeedsPoToken && sessionId != null) {
+            val potDeferred: kotlinx.coroutines.Deferred<PoTokenResult?>? = if (mainClientNeedsPoToken && sessionId != null) {
                 async(Dispatchers.IO) {
                     Timber.tag(logTag).d("Generating PoToken for WEB_REMIX with sessionId")
                     runCatching { 
-                        poTokenGenerator.getWebClientPoToken(videoId, sessionId).also {
-                            if (it != null) Timber.tag(logTag).d("PoToken generated successfully")
+                        poTokenGenerator.getWebClientPoToken(videoId, sessionId)?.also {
+                            Timber.tag(logTag).d("PoToken generated successfully")
                         }
                     }.getOrNull()
                 }

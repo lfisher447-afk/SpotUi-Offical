@@ -43,6 +43,10 @@ class MyApplication : Application(){
         runCatching { CipherDeobfuscator.initialize(this) }
             .onFailure { AppDiagnostics.error("CipherDeobfuscator", "Initialization failed", it) }
 
+        // Initialize persistent TrashBin / Blacklist Room database
+        runCatching { com.music.spotui.engine.TrashBinManager.initialize(this) }
+            .onFailure { AppDiagnostics.warning("TrashBin", "Initialization failed", it) }
+
         // Locale + visitorData must be set or the player can't mint a PoToken,
         // and googlevideo rejects the stream URL with HTTP 403 (tracks stuck at 0:00).
         val locale = Locale.getDefault()

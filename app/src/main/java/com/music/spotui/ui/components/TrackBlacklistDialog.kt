@@ -45,7 +45,7 @@ fun TrackBlacklistDialog(
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE22134)),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Blacklist Track: \$trackName")
+                Text("Blacklist Track: $trackName")
             }
             
             Spacer(modifier = Modifier.height(12.dp))
@@ -55,7 +55,7 @@ fun TrackBlacklistDialog(
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE22134)),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Blacklist Artist: \$artistName")
+                Text("Blacklist Artist: $artistName")
             }
             
             Spacer(modifier = Modifier.height(12.dp))

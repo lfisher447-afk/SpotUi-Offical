@@ -2150,4 +2150,19 @@ object SongPlayer {
         sleepJob = null
         sleepTimerEndAt = 0L
     }
+
+    /**
+     * Updates the playback speed and pitch via ExoPlayer's Sonic Audio Processor.
+     */
+    fun setPlaybackParameters(speed: Float, pitch: Float = 1.0f) {
+        val boundedSpeed = speed.coerceIn(0.5f, 2.5f)
+        val boundedPitch = pitch.coerceIn(0.5f, 2.0f)
+        scope.launch(Dispatchers.Main) {
+            player?.playbackParameters = androidx.media3.common.PlaybackParameters(boundedSpeed, boundedPitch)
+        }
+    }
+
+    fun getPlaybackSpeed(): Float {
+        return player?.playbackParameters?.speed ?: 1.0f
+    }
 }

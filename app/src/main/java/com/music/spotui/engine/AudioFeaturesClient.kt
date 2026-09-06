@@ -14,10 +14,10 @@ object AudioFeaturesClient {
 
     suspend fun getFeatures(spotifyTrackId: String, accessToken: String): AudioFeatures? = withContext(Dispatchers.IO) {
         try {
-            val url = java.net.URL("https://api.spotify.com/v1/audio-features/\$spotifyTrackId")
+            val url = java.net.URL("https://api.spotify.com/v1/audio-features/$spotifyTrackId")
             val connection = url.openConnection() as java.net.HttpURLConnection
             connection.requestMethod = "GET"
-            connection.setRequestProperty("Authorization", "Bearer \$accessToken")
+            connection.setRequestProperty("Authorization", "Bearer $accessToken")
             
             if (connection.responseCode == 200) {
                 val response = connection.inputStream.bufferedReader().readText()
@@ -27,7 +27,7 @@ object AudioFeaturesClient {
                 val keyInt = json.optInt("key", -1)
                 val keyStr = if (keyInt in keyMap.indices) keyMap[keyInt] else "Unknown"
                 val mode = json.optInt("mode", 1)
-                val keyFinal = if (mode == 1) "\$keyStr Major" else "\$keyStr Minor"
+                val keyFinal = if (mode == 1) "$keyStr Major" else "$keyStr Minor"
                 
                 return@withContext AudioFeatures(
                     bpm = tempo,

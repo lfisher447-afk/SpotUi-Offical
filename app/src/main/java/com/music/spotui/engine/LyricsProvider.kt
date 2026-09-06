@@ -14,7 +14,7 @@ object LyricsProvider {
             val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
             val encodedArtist = java.net.URLEncoder.encode(artist, "UTF-8")
             val durationSec = durationMs / 1000
-            val url = URL("https://lrclib.net/api/get?track_name=\$encodedTitle&artist_name=\$encodedArtist&duration=\$durationSec")
+            val url = URL("https://lrclib.net/api/get?track_name=$encodedTitle&artist_name=$encodedArtist&duration=$durationSec")
             
             val connection = url.openConnection() as java.net.HttpURLConnection
             connection.requestMethod = "GET"
@@ -23,7 +23,9 @@ object LyricsProvider {
             if (connection.responseCode == 200) {
                 val response = connection.inputStream.bufferedReader().readText()
                 val json = org.json.JSONObject(response)
-                return@withContext json.optString("syncedLyrics", json.optString("plainLyrics", null))
+                val synced = json.optString("syncedLyrics", "").takeIf { it.isNotBlank() }
+                val plain = json.optString("plainLyrics", "").takeIf { it.isNotBlank() }
+                return@withContext synced ?: plain
             }
             null
         } catch (e: Exception) {

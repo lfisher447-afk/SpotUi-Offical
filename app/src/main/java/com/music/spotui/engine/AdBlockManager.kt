@@ -32,7 +32,7 @@ object AdBlockManager {
     fun checkAndSkip(title: String, durationMs: Long): Boolean {
         // Ads are usually very short or match specific metadata signatures
         if (isAdSegment(title)) {
-            Log.d(TAG, "Intercepted Ad based on metadata: \$title. Skipping...")
+            Log.d(TAG, "Intercepted Ad based on metadata: $title. Skipping...")
             return true
         }
         

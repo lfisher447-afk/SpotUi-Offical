@@ -52,6 +52,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Favorite
@@ -1890,6 +1891,23 @@ fun PlayerOptionsSheet(
                     }
                 }
                 androidx.compose.material3.HorizontalDivider(color = Color(0xFF2A2A2A))
+
+                var showAiInsightsSheet by remember { mutableStateOf(false) }
+                if (showAiInsightsSheet) {
+                    com.music.spotui.ui.components.AiMusicInsightsSheet(
+                        initialTrackTitle = title,
+                        initialArtistName = singer,
+                        onDismiss = { showAiInsightsSheet = false }
+                    )
+                }
+
+                PlayerMenuRow(
+                    icon = Icons.Default.AutoAwesome,
+                    iconTint = Color(0xFF4285F4),
+                    label = "Behind the Song (AI Insights)"
+                ) {
+                    showAiInsightsSheet = true
+                }
 
                 PlayerMenuRow(
                     icon = Icons.Default.Share,

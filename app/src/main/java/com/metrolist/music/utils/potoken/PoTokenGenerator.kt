@@ -54,7 +54,7 @@ class PoTokenGenerator(
      * Synchronous entry-point for generating a web client PoToken.
      * Note: Prefer calling the suspend version [getWebClientPoToken] if you are inside a Coroutine.
      */
-    fun getWebClientPoToken(
+    fun getWebClientPoTokenBlocking(
         videoId: String,
         sessionId: String,
         timeoutMs: Long = DEFAULT_TIMEOUT_MS
@@ -175,7 +175,10 @@ class PoTokenGenerator(
         consecutiveFailures.set(0)
         Timber.tag(TAG).d("PoTokens generated successfully: player=${playerPot.take(10)}..., streaming=${streamingPot.take(10)}...")
 
-        return PoTokenResult(playerPot = playerPot, streamingPot = streamingPot)
+        return PoTokenResult(
+            playerRequestPoToken = playerPot,
+            streamingDataPoToken = streamingPot,
+        )
     }
 
     /**

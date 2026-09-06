@@ -278,3 +278,17 @@ fun setCornerRadiusDp(c: Context, value: Float) {
     prefs(c).edit().putFloat(KEY_CORNER_RADIUS_DP, value.coerceIn(0f, 48f)).apply()
     notifyUiSettingsChanged()
 }
+
+private const val KEY_GEMINI_API_KEY = "gemini_api_key"
+private const val KEY_GEMINI_FREE_MODE = "gemini_free_mode"
+private const val KEY_GEMINI_MODEL = "gemini_model_selection"
+
+fun getGeminiApiKey(c: Context): String = prefs(c).getString(KEY_GEMINI_API_KEY, "").orEmpty()
+fun setGeminiApiKey(c: Context, key: String) = prefs(c).edit().putString(KEY_GEMINI_API_KEY, key.trim()).apply()
+
+fun isGeminiFreeMode(c: Context): Boolean = prefs(c).getBoolean(KEY_GEMINI_FREE_MODE, true)
+fun setGeminiFreeMode(c: Context, enabled: Boolean) = prefs(c).edit().putBoolean(KEY_GEMINI_FREE_MODE, enabled).apply()
+
+fun getGeminiModel(c: Context): String = prefs(c).getString(KEY_GEMINI_MODEL, "gemini-2.5-flash").orEmpty().ifBlank { "gemini-2.5-flash" }
+fun setGeminiModel(c: Context, model: String) = prefs(c).edit().putString(KEY_GEMINI_MODEL, model).apply()
+

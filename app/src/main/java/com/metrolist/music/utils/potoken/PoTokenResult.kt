@@ -1,6 +1,9 @@
 package com.metrolist.music.utils.potoken
 
-class PoTokenResult(
+data class PoTokenResult(
     val playerRequestPoToken: String,
     val streamingDataPoToken: String,
-)
+) {
+    val playerPot: String get() = playerRequestPoToken
+    val streamingPot: String get() = streamingDataPoToken
+}

@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
@@ -134,6 +135,23 @@ fun SongOptionsSheet(
                 }
             }
             HorizontalDivider(color = Color(0xFF2A2A2A))
+
+            var showAiInsights by remember { mutableStateOf(false) }
+            if (showAiInsights) {
+                AiMusicInsightsSheet(
+                    initialTrackTitle = song.title,
+                    initialArtistName = song.singer,
+                    onDismiss = { showAiInsights = false }
+                )
+            }
+
+            SongMenuRow(
+                icon = androidx.compose.material.icons.Icons.Default.AutoAwesome,
+                label = "Behind the Song (AI Insights)",
+                iconTint = Color(0xFF4285F4)
+            ) {
+                showAiInsights = true
+            }
 
             SongMenuRow(Icons.Default.PlayArrow, "Play next") {
                 playerViewModel.playNext(song)

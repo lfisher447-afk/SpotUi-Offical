@@ -173,9 +173,14 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    private var smartUnplugHandler: com.music.spotui.engine.SmartUnplugHandler? = null
+
     override fun onCreate() {
         super.onCreate()
         SongPlayer.ensureCreated(this)
+        smartUnplugHandler = com.music.spotui.engine.SmartUnplugHandler(this).apply {
+            register()
+        }
 
         // Order notification buttons: [repeat | prev | play/pause | next | close]
         val notificationProvider = object : DefaultMediaNotificationProvider(this) {
@@ -818,6 +823,8 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
+        smartUnplugHandler?.unregister()
+        smartUnplugHandler = null
         serviceScope.cancel()
         runCatching { unregisterReceiver(mediaControlReceiver) }
         SongPlayer.exoPlayer?.removeListener(playerListener)

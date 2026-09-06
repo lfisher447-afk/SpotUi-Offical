@@ -201,6 +201,10 @@ fun SettingsScreen(navController: NavController) {
     var youtubeOAuthClientId by remember { mutableStateOf(com.music.spotui.data.youtube.YouTubeMusicSync.clientId(context)) }
     var youtubeSyncStatus by remember { mutableStateOf(com.music.spotui.data.youtube.YouTubeMusicSync.status(context)) }
     var youtubeSyncBusy by remember { mutableStateOf(false) }
+    var geminiFreeMode by remember { mutableStateOf(com.music.spotui.data.preferences.isGeminiFreeMode(context)) }
+    var geminiApiKey by remember { mutableStateOf(com.music.spotui.data.preferences.getGeminiApiKey(context)) }
+    var geminiModel by remember { mutableStateOf(com.music.spotui.data.preferences.getGeminiModel(context)) }
+    var aiSectionExpanded by rememberSaveable { mutableStateOf(false) }
 
     fun refreshCacheSummary() {
         val summary = CacheStorageManager.summarize(context)
@@ -1799,6 +1803,63 @@ fun SettingsScreen(navController: NavController) {
                     if (enabled) {
                         scope.launch { BackupHelper.performAutoBackup(context) }
                     }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            SectionTitle("AI & Music Insights")
+            SettingsSwitchRow(
+                title = "Key-Free AI Mode",
+                subtitle = "Use built-in music intelligence and tour insights without needing an API key",
+                checked = geminiFreeMode,
+                onCheckedChange = { enabled ->
+                    geminiFreeMode = enabled
+                    com.music.spotui.data.preferences.setGeminiFreeMode(context, enabled)
+                }
+            )
+
+            AnimatedVisibility(
+                visible = !geminiFreeMode,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF1E1E24))
+                        .padding(14.dp)
+                ) {
+                    Text(
+                        text = "Custom Gemini API Key",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "Enables live Google Search Grounding for up-to-the-minute tour dates and releases.",
+                        color = Color(0xFFB3B3B3),
+                        fontSize = 12.sp
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = geminiApiKey,
+                        onValueChange = {
+                            geminiApiKey = it
+                            com.music.spotui.data.preferences.setGeminiApiKey(context, it)
+                        },
+                        placeholder = { Text("Paste Gemini API Key", color = Color.Gray, fontSize = 13.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = AppPalette,
+                            unfocusedBorderColor = Color(0xFF444444),
+                            cursorColor = AppPalette
+                        )
+                    )
                 }
             }
 
