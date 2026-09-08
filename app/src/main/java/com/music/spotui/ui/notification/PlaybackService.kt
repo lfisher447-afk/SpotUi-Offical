@@ -246,6 +246,14 @@ class PlaybackService : MediaLibraryService() {
             .setSessionActivity(sessionActivity)
             .build()
 
+        // Sync current song metadata to the MediaSession when it changes
+        serviceScope.launch {
+            snapshotFlow { currentSongState.songId.value }
+                .distinctUntilChanged()
+                .collect { _ ->
+                    updateCurrentMetadata()
+                }
+        }
 
         // When a crossfade promotes a new ExoPlayer instance, re-bind the session to it
         // (runs on the main thread; setPlayer is the supported way to swap a session's player).
@@ -293,6 +301,54 @@ class PlaybackService : MediaLibraryService() {
         } else {
             registerReceiver(mediaControlReceiver, musicFilter)
         }
+    }
+
+    /**
+     * Updates the current MediaSession's MediaMetadata with the currently playing track info.
+     * This is crucial for Samsung's Now Bar and system UI to display track information.
+     */
+    private fun updateCurrentMetadata() {
+        val song = currentSongState.queue.value.getOrNull(currentSongState.songIndex.value)
+        if (song == null) {
+            // No song available; clear metadata
+            val emptyMetadata = MediaMetadata.Builder()
+                .setTitle("No track")
+                .setArtist("")
+                .setAlbumTitle("")
+                .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                .build()
+            val emptyMediaItem = MediaItem.Builder()
+                .setMediaMetadata(emptyMetadata)
+                .build()
+            SongPlayer.exoPlayer?.setMediaItem(emptyMediaItem)
+            return
+        }
+
+        // Build metadata for the current song
+        val metadataBuilder = MediaMetadata.Builder()
+            .setTitle(song.title)
+            .setArtist(song.singer)
+            .setAlbumTitle(song.album)
+            .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+            .setIsPlayable(true)
+
+        // Attach artwork if available
+        com.music.spotui.util.ArtworkHelper.attachArtwork(
+            metadataBuilder, this, song.coverUri, song.id.toString(), song.url
+        )
+
+        val metadata = metadataBuilder.build()
+        val mediaItem = MediaItem.Builder()
+            .setMediaId("song/${song.id}")
+            .setMediaMetadata(metadata)
+            .build()
+
+        // Update the player's media item to reflect current track
+        SongPlayer.exoPlayer?.setMediaItem(mediaItem)
+        android.util.Log.d(
+            "PlaybackService",
+            "Updated MediaMetadata: title='${song.title}', artist='${song.singer}', album='${song.album}'"
+        )
     }
 
     /** Point the media session at whichever engine is currently producing audio. */
@@ -807,6 +863,23 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Explicitly start in the foreground with FOREGROUND_SERVICE_MEDIA_PLAYBACK for Samsung Now Bar and system UI
+        // This ensures the service is properly promoted and the system recognizes active media playback.
+        val notificationId = 1
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                notificationId,
+                null, // Notification will be set by MediaNotificationProvider
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+            )
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            startForeground(
+                notificationId,
+                null, // Notification will be set by MediaNotificationProvider
+                android.app.Service.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+            )
+        }
+
         // The Media3 notification owns foreground promotion while media is active. Returning
         // sticky prevents a transient process/service recreation from being interpreted as a
         // user-requested stop when playback was ongoing in the background.
