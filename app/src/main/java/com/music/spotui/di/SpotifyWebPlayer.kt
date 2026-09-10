@@ -220,7 +220,7 @@ object SpotifyWebPlayer {
             webView = wv
             pollHandler.postDelayed(pollRunnable, 1000)
             Log.d(TAG, "WebView attached")
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "attach failed", e)
         }
     }

@@ -24,7 +24,12 @@ object AppDiagnostics {
 
     private val initialized = AtomicBoolean(false)
     private val writeLock = Any()
-    private val timestampFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ", Locale.US)
+
+    private fun formatNow(): String {
+        return runCatching {
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ", Locale.US).format(Date())
+        }.getOrDefault("")
+    }
 
     @Volatile
     private var appContext: Context? = null
@@ -60,7 +65,7 @@ object AppDiagnostics {
         val safeMessage = sanitize(message)
         val throwableText = throwable?.stackTraceToString()?.take(MAX_STACK_CHARS)
         val line = buildString {
-            append(timestampFormat.format(Date()))
+            append(formatNow())
             append(' ')
             append(level)
             append(" [")

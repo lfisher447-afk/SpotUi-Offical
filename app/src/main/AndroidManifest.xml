@@ -33,11 +33,23 @@
         android:supportsRtl="true"
         android:theme="@style/splashScreenTheme"
         tools:targetApi="31">
+
+        <!-- Disables default WorkManagerInitializer so MyApplication's Configuration.Provider with HiltWorkerFactory handles initialization safely without crashing -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
         <activity
             android:name=".ui.screens.YouTubeMusicWebActivity"
             android:exported="false"
             android:label="YouTube Music"
-            android:theme="@style/splashScreenTheme" />
+            android:theme="@style/Theme.Spotui" />
 
         <activity
             android:name=".MainActivity"

@@ -1,8 +1,8 @@
 # Spotui Android
 
-> **Current source release: v2.1.5 (version code 202610105).** A Kotlin and Jetpack Compose Android music-client project with a Media3 playback service, Material 3 interface controls, configurable audio processing, local download management, and resilient framed NovaAc archive workflows.
+> **Current source release: v2.1.6 (version code 202610106).** A Kotlin and Jetpack Compose Android music-client project with a Media3 playback service, Material 3 interface controls, configurable audio processing, local download management, and resilient framed NovaAc archive workflows.
 
-## 🚀 What's New & Update Logs (v2.1.5 Latest)
+## 🚀 What's New & Update Logs (v2.1.6 Latest)
 
 ### 🌟 What's New*
 - **Dual-Mode Spotify Authentication Screen**:
@@ -41,7 +41,7 @@ This README is the complete GitHub documentation reference for **[lfisher447-afk
 | Item | Current value |
 | --- | --- |
 | Android package | `com.music.spotui` |
-| Source release | `2.1.5` / version code `202610105` |
+| Source release | `2.1.6` / version code `202610106` |
 | SDK range | Minimum SDK 26 路 Compile/target SDK 36 |
 | Toolchain | Java 21 路 Kotlin 路 Android Gradle Plugin 8.13.2 |
 | UI | Jetpack Compose 路 Material 3 expressive theming |

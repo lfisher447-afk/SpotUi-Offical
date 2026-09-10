@@ -35,6 +35,7 @@ import com.music.spotui.di.RepeatMode
 import com.music.spotui.di.SongPlayer
 import com.music.spotui.di.SpotifyWebPlayer
 import com.music.spotui.ui.repository.AppRepository
+import com.music.spotui.util.AppDiagnostics
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -296,11 +297,13 @@ class PlaybackService : MediaLibraryService() {
             addAction("com.android.music.togglepause")
             addAction("com.android.music.stop")
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(mediaControlReceiver, musicFilter, Context.RECEIVER_EXPORTED)
-        } else {
-            registerReceiver(mediaControlReceiver, musicFilter)
-        }
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(mediaControlReceiver, musicFilter, Context.RECEIVER_EXPORTED)
+            } else {
+                registerReceiver(mediaControlReceiver, musicFilter)
+            }
+        }.onFailure { AppDiagnostics.warning("PlaybackService", "Media control receiver registration failed", it) }
     }
 
     /**
@@ -863,26 +866,9 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Explicitly start in the foreground with FOREGROUND_SERVICE_MEDIA_PLAYBACK for Samsung Now Bar and system UI
-        // This ensures the service is properly promoted and the system recognizes active media playback.
-        val notificationId = 1
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(
-                notificationId,
-                null, // Notification will be set by MediaNotificationProvider
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-            )
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            startForeground(
-                notificationId,
-                null, // Notification will be set by MediaNotificationProvider
-                android.app.Service.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-            )
-        }
-
-        // The Media3 notification owns foreground promotion while media is active. Returning
-        // sticky prevents a transient process/service recreation from being interpreted as a
-        // user-requested stop when playback was ongoing in the background.
+        // The MediaLibraryService and MediaSession manage the foreground service lifecycle
+        // and notification presentation via MediaNotificationProvider. Returning START_STICKY
+        // prevents a transient process/service recreation from stopping active background playback.
         super.onStartCommand(intent, flags, startId)
         return START_STICKY
     }

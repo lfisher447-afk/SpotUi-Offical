@@ -22,6 +22,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.music.spotui.di.SongPlayer
 import com.music.spotui.util.AppDiagnostics
 import com.music.spotui.ui.notification.PlaybackService
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.music.spotui.ui.theme.SpotuiTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
@@ -35,7 +36,7 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op */ }
 
     override fun onCreate(savedInstanceState: Bundle?){
-
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
         AppDiagnostics.info("MainActivity", "onCreate")
         this.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)

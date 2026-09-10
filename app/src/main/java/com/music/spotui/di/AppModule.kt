@@ -48,12 +48,24 @@ object AppModule {
     @Provides
     @Singleton
     fun provideSpotUIDatabase(@ApplicationContext context: Context): SpotUIDatabase =
-        Room.databaseBuilder(context, SpotUIDatabase::class.java, Constants.DATABASE_NAME).build()
+        Room.databaseBuilder(context, SpotUIDatabase::class.java, Constants.DATABASE_NAME)
+            .fallbackToDestructiveMigration()
+            .build()
 
     /** Provides WorkManager for durable background downloads. */
     @Provides
     @Singleton
-    fun provideWorkManager(@ApplicationContext context: Context): WorkManager = WorkManager.getInstance(context)
+    fun provideWorkManager(@ApplicationContext context: Context): WorkManager {
+        return runCatching {
+            WorkManager.getInstance(context)
+        }.getOrElse {
+            val app = context.applicationContext as? com.music.spotui.MyApplication
+            if (app != null) {
+                runCatching { WorkManager.initialize(context, app.workManagerConfiguration) }
+            }
+            WorkManager.getInstance(context)
+        }
+    }
 
     @Provides
     @Singleton

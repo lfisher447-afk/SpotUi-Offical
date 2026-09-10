@@ -3,6 +3,7 @@ package com.music.spotui
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import androidx.work.WorkManager
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.YouTubeLocale
 import com.metrolist.music.utils.cipher.CipherDeobfuscator
@@ -30,15 +31,26 @@ class MyApplication : Application(), Configuration.Provider {
     }
 
     override val workManagerConfiguration: Configuration
-        get() = Configuration.Builder()
-            .setWorkerFactory(workerFactory)
-            .build()
+        get() = if (::workerFactory.isInitialized) {
+            Configuration.Builder()
+                .setWorkerFactory(workerFactory)
+                .build()
+        } else {
+            Configuration.Builder().build()
+        }
 
     override fun onCreate() {
         super.onCreate()
         instance = this
         AppDiagnostics.initialize(this)
         AppDiagnostics.info("MyApplication", "Application startup initialized")
+
+        // Safely initialize WorkManager with custom configuration
+        runCatching {
+            WorkManager.initialize(this, workManagerConfiguration)
+        }.onFailure {
+            AppDiagnostics.warning("WorkManager", "Explicit WorkManager initialization skipped or already complete", it)
+        }
         // Surface provider diagnostics to both logcat and bounded app-private storage.
         com.metrolist.spotify.Spotify.logger = { level, msg ->
             android.util.Log.d("SpotifyREST", "[$level] $msg")
