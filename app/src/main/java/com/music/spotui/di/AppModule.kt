@@ -37,20 +37,14 @@ object AppModule {
     @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
-        return Room.databaseBuilder(
-            context,
-            AppDatabase::class.java,
-            "spotui_room.db"
-        ).fallbackToDestructiveMigration().build()
+        return AppDatabase.getInstance(context)
     }
 
     /** Provides the Room database used by the clean data layer. */
     @Provides
     @Singleton
     fun provideSpotUIDatabase(@ApplicationContext context: Context): SpotUIDatabase =
-        Room.databaseBuilder(context, SpotUIDatabase::class.java, Constants.DATABASE_NAME)
-            .fallbackToDestructiveMigration()
-            .build()
+        SpotUIDatabase.getInstance(context)
 
     /** Provides WorkManager for durable background downloads. */
     @Provides

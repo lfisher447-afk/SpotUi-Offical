@@ -32,11 +32,7 @@ object TrashBinManager {
 
     fun initialize(context: Context, trashBinDao: TrashBinDao? = null) {
         val resolvedDao = trashBinDao ?: runCatching {
-            Room.databaseBuilder(
-                context.applicationContext,
-                AppDatabase::class.java,
-                "spotui_room.db"
-            ).fallbackToDestructiveMigration().build().trashBinDao()
+            AppDatabase.getInstance(context).trashBinDao()
         }.getOrNull()
 
         dao = resolvedDao

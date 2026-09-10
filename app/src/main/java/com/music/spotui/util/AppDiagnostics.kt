@@ -38,17 +38,7 @@ object AppDiagnostics {
         appContext = context.applicationContext
         if (!initialized.compareAndSet(false, true)) return
 
-        val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
-        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-            record(
-                level = "FATAL",
-                tag = thread.name,
-                message = "Uncaught exception on ${thread.name}",
-                throwable = throwable,
-            )
-            previousHandler?.uncaughtException(thread, throwable)
-        }
-
+        CrashHandler.install(context)
         record("INFO", TAG, buildLaunchMessage(context))
     }
 

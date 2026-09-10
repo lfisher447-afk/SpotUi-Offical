@@ -37,7 +37,8 @@ fun App() {
     val currentRoute = navBackStackEntry?.destination?.route
 
     val playerViewModel: com.music.spotui.ui.viewmodel.PlayerViewModel = hiltViewModel()
-    val playerState by playerViewModel.currentSongTitle
+    val playerTitle by playerViewModel.currentSongTitle
+    val playerState = playerTitle.orEmpty()
     var lastRoute by remember { mutableStateOf<String?>(null) }
     // Incremented each time the user re-taps the Search bottom-nav icon while
     // already on the search route, so SearchScreen can focus its text field.
@@ -51,7 +52,7 @@ fun App() {
             }
             bottomBarPlayerState.value = when (currentRoute) {
                 Routes.Login.route, Routes.Queue.route -> false
-                else -> playerState.isNotEmpty()
+                else -> playerState.isNotBlank()
             }
         }
         lastRoute = currentRoute

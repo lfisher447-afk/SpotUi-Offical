@@ -39,7 +39,7 @@ class MainActivity : ComponentActivity() {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
         AppDiagnostics.info("MainActivity", "onCreate")
-        this.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)
+        runCatching { this.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) }
 
         // Ask for notification permission (Android 13+) so the media notification shows.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -86,7 +86,7 @@ class MainActivity : ComponentActivity() {
         // orphaned WebView gets a 0×0 viewport and Spotify won't render/navigate).
         runCatching {
             com.music.spotui.di.SpotifyWebPlayer.attach(this)
-        }.onFailure { AppDiagnostics.warning("SpotifyWebPlayer", "Web player attach failed", it) }
+        }.onFailure { AppDiagnostics.error("SpotifyWebPlayer", "Web player attach failed", it) }
 
         // Perform background auto-backup if a backup directory is configured.
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
@@ -133,6 +133,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         AppDiagnostics.info("MainActivity", "onDestroy")
+        runCatching { com.music.spotui.di.SpotifyWebPlayer.release() }
+            .onFailure { AppDiagnostics.warning("SpotifyWebPlayer", "Release failed", it) }
         // The MediaLibraryService owns the active engine and notification. Releasing
         // SongPlayer here also runs when Android destroys or recreates the UI activity,
         // which abruptly stops otherwise healthy background playback. Only the UI-side

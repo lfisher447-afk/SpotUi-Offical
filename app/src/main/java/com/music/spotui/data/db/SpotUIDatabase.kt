@@ -1,7 +1,9 @@
 // File: app/src/main/java/com/music/spotui/data/db/SpotUIDatabase.kt
 package com.music.spotui.data.db
 
+import android.content.Context
 import androidx.room.Database
+import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import com.music.spotui.data.dao.TrashBinDao
@@ -14,6 +16,7 @@ import com.music.spotui.data.models.PlaylistModel
 import com.music.spotui.data.models.SearchHistoryModel
 import com.music.spotui.data.models.TrackModel
 import com.music.spotui.data.models.UserModel
+import com.music.spotui.util.Constants
 
 /** The single Room database that owns SpotUI's new persisted application state. */
 @Database(
@@ -29,7 +32,7 @@ import com.music.spotui.data.models.UserModel
         UserModel::class,
     ],
     version = 1,
-    exportSchema = true,
+    exportSchema = false,
 )
 @TypeConverters(RoomConverters::class)
 abstract class SpotUIDatabase : RoomDatabase() {
@@ -59,4 +62,22 @@ abstract class SpotUIDatabase : RoomDatabase() {
 
     /** Returns user-profile access. */
     abstract fun userDao(): UserDao
+
+    companion object {
+        @Volatile
+        private var instance: SpotUIDatabase? = null
+
+        fun getInstance(context: Context): SpotUIDatabase {
+            return instance ?: synchronized(this) {
+                instance ?: Room.databaseBuilder(
+                    context.applicationContext,
+                    SpotUIDatabase::class.java,
+                    Constants.DATABASE_NAME
+                )
+                .fallbackToDestructiveMigration(true)
+                .fallbackToDestructiveMigrationOnDowngrade(true)
+                .build().also { instance = it }
+            }
+        }
+    }
 }

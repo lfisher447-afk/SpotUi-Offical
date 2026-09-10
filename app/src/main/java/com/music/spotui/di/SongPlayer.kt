@@ -437,17 +437,41 @@ object SongPlayer {
     private const val PRELOAD_BYTES = 1L * 1024 * 1024
 
     @Volatile private var mediaCache: androidx.media3.datasource.cache.SimpleCache? = null
+    @Volatile private var mediaCacheInitFailed = false
 
-    private fun mediaCache(context: Context): androidx.media3.datasource.cache.SimpleCache =
-        mediaCache ?: synchronized(this) {
-            mediaCache ?: androidx.media3.datasource.cache.SimpleCache(
-                java.io.File(context.cacheDir, "media"),
-                androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor(256L * 1024 * 1024),
-                androidx.media3.database.StandaloneDatabaseProvider(context),
-            ).also { mediaCache = it }
+    private fun mediaCache(context: Context): androidx.media3.datasource.cache.SimpleCache? {
+        if (mediaCacheInitFailed) return null
+        return mediaCache ?: synchronized(this) {
+            if (mediaCacheInitFailed) return null
+            mediaCache ?: runCatching {
+                val dir = java.io.File(context.cacheDir, "media")
+                if (!dir.exists()) dir.mkdirs()
+                androidx.media3.datasource.cache.SimpleCache(
+                    dir,
+                    androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor(256L * 1024 * 1024),
+                    androidx.media3.database.StandaloneDatabaseProvider(context),
+                )
+            }.getOrElse { error ->
+                Log.w(TAG, "SimpleCache init failed, resetting cache dir", error)
+                runCatching {
+                    val dir = java.io.File(context.cacheDir, "media")
+                    dir.deleteRecursively()
+                    dir.mkdirs()
+                    androidx.media3.datasource.cache.SimpleCache(
+                        dir,
+                        androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor(256L * 1024 * 1024),
+                        androidx.media3.database.StandaloneDatabaseProvider(context),
+                    )
+                }.getOrElse {
+                    Log.e(TAG, "SimpleCache fallback also failed, disabling media cache", it)
+                    mediaCacheInitFailed = true
+                    null
+                }
+            }?.also { mediaCache = it }
         }
+    }
 
-    private fun cacheDataSourceFactory(context: Context): androidx.media3.datasource.cache.CacheDataSource.Factory {
+    private fun cacheDataSourceFactory(context: Context): androidx.media3.datasource.DataSource.Factory {
         // MrBean owns the concrete Media3 HTTP transport when enabled. This factory
         // is shared by normal playback and cache preloading, so its timeout and
         // header controls are not merely resolver-only preferences.
@@ -455,8 +479,9 @@ object SongPlayer {
             context,
             org.eclipse.Mrbean.client.MrbeanMediaDataSource.upstreamFactory(context),
         )
+        val cache = mediaCache(context) ?: return upstream
         return androidx.media3.datasource.cache.CacheDataSource.Factory()
-            .setCache(mediaCache(context))
+            .setCache(cache)
             .setUpstreamDataSourceFactory(upstream)
             .setFlags(androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
     }
@@ -465,8 +490,17 @@ object SongPlayer {
     private fun cacheIntro(url: String, appContext: Context) {
         if (!url.startsWith("http")) return
         if (!com.music.spotui.data.preferences.isPreloadEnabled(appContext)) return
+        val cache = mediaCache(appContext) ?: return
         runCatching {
-            val ds = cacheDataSourceFactory(appContext).createDataSource()
+            val upstream = androidx.media3.datasource.DefaultDataSource.Factory(
+                appContext,
+                org.eclipse.Mrbean.client.MrbeanMediaDataSource.upstreamFactory(appContext),
+            )
+            val ds = androidx.media3.datasource.cache.CacheDataSource.Factory()
+                .setCache(cache)
+                .setUpstreamDataSourceFactory(upstream)
+                .setFlags(androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+                .createDataSource()
             val spec = androidx.media3.datasource.DataSpec.Builder()
                 .setUri(android.net.Uri.parse(url))
                 .setLength(PRELOAD_BYTES)

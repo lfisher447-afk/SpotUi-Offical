@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.music.spotui.ui.theme.AppBackground
 import com.music.spotui.ui.theme.AppPalette
+import com.music.spotui.util.CrashHandler
 import com.music.spotui.util.DevConsoleManager
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -47,6 +48,10 @@ fun DeveloperConsoleScreen(navController: NavController) {
     var selectedFilter by remember { mutableStateOf<DevConsoleManager.LogLevel?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedLogForDialog by remember { mutableStateOf<DevConsoleManager.LogEntry?>(null) }
+    var showCrashDialog by remember { mutableStateOf(false) }
+    var latestCrashText by remember { mutableStateOf<String?>(null) }
+
+    val hasCrashReports = remember { CrashHandler.hasCrashReport(context) }
 
     val filteredLogs = remember(logs, selectedFilter, searchQuery) {
         logs.filter { entry ->
@@ -113,6 +118,23 @@ fun DeveloperConsoleScreen(navController: NavController) {
                         DiagnosticBadge("Quality", diagnostics.currentQuality.ifEmpty { "Adaptive" })
                         DiagnosticBadge("Collisions", "${diagnostics.totalCollisionsDetected}")
                         DiagnosticBadge("Sanitized", "${diagnostics.sanitizationCount}")
+                    }
+
+                    if (hasCrashReports) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = {
+                                latestCrashText = CrashHandler.getLatestCrashReport(context)
+                                showCrashDialog = true
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth().height(38.dp)
+                        ) {
+                            Icon(Icons.Default.Warning, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("VIEW LATEST CRASH LOG DUMP", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -292,6 +314,66 @@ fun DeveloperConsoleScreen(navController: NavController) {
             dismissButton = {
                 TextButton(onClick = { selectedLogForDialog = null }) {
                     Text("Close", color = Color.Gray)
+                }
+            },
+            containerColor = Color(0xFF17171F)
+        )
+    }
+
+    // Modal for Full Crash Log Dump
+    if (showCrashDialog) {
+        val crashReport = latestCrashText ?: "No crash dump available."
+        AlertDialog(
+            onDismissRequest = { showCrashDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.BugReport, contentDescription = null, tint = Color(0xFFFF5252))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Latest Crash Report", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp)
+                        .background(Color.Black, RoundedCornerShape(8.dp))
+                        .padding(8.dp)
+                ) {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        item {
+                            Text(
+                                text = crashReport,
+                                color = Color(0xFFFFCDD2),
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val clip = ClipData.newPlainText("SpotUICrashDump", crashReport)
+                    clipboard.setPrimaryClip(clip)
+                    Toast.makeText(context, "Crash dump copied to clipboard", Toast.LENGTH_SHORT).show()
+                }) {
+                    Text("Copy Full Dump", color = Color(0xFF81C784))
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        CrashHandler.clearAllCrashReports(context)
+                        showCrashDialog = false
+                        Toast.makeText(context, "Crash logs cleared", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Text("Delete Log", color = Color(0xFFFF5252))
+                    }
+                    TextButton(onClick = { showCrashDialog = false }) {
+                        Text("Close", color = Color.Gray)
+                    }
                 }
             },
             containerColor = Color(0xFF17171F)

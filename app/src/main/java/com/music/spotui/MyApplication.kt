@@ -1,14 +1,16 @@
 package com.music.spotui
 
 import android.app.Application
+import android.content.Context
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
-import androidx.work.WorkManager
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.YouTubeLocale
 import com.metrolist.music.utils.cipher.CipherDeobfuscator
 import com.music.spotui.data.api.Api
 import com.music.spotui.util.AppDiagnostics
+import com.music.spotui.util.CrashHandler
+import com.music.spotui.util.Logger
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,27 +32,39 @@ class MyApplication : Application(), Configuration.Provider {
             private set
     }
 
+    override fun attachBaseContext(base: Context?) {
+        super.attachBaseContext(base)
+        // Install global UncaughtExceptionHandler as early as possible before any class loading or onCreate
+        base?.let { CrashHandler.install(it) }
+    }
+
     override val workManagerConfiguration: Configuration
-        get() = if (::workerFactory.isInitialized) {
-            Configuration.Builder()
-                .setWorkerFactory(workerFactory)
-                .build()
-        } else {
-            Configuration.Builder().build()
+        get() {
+            return try {
+                if (::workerFactory.isInitialized) {
+                    Configuration.Builder()
+                        .setWorkerFactory(workerFactory)
+                        .build()
+                } else {
+                    AppDiagnostics.warning("WorkManager", "Hilt workerFactory not initialized, using default configuration")
+                    Configuration.Builder().build()
+                }
+            } catch (e: Throwable) {
+                AppDiagnostics.warning("WorkManager", "Failed to build WorkManager configuration", e)
+                Configuration.Builder().build()
+            }
         }
 
     override fun onCreate() {
         super.onCreate()
         instance = this
+
+        // Install and verify the global crash handler and logger
+        CrashHandler.install(this)
+        Logger.initialize(this)
         AppDiagnostics.initialize(this)
         AppDiagnostics.info("MyApplication", "Application startup initialized")
 
-        // Safely initialize WorkManager with custom configuration
-        runCatching {
-            WorkManager.initialize(this, workManagerConfiguration)
-        }.onFailure {
-            AppDiagnostics.warning("WorkManager", "Explicit WorkManager initialization skipped or already complete", it)
-        }
         // Surface provider diagnostics to both logcat and bounded app-private storage.
         com.metrolist.spotify.Spotify.logger = { level, msg ->
             android.util.Log.d("SpotifyREST", "[$level] $msg")

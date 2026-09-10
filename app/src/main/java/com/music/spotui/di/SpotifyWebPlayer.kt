@@ -89,10 +89,11 @@ object SpotifyWebPlayer {
     /** Attach the hidden WebView to the activity window (media won't play detached). */
     @SuppressLint("SetJavaScriptEnabled")
     fun attach(activity: Activity) {
+        if (activity.isFinishing || activity.isDestroyed) return
         if (webView != null) return
         try {
             // Lets `chrome://inspect` attach to the hidden player for diagnosis.
-            WebView.setWebContentsDebuggingEnabled(true)
+            runCatching { WebView.setWebContentsDebuggingEnabled(true) }
             val wv = WebView(activity)
             wv.settings.apply {
                 javaScriptEnabled = true
@@ -222,6 +223,9 @@ object SpotifyWebPlayer {
             Log.d(TAG, "WebView attached")
         } catch (e: Throwable) {
             Log.e(TAG, "attach failed", e)
+            com.music.spotui.util.AppDiagnostics.error("SpotifyWebPlayer", "attach failed", e)
+            webView = null
+            canPlay = false
         }
     }
 
@@ -311,6 +315,7 @@ object SpotifyWebPlayer {
     }
 
     fun release() {
+        pollHandler.removeCallbacksAndMessages(null)
         webView?.let { wv ->
             wv.post {
                 runCatching {
@@ -322,6 +327,8 @@ object SpotifyWebPlayer {
         }
         webView = null
         pageReady = false
+        canPlay = false
+        commandReady = false
     }
 
     private fun eval(js: String) {
