@@ -5,24 +5,37 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioManager
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothDevice
+import android.os.Build
+import androidx.core.content.ContextCompat
 import com.music.spotui.di.SongPlayer
+import com.music.spotui.util.AppDiagnostics
 
 /**
  * Version 1.5.1 - SmartUnplugHandler
- * Listens for Bluetooth disconnects or headphone unplugs to safely pause audio without popping or lagging.
+ * Listens for audio becoming noisy (headphone unplugs or Bluetooth disconnects)
+ * to safely pause audio without popping or lagging.
  */
 class SmartUnplugHandler(private val context: Context) : BroadcastReceiver() {
-    
+
     fun register() {
-        val filter = IntentFilter().apply {
-            addAction(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
-            addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
+        runCatching {
+            val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.registerReceiver(
+                    context,
+                    this,
+                    filter,
+                    ContextCompat.RECEIVER_NOT_EXPORTED
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                context.registerReceiver(this, filter)
+            }
+        }.onFailure {
+            AppDiagnostics.warning("SmartUnplugHandler", "Failed to register unplug receiver safely", it)
         }
-        context.registerReceiver(this, filter)
     }
-    
+
     fun unregister() {
         try {
             context.unregisterReceiver(this)
@@ -30,11 +43,10 @@ class SmartUnplugHandler(private val context: Context) : BroadcastReceiver() {
             // Already unregistered
         }
     }
-    
+
     override fun onReceive(context: Context?, intent: Intent?) {
         when (intent?.action) {
-            AudioManager.ACTION_AUDIO_BECOMING_NOISY,
-            BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
+            AudioManager.ACTION_AUDIO_BECOMING_NOISY -> {
                 // Pause player safely
                 SongPlayer.pause()
             }

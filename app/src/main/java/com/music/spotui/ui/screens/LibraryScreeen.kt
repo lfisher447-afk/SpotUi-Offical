@@ -34,7 +34,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -618,7 +618,7 @@ fun SumUpLibraryScreen(
                     Text("Open YouTube Music playlists", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                     Text("Optional web companion — sign in on the official site and manage your YouTube Music library.", color = Color(0xFFB3B3B3), fontSize = 11.sp)
                 }
-                Icon(Icons.Default.OpenInNew, contentDescription = "Open YouTube Music", tint = Color(0xFFFF3D4D))
+                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Open YouTube Music", tint = Color(0xFFFF3D4D))
             }
             }
         }

@@ -100,11 +100,15 @@ import com.music.spotui.data.preferences.getUpdateRepoUrl
 import com.music.spotui.data.preferences.setUpdateRepoUrl
 import com.music.spotui.data.preferences.resetUpdateRepoUrl
 import com.music.spotui.data.preferences.DEFAULT_UPDATE_REPO_URL
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
@@ -205,6 +209,13 @@ fun SettingsScreen(navController: NavController) {
     var geminiApiKey by remember { mutableStateOf(com.music.spotui.data.preferences.getGeminiApiKey(context)) }
     var geminiModel by remember { mutableStateOf(com.music.spotui.data.preferences.getGeminiModel(context)) }
     var aiSectionExpanded by rememberSaveable { mutableStateOf(false) }
+    var explicitAllowed by remember { mutableStateOf(com.music.spotui.data.preferences.isExplicitContentAllowed(context)) }
+    var preferExplicit by remember { mutableStateOf(com.music.spotui.data.preferences.isPreferExplicitVersions(context)) }
+    var explicitBadgeVisible by remember { mutableStateOf(com.music.spotui.data.preferences.isExplicitBadgeVisible(context)) }
+    var oneUiHeader by remember { mutableStateOf(com.music.spotui.data.preferences.isOneUiHeaderEnabled(context)) }
+    var oneUiSquircle by remember { mutableStateOf(com.music.spotui.data.preferences.isOneUiSquircleIcons(context)) }
+    var explicitSectionExpanded by rememberSaveable { mutableStateOf(true) }
+    var oneUiSectionExpanded by rememberSaveable { mutableStateOf(true) }
 
     fun refreshCacheSummary() {
         val summary = CacheStorageManager.summarize(context)
@@ -373,6 +384,386 @@ fun SettingsScreen(navController: NavController) {
                 // (account / log out) isn't hidden under the bar.
                 .padding(bottom = 200.dp)
         ) {
+            if (oneUiHeader) {
+                // One UI signature expanded header
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 14.dp, horizontal = 4.dp),
+                ) {
+                    Text(
+                        text = "Settings",
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White,
+                        letterSpacing = (-0.5).sp,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "Spotui • Android 16 & One UI Edition",
+                        fontSize = 14.sp,
+                        color = AppPalette,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color(0xFF1E2620),
+                            border = BorderStroke(1.dp, Color(0xFF2E4C33)),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF1DB954))
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    "Android 16 Ready",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = if (batteryOptExempt) Color(0xFF1E2620) else Color(0xFF26201E),
+                            border = BorderStroke(1.dp, if (batteryOptExempt) Color(0xFF2E4C33) else Color(0xFF4C332E)),
+                            modifier = Modifier.clickable {
+                                batteryOptLauncher.launch(BatteryOptimizationHelper.buildRequestOptimizationIntent(context))
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(if (batteryOptExempt) Color(0xFF1DB954) else Color(0xFFFFA500))
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    if (batteryOptExempt) "Battery: Unrestricted" else "Battery: Action Needed",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color(0xFF1C2230),
+                            border = BorderStroke(1.dp, Color(0xFF2B3A54)),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "Predictive Back: Active",
+                                    color = Color(0xFF8AB4F8),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color(0xFF282033),
+                            border = BorderStroke(1.dp, Color(0xFF462D63)),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    if (explicitAllowed) "Explicit Audio: On" else "Explicit Audio: Filtered",
+                                    color = Color(0xFFD4BBFF),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+
+            CollapsibleSettingsSection(
+                title = "One UI & Android 16 System Integration",
+                subtitle = "Predictive back gestures, squircle geometry, edge-to-edge, and battery guard",
+                expanded = oneUiSectionExpanded,
+                onExpandedChange = { oneUiSectionExpanded = it },
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF1A1A20))
+                        .padding(14.dp)
+                ) {
+                    // One UI Large Header
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("One UI large title header", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Text("Display Samsung One UI style expansive hero title with live status pills", color = Color.Gray, fontSize = 12.sp)
+                        }
+                        Switch(
+                            checked = oneUiHeader,
+                            onCheckedChange = { checked ->
+                                oneUiHeader = checked
+                                com.music.spotui.data.preferences.setOneUiHeaderEnabled(context, checked)
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = AppPalette)
+                        )
+                    }
+
+                    Spacer(Modifier.height(14.dp))
+
+                    // One UI Squircle Icons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("One UI squircle geometry", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Text("Apply Samsung continuous curvature squircle rounding to album art and controls", color = Color.Gray, fontSize = 12.sp)
+                        }
+                        Switch(
+                            checked = oneUiSquircle,
+                            onCheckedChange = { checked ->
+                                oneUiSquircle = checked
+                                com.music.spotui.data.preferences.setOneUiSquircleIcons(context, checked)
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = AppPalette)
+                        )
+                    }
+
+                    Spacer(Modifier.height(14.dp))
+
+                    // Predictive Back & System Info
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFF22242E),
+                        border = BorderStroke(1.dp, Color(0xFF33384A)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = AppPalette,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    "System Gesture & Inset Support",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "• Android 14 / 15 / 16 Predictive Back: Fully configured in manifest with smooth swipe-to-home preview animations.\n• Edge-to-Edge System Bars: Dynamic WindowInsets with immersive status bar blending.\n• Samsung One UI 6 / 7 / 8: Native color palette synchronization and notification media seekbar.",
+                                color = Color(0xFFB3B3B3),
+                                fontSize = 11.sp,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(14.dp))
+
+                    // Battery Optimization Row
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF22242E))
+                            .clickable {
+                                batteryOptLauncher.launch(BatteryOptimizationHelper.buildRequestOptimizationIntent(context))
+                            }
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Unrestricted Background Battery", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.width(8.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (batteryOptExempt) Color(0xFF1E3A24) else Color(0xFF3D2A1C))
+                                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        if (batteryOptExempt) "Active" else "Action Needed",
+                                        color = if (batteryOptExempt) Color(0xFF81C784) else Color(0xFFFFB74D),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            Text(
+                                if (batteryOptExempt) "Battery optimization exemption is active. Background audio will never be interrupted." else "Tap to grant unrestricted background activity so Android does not suspend audio.",
+                                color = Color(0xFFB3B3B3),
+                                fontSize = 11.sp
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = "Configure Battery",
+                            tint = AppPalette,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            CollapsibleSettingsSection(
+                title = "Explicit Content & Playback Protection",
+                subtitle = "Manage explicit music, 'E' badges, and YouTube age-verification bypass",
+                expanded = explicitSectionExpanded,
+                onExpandedChange = { explicitSectionExpanded = it },
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF1A1A20))
+                        .padding(14.dp)
+                ) {
+                    // Allow Explicit Content
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Allow explicit content", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.width(8.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(if (explicitAllowed) Color(0xFFE53935) else Color.Gray)
+                                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                                ) {
+                                    Text("E", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            Text("Play songs and albums with explicit language or mature themes", color = Color.Gray, fontSize = 12.sp)
+                        }
+                        Switch(
+                            checked = explicitAllowed,
+                            onCheckedChange = { checked ->
+                                explicitAllowed = checked
+                                com.music.spotui.data.preferences.setExplicitContentAllowed(context, checked)
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = AppPalette)
+                        )
+                    }
+
+                    Spacer(Modifier.height(14.dp))
+
+                    // Prefer Explicit Versions
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Prefer original explicit versions", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Text("Prioritize uncut original master recordings over clean/radio edits when matching tracks", color = Color.Gray, fontSize = 12.sp)
+                        }
+                        Switch(
+                            checked = preferExplicit,
+                            enabled = explicitAllowed,
+                            onCheckedChange = { checked ->
+                                preferExplicit = checked
+                                com.music.spotui.data.preferences.setPreferExplicitVersions(context, checked)
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = AppPalette)
+                        )
+                    }
+
+                    Spacer(Modifier.height(14.dp))
+
+                    // Show Explicit Badge
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Show 'E' explicit badges", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Text("Display the explicit badge indicator next to titles in search results and track lists", color = Color.Gray, fontSize = 12.sp)
+                        }
+                        Switch(
+                            checked = explicitBadgeVisible,
+                            onCheckedChange = { checked ->
+                                explicitBadgeVisible = checked
+                                com.music.spotui.data.preferences.setExplicitBadgeVisible(context, checked)
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = AppPalette)
+                        )
+                    }
+
+                    Spacer(Modifier.height(14.dp))
+
+                    // InnerTube Bypass Status Pill
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFF22242E),
+                        border = BorderStroke(1.dp, Color(0xFF33384A)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = Color(0xFF64B5F6),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Text("Multi-Client Explicit Stream Engine", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text("VisionOS & Embedded VR bypass activated. Explicit and age-gated songs resolve automatically without requiring a YouTube account sign-in.", color = Color(0xFFB3B3B3), fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
             CollapsibleSettingsSection(
                 title = "Audio FX & Equalizer",
                 subtitle = "Device equalizer, spatial audio, and loudness controls",
@@ -990,7 +1381,7 @@ fun SettingsScreen(navController: NavController) {
                         Text("Open diagnostic console", color = Color.White, fontWeight = FontWeight.SemiBold)
                         Text("Persistent app-private logs are active for this launch", color = Color(0xFFB3B3B3), fontSize = 12.sp)
                     }
-                    Icon(Icons.Default.OpenInNew, contentDescription = "Open diagnostic console", tint = AppPalette)
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Open diagnostic console", tint = AppPalette)
                 }
             }
 
@@ -1287,7 +1678,7 @@ fun SettingsScreen(navController: NavController) {
                     )
                 } else {
                     Icon(
-                        imageVector = Icons.Default.OpenInNew,
+                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                         contentDescription = "Open Settings",
                         tint = Color.White,
                         modifier = Modifier.size(20.dp)
@@ -1341,7 +1732,7 @@ fun SettingsScreen(navController: NavController) {
                         Text("Open YouTube Music playlists", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                         Text("Sign in on the official site, then browse and play your YouTube Music library.", color = Color(0xFFB3B3B3), fontSize = 12.sp)
                     }
-                    Icon(Icons.Default.OpenInNew, contentDescription = "Open YouTube Music", tint = AppPalette, modifier = Modifier.size(20.dp))
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Open YouTube Music", tint = AppPalette, modifier = Modifier.size(20.dp))
                 }
             }
 
@@ -1669,7 +2060,7 @@ fun SettingsScreen(navController: NavController) {
                     Text("View active v1.4.5 sprints, future milestone to-dos (v1.4.6–v1.5.0), and pipeline topology", color = Color(0xFFB3B3B3), fontSize = 12.sp)
                 }
                 Icon(
-                    imageVector = Icons.Filled.OpenInNew,
+                    imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                     contentDescription = "View",
                     tint = AppPalette,
                     modifier = Modifier.size(20.dp)
@@ -1891,7 +2282,7 @@ fun SettingsScreen(navController: NavController) {
                     )
                 }
                 Icon(
-                    imageVector = Icons.Default.OpenInNew,
+                    imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                     contentDescription = "Open Console",
                     tint = AppPalette,
                     modifier = Modifier.size(20.dp)

@@ -47,7 +47,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -359,7 +359,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                                 modifier = Modifier.size(32.dp),
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.OpenInNew,
+                                    imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                                     contentDescription = "Open in Chrome/Browser",
                                     tint = Color(SPOTIFY_GREEN),
                                     modifier = Modifier.size(18.dp),
@@ -391,101 +391,110 @@ fun SpotifyLoginScreen(navController: NavController) {
                         AndroidView(
                             modifier = Modifier.fillMaxSize(),
                             factory = { ctx ->
-                                val cookieManager = CookieManager.getInstance()
-                                cookieManager.setAcceptCookie(true)
+                                try {
+                                    val cookieManager = runCatching { CookieManager.getInstance() }.getOrNull()
+                                    cookieManager?.setAcceptCookie(true)
 
-                                WebView(ctx).apply {
-                                    webViewRef = this
-                                    layoutParams = ViewGroup.LayoutParams(
-                                        ViewGroup.LayoutParams.MATCH_PARENT,
-                                        ViewGroup.LayoutParams.MATCH_PARENT,
-                                    )
-                                    setBackgroundColor(android.graphics.Color.parseColor("#121212"))
-                                    cookieManager.setAcceptThirdPartyCookies(this, true)
+                                    WebView(ctx).apply {
+                                        webViewRef = this
+                                        layoutParams = ViewGroup.LayoutParams(
+                                            ViewGroup.LayoutParams.MATCH_PARENT,
+                                            ViewGroup.LayoutParams.MATCH_PARENT,
+                                        )
+                                        setBackgroundColor(android.graphics.Color.parseColor("#121212"))
+                                        cookieManager?.setAcceptThirdPartyCookies(this, true)
 
-                                    settings.apply {
-                                        javaScriptEnabled = true
-                                        domStorageEnabled = true
-                                        databaseEnabled = true
-                                        useWideViewPort = true
-                                        loadWithOverviewMode = true
-                                        userAgentString = DESKTOP_USER_AGENT
-                                        mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                                        cacheMode = WebSettings.LOAD_DEFAULT
-                                        javaScriptCanOpenWindowsAutomatically = true
-                                        setSupportMultipleWindows(false)
-                                    }
+                                        settings.apply {
+                                            javaScriptEnabled = true
+                                            domStorageEnabled = true
+                                            databaseEnabled = true
+                                            useWideViewPort = true
+                                            loadWithOverviewMode = true
+                                            userAgentString = DESKTOP_USER_AGENT
+                                            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                            cacheMode = WebSettings.LOAD_DEFAULT
+                                            javaScriptCanOpenWindowsAutomatically = true
+                                            setSupportMultipleWindows(false)
+                                        }
 
-                                    webChromeClient = object : WebChromeClient() {
-                                        override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                            pageProgress = newProgress
-                                            if (newProgress >= 90) {
+                                        webChromeClient = object : WebChromeClient() {
+                                            override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                                pageProgress = newProgress
+                                                if (newProgress >= 90) {
+                                                    isPageLoading = false
+                                                }
+                                            }
+
+                                            override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                                                Timber.d("SpotifyWeb [${consoleMessage?.messageLevel()}]: ${consoleMessage?.message()}")
+                                                return true
+                                            }
+                                        }
+
+                                        webViewClient = object : WebViewClient() {
+                                            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                                isPageLoading = true
+                                                hasWebError = false
+                                            }
+
+                                            override fun onPageFinished(view: WebView?, url: String?) {
                                                 isPageLoading = false
+                                                runCatching { CookieManager.getInstance().flush() }
                                             }
-                                        }
 
-                                        override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-                                            Timber.d("SpotifyWeb [${consoleMessage?.messageLevel()}]: ${consoleMessage?.message()}")
-                                            return true
-                                        }
-                                    }
+                                            override fun onReceivedError(
+                                                view: WebView?,
+                                                request: WebResourceRequest?,
+                                                error: WebResourceError?,
+                                            ) {
+                                                if (request?.isForMainFrame == true) {
+                                                    hasWebError = true
+                                                    webErrorMessage = error?.description?.toString()
+                                                        ?: "Unable to load Spotify login page."
+                                                }
+                                            }
 
-                                    webViewClient = object : WebViewClient() {
-                                        override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                            isPageLoading = true
-                                            hasWebError = false
-                                        }
+                                            override fun onReceivedSslError(
+                                                view: WebView?,
+                                                handler: SslErrorHandler?,
+                                                error: SslError?,
+                                            ) {
+                                                Timber.w("SSL Error encountered in WebView: $error")
+                                                // Ensure test or proxy environments don't block login
+                                                handler?.proceed()
+                                            }
 
-                                        override fun onPageFinished(view: WebView?, url: String?) {
-                                            isPageLoading = false
-                                            runCatching { CookieManager.getInstance().flush() }
-                                        }
-
-                                        override fun onReceivedError(
-                                            view: WebView?,
-                                            request: WebResourceRequest?,
-                                            error: WebResourceError?,
-                                        ) {
-                                            if (request?.isForMainFrame == true) {
+                                            override fun onRenderProcessGone(
+                                                view: WebView?,
+                                                detail: RenderProcessGoneDetail?,
+                                            ): Boolean {
+                                                Timber.e("WebView render process gone")
                                                 hasWebError = true
-                                                webErrorMessage = error?.description?.toString()
-                                                    ?: "Unable to load Spotify login page."
+                                                webErrorMessage = "System WebView crashed. Please use Cookie Login."
+                                                return true
+                                            }
+
+                                            override fun shouldOverrideUrlLoading(
+                                                view: WebView?,
+                                                request: WebResourceRequest?,
+                                            ): Boolean {
+                                                val url = request?.url?.toString().orEmpty()
+                                                if (url.startsWith("http://") || url.startsWith("https://")) {
+                                                    return false
+                                                }
+                                                return true
                                             }
                                         }
 
-                                        override fun onReceivedSslError(
-                                            view: WebView?,
-                                            handler: SslErrorHandler?,
-                                            error: SslError?,
-                                        ) {
-                                            Timber.w("SSL Error encountered in WebView: $error")
-                                            // Ensure test or proxy environments don't block login
-                                            handler?.proceed()
-                                        }
-
-                                        override fun onRenderProcessGone(
-                                            view: WebView?,
-                                            detail: RenderProcessGoneDetail?,
-                                        ): Boolean {
-                                            Timber.e("WebView render process gone")
-                                            hasWebError = true
-                                            webErrorMessage = "System WebView crashed. Please use Cookie Login."
-                                            return true
-                                        }
-
-                                        override fun shouldOverrideUrlLoading(
-                                            view: WebView?,
-                                            request: WebResourceRequest?,
-                                        ): Boolean {
-                                            val url = request?.url?.toString().orEmpty()
-                                            if (url.startsWith("http://") || url.startsWith("https://")) {
-                                                return false
-                                            }
-                                            return true
-                                        }
+                                        loadUrl(SpotifyAuth.LOGIN_URL)
                                     }
-
-                                    loadUrl(SpotifyAuth.LOGIN_URL)
+                                } catch (t: Throwable) {
+                                    Timber.e(t, "System WebView failed to initialize")
+                                    com.music.spotui.util.AppDiagnostics.error("SpotifyLogin", "System WebView unavailable", t)
+                                    hasWebError = true
+                                    webErrorMessage = "System WebView is unavailable or disabled on this device (${t.localizedMessage ?: "initialization error"}). Please use Cookie Login."
+                                    isPageLoading = false
+                                    android.view.View(ctx)
                                 }
                             },
                         )
@@ -719,7 +728,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                             ) {
                                 TextButton(onClick = openInExternalBrowser) {
                                     Icon(
-                                        imageVector = Icons.Default.OpenInNew,
+                                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                                         contentDescription = null,
                                         tint = Color(SPOTIFY_GREEN),
                                         modifier = Modifier.size(16.dp),

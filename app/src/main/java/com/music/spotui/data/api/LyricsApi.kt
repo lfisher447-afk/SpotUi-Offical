@@ -105,7 +105,7 @@ object LyricsApi {
         //    shows, keyed by track id, so no title/artist matching can go wrong.
         // 2) LRCLIB fallback: exact get + fuzzy search fired CONCURRENTLY, then a
         //    title-only search. Serial fallbacks used to stack 3 × 5s timeouts.
-        val result = fromSpotify(key) ?: kotlinx.coroutines.coroutineScope {
+        val result = fromSpotify(key) ?: (kotlinx.coroutines.coroutineScope {
             val exact = async(kotlinx.coroutines.Dispatchers.IO) {
                 getExact(cleaned, primaryArtist, album, durationSec)
             }
@@ -115,7 +115,7 @@ object LyricsApi {
             exact.await()
                 ?: fuzzy.await()
                 ?: searchTitleOnly(cleaned, primaryArtist, durationSec)
-        }
+        } ?: fromYouTube(cleaned, primaryArtist))
         cache[key] = result ?: when (cache[key]) {
             is Lyrics -> return cache[key] as Lyrics
             else -> Miss()
@@ -147,6 +147,17 @@ object LyricsApi {
             },
         )
     }
+
+    private suspend fun fromYouTube(title: String, artist: String): Lyrics? = runCatching {
+        val query = "$title $artist"
+        val hits = com.metrolist.innertube.YouTube.search(query, com.metrolist.innertube.YouTube.SearchFilter.FILTER_SONG).getOrNull()
+        val songItem = hits?.items?.filterIsInstance<com.metrolist.innertube.models.SongItem>()?.firstOrNull() ?: return@runCatching null
+        val nextResult = com.metrolist.innertube.YouTube.next(com.metrolist.innertube.models.WatchEndpoint(videoId = songItem.id)).getOrNull()
+        val lyricsEndpoint = nextResult?.lyricsEndpoint ?: return@runCatching null
+        val rawLyrics = com.metrolist.innertube.YouTube.lyrics(lyricsEndpoint).getOrNull() ?: return@runCatching null
+        val lines = rawLyrics.split("\n").filter { it.isNotBlank() }.map { LyricLine(0L, it.trim()) }
+        if (lines.isNotEmpty()) Lyrics(lines = lines, synced = false) else null
+    }.getOrNull()
 
     private fun getExact(title: String, artist: String, album: String, durationSec: Int): Lyrics? {
         val url = buildString {

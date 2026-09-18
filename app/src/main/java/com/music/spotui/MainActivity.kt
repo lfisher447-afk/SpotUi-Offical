@@ -41,22 +41,12 @@ class MainActivity : ComponentActivity() {
         AppDiagnostics.info("MainActivity", "onCreate")
         runCatching { this.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) }
 
-        // Ask for notification permission (Android 13+) so the media notification shows.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            runCatching { notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
-                .onFailure { AppDiagnostics.warning("Permissions", "Notification permission request failed", it) }
-        }
-
         // Connect a controller to bootstrap the MediaSessionService: this brings up
         // the system media notification and keeps playback alive in the background.
         runCatching {
             val token = SessionToken(this, ComponentName(this, PlaybackService::class.java))
             controllerFuture = MediaController.Builder(this, token).buildAsync()
         }.onFailure { AppDiagnostics.warning("MediaController", "Session controller bootstrap failed", it) }
-
 
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
@@ -101,6 +91,18 @@ class MainActivity : ComponentActivity() {
         // Handle initial deep link intent if launched via Spotify link
         runCatching { com.music.spotui.util.DeepLinkHandler.handleIntent(intent) }
             .onFailure { AppDiagnostics.warning("DeepLink", "Initial deep-link handling failed", it) }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Ask for notification permission (Android 13+) so the media notification shows.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            runCatching { notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
+                .onFailure { AppDiagnostics.warning("Permissions", "Notification permission request failed", it) }
+        }
     }
 
     private fun handleYouTubeOAuthIntent(intent: Intent?) {

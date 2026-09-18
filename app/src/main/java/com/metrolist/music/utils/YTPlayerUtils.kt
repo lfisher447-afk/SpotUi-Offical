@@ -17,12 +17,14 @@ import com.metrolist.innertube.models.YouTubeClient.Companion.ANDROID_CREATOR
 import com.metrolist.innertube.models.YouTubeClient.Companion.ANDROID_NO_SDK
 import com.metrolist.innertube.models.YouTubeClient.Companion.ANDROID_VR_1_43_32
 import com.metrolist.innertube.models.YouTubeClient.Companion.ANDROID_VR_1_61_48
+import com.metrolist.innertube.models.YouTubeClient.Companion.ANDROID_VR_1_65_10
 import com.metrolist.innertube.models.YouTubeClient.Companion.ANDROID_VR_NO_AUTH
 import com.metrolist.innertube.models.YouTubeClient.Companion.IOS
 import com.metrolist.innertube.models.YouTubeClient.Companion.IPADOS
 import com.metrolist.innertube.models.YouTubeClient.Companion.MOBILE
 import com.metrolist.innertube.models.YouTubeClient.Companion.TVHTML5
 import com.metrolist.innertube.models.YouTubeClient.Companion.TVHTML5_SIMPLY_EMBEDDED_PLAYER
+import com.metrolist.innertube.models.YouTubeClient.Companion.VISIONOS
 import com.metrolist.innertube.models.YouTubeClient.Companion.WEB
 import com.metrolist.innertube.models.YouTubeClient.Companion.WEB_CREATOR
 import com.metrolist.innertube.models.YouTubeClient.Companion.WEB_REMIX
@@ -75,11 +77,13 @@ object YTPlayerUtils {
     val MAIN_CLIENT: YouTubeClient = WEB_REMIX
 
     val STREAM_FALLBACK_CLIENTS: Array<YouTubeClient> = arrayOf(
+        VISIONOS,
+        TVHTML5_SIMPLY_EMBEDDED_PLAYER,
+        ANDROID_VR_1_65_10,
         IOS,
         IPADOS,
         MOBILE,
         ANDROID_NO_SDK,
-        TVHTML5_SIMPLY_EMBEDDED_PLAYER,
         TVHTML5,
         ANDROID_VR_1_43_32,
         ANDROID_VR_1_61_48,
@@ -210,15 +214,28 @@ object YTPlayerUtils {
         )
         wasOriginallyAgeRestricted = isAgeRestrictedFromResponse
 
-        if (isAgeRestrictedFromResponse && isLoggedIn) {
-            // Age-restricted: use WEB_CREATOR directly (no NewPipe needed from here)
-            Timber.tag(logTag).d("Age-restricted detected, using WEB_CREATOR")
-            Timber.tag(TAG).i("Age-restricted: using WEB_CREATOR for videoId=$videoId")
-            val creatorResponse = YouTube.player(videoId, playlistId, WEB_CREATOR, null, null).getOrNull()
-            if (creatorResponse?.playabilityStatus?.status == "OK") {
-                Timber.tag(logTag).d("WEB_CREATOR works for age-restricted content")
-                mainPlayerResponse = creatorResponse
-                usedAgeRestrictedClient = WEB_CREATOR
+        if (isAgeRestrictedFromResponse) {
+            if (isLoggedIn) {
+                // Age-restricted: use WEB_CREATOR directly (no NewPipe needed from here)
+                Timber.tag(logTag).d("Age-restricted detected, using WEB_CREATOR")
+                Timber.tag(TAG).i("Age-restricted: using WEB_CREATOR for videoId=$videoId")
+                val creatorResponse = YouTube.player(videoId, playlistId, WEB_CREATOR, null, null).getOrNull()
+                if (creatorResponse?.playabilityStatus?.status == "OK") {
+                    Timber.tag(logTag).d("WEB_CREATOR works for age-restricted content")
+                    mainPlayerResponse = creatorResponse
+                    usedAgeRestrictedClient = WEB_CREATOR
+                }
+            } else {
+                // Age-restricted/explicit content without login: try VISIONOS and embedded bypass
+                Timber.tag(logTag).d("Age-restricted detected without login, attempting VISIONOS / embedded bypass")
+                Timber.tag(TAG).i("Age-restricted without login: trying VISIONOS / embedded bypass for videoId=$videoId")
+                val visionResponse = YouTube.player(videoId, playlistId, VISIONOS, null, null).getOrNull()
+                    ?: YouTube.player(videoId, playlistId, TVHTML5_SIMPLY_EMBEDDED_PLAYER, null, null).getOrNull()
+                if (visionResponse?.playabilityStatus?.status == "OK") {
+                    Timber.tag(logTag).d("VISIONOS / embedded bypass succeeded for age-restricted content")
+                    mainPlayerResponse = visionResponse
+                    usedAgeRestrictedClient = VISIONOS
+                }
             }
         }
 

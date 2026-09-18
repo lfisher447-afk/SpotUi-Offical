@@ -283,6 +283,42 @@ private const val KEY_GEMINI_API_KEY = "gemini_api_key"
 private const val KEY_GEMINI_FREE_MODE = "gemini_free_mode"
 private const val KEY_GEMINI_MODEL = "gemini_model_selection"
 
+private const val KEY_EXPLICIT_CONTENT_ALLOWED = "explicit_content_allowed"
+private const val KEY_PREFER_EXPLICIT_VERSIONS = "prefer_explicit_versions"
+private const val KEY_EXPLICIT_BADGE_VISIBLE = "explicit_badge_visible"
+private const val KEY_ONE_UI_HEADER_ENABLED = "one_ui_header_enabled"
+private const val KEY_ONE_UI_SQUIRCLE_ICONS = "one_ui_squircle_icons"
+
+fun isExplicitContentAllowed(c: Context): Boolean = prefs(c).getBoolean(KEY_EXPLICIT_CONTENT_ALLOWED, true)
+fun setExplicitContentAllowed(c: Context, allowed: Boolean) {
+    prefs(c).edit().putBoolean(KEY_EXPLICIT_CONTENT_ALLOWED, allowed).apply()
+    notifyUiSettingsChanged()
+}
+
+fun isPreferExplicitVersions(c: Context): Boolean = prefs(c).getBoolean(KEY_PREFER_EXPLICIT_VERSIONS, true)
+fun setPreferExplicitVersions(c: Context, prefer: Boolean) {
+    prefs(c).edit().putBoolean(KEY_PREFER_EXPLICIT_VERSIONS, prefer).apply()
+    notifyUiSettingsChanged()
+}
+
+fun isExplicitBadgeVisible(c: Context): Boolean = prefs(c).getBoolean(KEY_EXPLICIT_BADGE_VISIBLE, true)
+fun setExplicitBadgeVisible(c: Context, visible: Boolean) {
+    prefs(c).edit().putBoolean(KEY_EXPLICIT_BADGE_VISIBLE, visible).apply()
+    notifyUiSettingsChanged()
+}
+
+fun isOneUiHeaderEnabled(c: Context): Boolean = prefs(c).getBoolean(KEY_ONE_UI_HEADER_ENABLED, true)
+fun setOneUiHeaderEnabled(c: Context, enabled: Boolean) {
+    prefs(c).edit().putBoolean(KEY_ONE_UI_HEADER_ENABLED, enabled).apply()
+    notifyUiSettingsChanged()
+}
+
+fun isOneUiSquircleIcons(c: Context): Boolean = prefs(c).getBoolean(KEY_ONE_UI_SQUIRCLE_ICONS, true)
+fun setOneUiSquircleIcons(c: Context, enabled: Boolean) {
+    prefs(c).edit().putBoolean(KEY_ONE_UI_SQUIRCLE_ICONS, enabled).apply()
+    notifyUiSettingsChanged()
+}
+
 fun getGeminiApiKey(c: Context): String = prefs(c).getString(KEY_GEMINI_API_KEY, "").orEmpty()
 fun setGeminiApiKey(c: Context, key: String) = prefs(c).edit().putString(KEY_GEMINI_API_KEY, key.trim()).apply()
 
@@ -291,4 +327,5 @@ fun setGeminiFreeMode(c: Context, enabled: Boolean) = prefs(c).edit().putBoolean
 
 fun getGeminiModel(c: Context): String = prefs(c).getString(KEY_GEMINI_MODEL, "gemini-2.5-flash").orEmpty().ifBlank { "gemini-2.5-flash" }
 fun setGeminiModel(c: Context, model: String) = prefs(c).edit().putString(KEY_GEMINI_MODEL, model).apply()
+
 

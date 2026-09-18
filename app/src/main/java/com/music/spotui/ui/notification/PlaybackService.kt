@@ -178,132 +178,136 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onCreate() {
         super.onCreate()
-        SongPlayer.ensureCreated(this)
-        smartUnplugHandler = com.music.spotui.engine.SmartUnplugHandler(this).apply {
-            register()
-        }
-
-        // Order notification buttons: [repeat | prev | play/pause | next | close]
-        val notificationProvider = object : DefaultMediaNotificationProvider(this) {
-            init {
-                setSmallIcon(R.drawable.ic_spotui_notification)
+        try {
+            SongPlayer.ensureCreated(this)
+            smartUnplugHandler = com.music.spotui.engine.SmartUnplugHandler(this).apply {
+                register()
             }
 
-            override fun getMediaButtons(
-                session: MediaSession,
-                playerCommands: Player.Commands,
-                customLayout: ImmutableList<CommandButton>,
-                showPauseButton: Boolean
-            ): ImmutableList<CommandButton> {
-                val base =
-                    super.getMediaButtons(session, playerCommands, customLayout, showPauseButton)
-                android.util.Log.d(
-                    "PlaybackService",
-                    "getMediaButtons: playerCommands=$playerCommands"
-                )
-                android.util.Log.d(
-                    "PlaybackService",
-                    "getMediaButtons: baseButtons size=${base.size}"
-                )
-                for (b in base) {
+            // Order notification buttons: [repeat | prev | play/pause | next | close]
+            val notificationProvider = object : DefaultMediaNotificationProvider(this) {
+                init {
+                    setSmallIcon(R.drawable.ic_spotui_notification)
+                }
+
+                override fun getMediaButtons(
+                    session: MediaSession,
+                    playerCommands: Player.Commands,
+                    customLayout: ImmutableList<CommandButton>,
+                    showPauseButton: Boolean
+                ): ImmutableList<CommandButton> {
+                    val base =
+                        super.getMediaButtons(session, playerCommands, customLayout, showPauseButton)
                     android.util.Log.d(
                         "PlaybackService",
-                        "getMediaButtons: button displayName=${b.displayName}, customAction=${b.sessionCommand?.customAction}, playerCommand=${b.playerCommand}"
+                        "getMediaButtons: playerCommands=$playerCommands"
                     )
+                    android.util.Log.d(
+                        "PlaybackService",
+                        "getMediaButtons: baseButtons size=${base.size}"
+                    )
+                    for (b in base) {
+                        android.util.Log.d(
+                            "PlaybackService",
+                            "getMediaButtons: button displayName=${b.displayName}, customAction=${b.sessionCommand?.customAction}, playerCommand=${b.playerCommand}"
+                        )
+                    }
+                    val repeatBtn = base.find { it.sessionCommand?.customAction == "ACTION_REPEAT" }
+                    val closeBtn = base.find { it.sessionCommand?.customAction == "ACTION_CLOSE" }
+                    val transport = base.filter {
+                        it.sessionCommand?.customAction != "ACTION_REPEAT" &&
+                                it.sessionCommand?.customAction != "ACTION_CLOSE" &&
+                                it.sessionCommand?.customAction != "ACTION_NONE"
+                    }
+                    return ImmutableList.builder<CommandButton>()
+                        .apply { repeatBtn?.let { add(it) } }
+                        .addAll(transport)
+                        .apply { closeBtn?.let { add(it) } }
+                        .build()
                 }
-                val repeatBtn = base.find { it.sessionCommand?.customAction == "ACTION_REPEAT" }
-                val closeBtn = base.find { it.sessionCommand?.customAction == "ACTION_CLOSE" }
-                val transport = base.filter {
-                    it.sessionCommand?.customAction != "ACTION_REPEAT" &&
-                            it.sessionCommand?.customAction != "ACTION_CLOSE" &&
-                            it.sessionCommand?.customAction != "ACTION_NONE"
-                }
-                return ImmutableList.builder<CommandButton>()
-                    .apply { repeatBtn?.let { add(it) } }
-                    .addAll(transport)
-                    .apply { closeBtn?.let { add(it) } }
-                    .build()
             }
-        }
-        setMediaNotificationProvider(notificationProvider)
+            setMediaNotificationProvider(notificationProvider)
 
-        // Let the player advance the in-app queue itself during a crossfade.
-        SongPlayer.bindState(currentSongState)
-        val base = SongPlayer.exoPlayer ?: return
-        base.addListener(playerListener)
+            // Let the player advance the in-app queue itself during a crossfade.
+            SongPlayer.bindState(currentSongState)
+            val base = SongPlayer.exoPlayer ?: return
+            base.addListener(playerListener)
 
-        // Tapping the notification opens the app (back on the Now Playing screen).
-        val activityIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
-        }
-        val sessionActivity = PendingIntent.getActivity(
-            this, 0, activityIntent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
-        webPlayer = WebMediaPlayer(mainLooper, currentSongState) { forward -> advance(forward) }
-
-        mediaSession = MediaLibrarySession.Builder(this, wrap(base), LibraryCallback())
-            .setSessionActivity(sessionActivity)
-            .build()
-
-        // Sync current song metadata to the MediaSession when it changes
-        serviceScope.launch {
-            snapshotFlow { currentSongState.songId.value }
-                .distinctUntilChanged()
-                .collect { _ ->
-                    updateCurrentMetadata()
-                }
-        }
-
-        // When a crossfade promotes a new ExoPlayer instance, re-bind the session to it
-        // (runs on the main thread; setPlayer is the supported way to swap a session's player).
-        SongPlayer.onPlayerSwapped = { newPlayer ->
-            if (!showingWeb) mediaSession?.player = wrap(newPlayer)
-            newPlayer.addListener(playerListener)
-        }
-
-        // Keep the notification's repeat icon in sync whenever the repeat mode
-        // changes from ANY source (full-screen UI, notification button, etc.).
-        serviceScope.launch {
-            snapshotFlow { currentSongState.repeat.value }
-                .distinctUntilChanged()
-                .collect { mode ->
-                    mediaSession?.setCustomLayout(buildCustomLayout(mode))
-                }
-        }
-
-        // As the hidden web player streams, keep the notification in sync and swap
-        // the session between the web player (during web playback) and the ExoPlayer.
-        SpotifyWebPlayer.onStateChanged = {
-            syncSessionPlayer()
-            if (showingWeb) {
-                webPlayer?.refresh()
-                // Reflect the web player's real play/pause state into the in-app UI
-                // so the on-screen icon matches after the notification's pause.
-                currentSongState.updatePlayingState(SpotifyWebPlayer.isPlaying)
+            // Tapping the notification opens the app (back on the Now Playing screen).
+            val activityIntent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
             }
-        }
+            val sessionActivity = PendingIntent.getActivity(
+                this, 0, activityIntent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
 
-        // Register a receiver for legacy music control broadcasts used by
-        // automation apps (MacroDroid, Tasker, etc.).
-        val musicFilter = IntentFilter().apply {
-            addAction(Intent.ACTION_MEDIA_BUTTON)
-            addAction("com.android.music.musicservicecommand")
-            addAction("com.android.music.play")
-            addAction("com.android.music.pause")
-            addAction("com.android.music.next")
-            addAction("com.android.music.previous")
-            addAction("com.android.music.togglepause")
-            addAction("com.android.music.stop")
-        }
-        runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(mediaControlReceiver, musicFilter, Context.RECEIVER_EXPORTED)
-            } else {
-                registerReceiver(mediaControlReceiver, musicFilter)
+            webPlayer = WebMediaPlayer(mainLooper, currentSongState) { forward -> advance(forward) }
+
+            mediaSession = MediaLibrarySession.Builder(this, wrap(base), LibraryCallback())
+                .setSessionActivity(sessionActivity)
+                .build()
+
+            // Sync current song metadata to the MediaSession when it changes
+            serviceScope.launch {
+                snapshotFlow { currentSongState.songId.value }
+                    .distinctUntilChanged()
+                    .collect { _ ->
+                        updateCurrentMetadata()
+                    }
             }
-        }.onFailure { AppDiagnostics.warning("PlaybackService", "Media control receiver registration failed", it) }
+
+            // When a crossfade promotes a new ExoPlayer instance, re-bind the session to it
+            // (runs on the main thread; setPlayer is the supported way to swap a session's player).
+            SongPlayer.onPlayerSwapped = { newPlayer ->
+                if (!showingWeb) mediaSession?.player = wrap(newPlayer)
+                newPlayer.addListener(playerListener)
+            }
+
+            // Keep the notification's repeat icon in sync whenever the repeat mode
+            // changes from ANY source (full-screen UI, notification button, etc.).
+            serviceScope.launch {
+                snapshotFlow { currentSongState.repeat.value }
+                    .distinctUntilChanged()
+                    .collect { mode ->
+                        mediaSession?.setCustomLayout(buildCustomLayout(mode))
+                    }
+            }
+
+            // As the hidden web player streams, keep the notification in sync and swap
+            // the session between the web player (during web playback) and the ExoPlayer.
+            SpotifyWebPlayer.onStateChanged = {
+                syncSessionPlayer()
+                if (showingWeb) {
+                    webPlayer?.refresh()
+                    // Reflect the web player's real play/pause state into the in-app UI
+                    // so the on-screen icon matches after the notification's pause.
+                    currentSongState.updatePlayingState(SpotifyWebPlayer.isPlaying)
+                }
+            }
+
+            // Register a receiver for legacy music control broadcasts used by
+            // automation apps (MacroDroid, Tasker, etc.).
+            val musicFilter = IntentFilter().apply {
+                addAction(Intent.ACTION_MEDIA_BUTTON)
+                addAction("com.android.music.musicservicecommand")
+                addAction("com.android.music.play")
+                addAction("com.android.music.pause")
+                addAction("com.android.music.next")
+                addAction("com.android.music.previous")
+                addAction("com.android.music.togglepause")
+                addAction("com.android.music.stop")
+            }
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    registerReceiver(mediaControlReceiver, musicFilter, Context.RECEIVER_EXPORTED)
+                } else {
+                    registerReceiver(mediaControlReceiver, musicFilter)
+                }
+            }.onFailure { AppDiagnostics.warning("PlaybackService", "Media control receiver registration failed", it) }
+        } catch (t: Throwable) {
+            AppDiagnostics.error("PlaybackService", "PlaybackService initialization failed", t)
+        }
     }
 
     /**
