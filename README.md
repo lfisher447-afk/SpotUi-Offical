@@ -59,7 +59,7 @@
 
 
 
-
+<============================================================================================>
 # Spotui Android
 
 > **Current source release: v2.1.6 (version code 202610106).** A Kotlin and Jetpack Compose Android music-client project with a Media3 playback service, Material 3 interface controls, configurable audio processing, local download management, and resilient framed NovaAc archive workflows.
