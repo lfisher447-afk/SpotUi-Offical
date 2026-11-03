@@ -58,8 +58,8 @@
 
 
 
+<div align="center">
 
-<============================================================================================>
 # Spotui Android
 
 > **Current source release: v2.1.6 (version code 202610106).** A Kotlin and Jetpack Compose Android music-client project with a Media3 playback service, Material 3 interface controls, configurable audio processing, local download management, and resilient framed NovaAc archive workflows.
@@ -93,7 +93,7 @@
 - **Fixed WebView Render Process Crash**: Added `onRenderProcessGone` handler with informative error card and automatic suggestion to switch to Cookie Login.
 - **Fixed NovaAc Encryption Memory Spikes**: Replaced single-message AES-GCM cipher allocation with framed 64 KiB streams, eliminating 270+ MB heap allocation failures on large collections.
 - **Fixed Download Retry File Extensions**: Container extension recalculated dynamically on stream fallback (FLAC, Opus, WebM, M4A, MP3).
-
+</div>
 ---
 
 ## Repository scope
@@ -137,7 +137,7 @@ The included release setup is suitable for local sideload validation. Before dis
 ## Documentation navigation
 
 The sections below include architecture, implementation, configuration, operations, full-audio archive guidance, large-archive resilience reports, release notes, validation reports, and module notes. When a historical section cites an earlier release鈥攑articularly the legacy v2.0.0 baseline鈥攖he **current source identity above and the v2.1.5 reports take precedence**.
-
+<div align="center">
 
 ## Complete consolidated documentation
 
