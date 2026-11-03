@@ -4,7 +4,7 @@
 
 <!-- Dynamic Status Badges -->
 [![App Status](https://shields.io)](https://github.com)
-[![Build](https://shields.io)](https://github.com)
+[![Target Version](https://shields.io)](https://github.com)
 [![Development](https://shields.io)](https://github.com)
 
 ---
@@ -13,7 +13,9 @@
 
 > [!CAUTION]
 > ### `CRASH_ON_LAUNCH_ERROR`
-> **Don't panic!** The app is currently down due to a critical launch crash caused by an older build version. Active development has officially resumed to tear it down and rebuild it right.
+> **Don't worry—the app will be back and better than ever soon!** 
+> 
+> The application is temporarily down and not working due to a crash-on-launch error. Because this project uses an older build version, I am currently redesigning the application and resolving the core stability issues. I am also fixing a few minor feature bugs and adding the final touches for the upcoming **v2.1.7** release.
 
 ---
 
@@ -21,9 +23,9 @@
 
 | Phase | Task Description | Status |
 | :---: | :--- | :---: |
-| `01` | Debug & patch critical crash-on-launch error code | 💻 **ACTIVE** |
+| `01` | Resolve core stability and crash-on-launch error code | 💻 **ACTIVE** |
 | `02` | Upgrade legacy build versions & complete system redesign | 🔄 **IN PROGRESS** |
-| `03` | Polish unfinished features & apply final UI touches | ⏳ **PENDING** |
+| `03` | Fix minor feature bugs & apply final UI touches | ⏳ **PENDING** |
 
 </div>
 
@@ -31,14 +33,15 @@
 
 ```diff
 - 🔴 STABLE BUILD: DOWN
-+ 🟢 REFACTOR BRANCH: ACTIVE
++ 🟢 REFACTOR BRANCH (v2.1.7): ACTIVE
 ! ⚠️ BUG TRACKER: CRASH ON LAUNCH DETECTED
 ```
 
 ### 🎯 The Roadmap
 - [x] Identify legacy build bottlenecks
-- [/] Redesign application core and fix structural issues *(Current Focus)*
-- [ ] Finalize feature touches & push stable release
+- [/] Redesign application core and fix stability issues *(Current Focus)*
+- [ ] Patch remaining feature bugs & polish final touches
+- [ ] Push stable release `v2.1.7` 🚀
 
 ---
 
@@ -47,11 +50,12 @@
 ### ✨ *Redesigned. Rebuilt. Better than ever soon.* ✨
 
 ```html
-<!-- Terminal animation effect for visitors -->
-<kbd>Ctrl</kbd> + <kbd>C</kbd> to exit maintenance mode...
+<!-- Terminal status for visitors -->
+<kbd>v2.1.7</kbd> is currently compiling in the background...
 ```
 
 </div>
+
 
 
 
