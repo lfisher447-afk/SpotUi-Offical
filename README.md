@@ -23,8 +23,8 @@
 
 | Phase | Task Description | Status |
 | :---: | :--- | :---: |
-| `01` | Resolve core stability and crash-on-launch error code | 💻 **ACTIVE** |
-| `02` | Upgrade legacy build versions & complete system redesign | 🔄 **IN PROGRESS** |
+| `01` | Resolve core stability and crash-on-launch error code | 💻 **IN PROGRESS 💀** |
+| `02` | Upgrade legacy build versions & complete system redesign | 🔄 **PENDING⌛️** |
 | `03` | Fix minor feature bugs & apply final UI touches | ⏳ **PENDING** |
 
 </div>
@@ -33,8 +33,8 @@
 
 ```diff
 - 🔴 STABLE BUILD: DOWN
-+ 🟢 REFACTOR BRANCH (v2.1.7): ACTIVE
-! ⚠️ BUG TRACKER: CRASH ON LAUNCH DETECTED
++ 🟡 REFACTOR BRANCH (v2.1.7): in progress stay tune
+! ⚠️ BUG TRACKER: CRASH ON LAUNCH DETECTED AND MORE MAJOR ISSUES.
 ```
 
 ### 🎯 The Roadmap
