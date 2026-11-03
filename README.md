@@ -1,3 +1,60 @@
+<div align="center">
+
+# 🔴 UNDER CONSTRUCTION 🚧
+
+<!-- Dynamic Status Badges -->
+[![App Status](https://shields.io)](https://github.com)
+[![Build](https://shields.io)](https://github.com)
+[![Development](https://shields.io)](https://github.com)
+
+---
+
+### 🚨 System Alert: App is Temporarily Down 🚨
+
+> [!CAUTION]
+> ### `CRASH_ON_LAUNCH_ERROR`
+> **Don't panic!** The app is currently down due to a critical launch crash caused by an older build version. Active development has officially resumed to tear it down and rebuild it right.
+
+---
+
+### 🛠️ Core Engineering Tasks
+
+| Phase | Task Description | Status |
+| :---: | :--- | :---: |
+| `01` | Debug & patch critical crash-on-launch error code | 💻 **ACTIVE** |
+| `02` | Upgrade legacy build versions & complete system redesign | 🔄 **IN PROGRESS** |
+| `03` | Polish unfinished features & apply final UI touches | ⏳ **PENDING** |
+
+</div>
+
+### 📊 Current Pipeline Status
+
+```diff
+- 🔴 STABLE BUILD: DOWN
++ 🟢 REFACTOR BRANCH: ACTIVE
+! ⚠️ BUG TRACKER: CRASH ON LAUNCH DETECTED
+```
+
+### 🎯 The Roadmap
+- [x] Identify legacy build bottlenecks
+- [/] Redesign application core and fix structural issues *(Current Focus)*
+- [ ] Finalize feature touches & push stable release
+
+---
+
+<div align="center">
+
+### ✨ *Redesigned. Rebuilt. Better than ever soon.* ✨
+
+```html
+<!-- Terminal animation effect for visitors -->
+<kbd>Ctrl</kbd> + <kbd>C</kbd> to exit maintenance mode...
+```
+
+</div>
+
+
+
 # Spotui Android
 
 > **Current source release: v2.1.6 (version code 202610106).** A Kotlin and Jetpack Compose Android music-client project with a Media3 playback service, Material 3 interface controls, configurable audio processing, local download management, and resilient framed NovaAc archive workflows.
