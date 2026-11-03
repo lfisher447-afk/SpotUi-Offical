@@ -135,6 +135,26 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+                val queue = currentSongState.queue.value
+                val mediaId = mediaItem?.mediaId
+                if (queue.isNotEmpty() && !mediaId.isNullOrBlank()) {
+                    val cleanMediaId = mediaId.removePrefix("song/").trim()
+                    val nextIdx = queue.indexOfFirst { it.id.toString() == cleanMediaId || "song/${it.id}" == mediaId }
+                    if (nextIdx >= 0) {
+                        val nextSong = queue[nextIdx]
+                        currentSongState.updateSongState(
+                            nextSong.coverUri, nextSong.title, nextSong.singer, true,
+                            nextSong.id, nextIdx, nextSong.album
+                        )
+                        // Trigger background pre-resolution for the following track (N+2)
+                        SongPlayer.preResolveAndQueueNextTrack(applicationContext)
+                    }
+                }
+            }
+        }
+
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (isPlaying) {
                 currentSongState.queue.value.getOrNull(currentSongState.songIndex.value)?.url?.let { retryCountByQuery.remove(it) }

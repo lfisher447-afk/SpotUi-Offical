@@ -12,6 +12,9 @@ object CipherDeobfuscator {
     lateinit var appContext: Context
         private set
 
+    val isInitialized: Boolean
+        get() = ::appContext.isInitialized
+
     fun initialize(context: Context) {
         appContext = context.applicationContext
     }
@@ -106,6 +109,11 @@ object CipherDeobfuscator {
     }
 
     private suspend fun getOrCreateWebView(forceRefresh: Boolean): CipherWebView? {
+        if (!isInitialized) {
+            runCatching { initialize(com.music.spotui.MyApplication.instance) }
+        }
+        val ctx = if (isInitialized) appContext else com.music.spotui.MyApplication.instance
+
         if (!forceRefresh && cipherWebView != null) {
             return cipherWebView
         }
@@ -141,7 +149,7 @@ object CipherDeobfuscator {
 
         // Create WebView — n-function is exported to window if found, with brute-force fallback
         val webView = CipherWebView.create(
-            context = appContext,
+            context = ctx,
             playerJs = playerJs,
             sigInfo = sigInfo,
             nFuncInfo = nFuncInfo,

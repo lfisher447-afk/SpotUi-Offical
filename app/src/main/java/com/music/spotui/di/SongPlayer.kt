@@ -355,6 +355,7 @@ object SongPlayer {
                     updateResolveStatus(false)
                 }
                 startPositionWatch()
+                preResolveAndQueueNextTrack(appContext)
             } catch (e: Exception) {
                 Log.e(TAG, "playSong failed for query: $song", e)
                 boundState?.updateResolveError(e.message ?: "Playback failed")
@@ -396,6 +397,86 @@ object SongPlayer {
                 androidx.media3.common.MimeTypes.AUDIO_FLAC
             else -> null
         }
+    }
+
+    /**
+     * Gapless Playback: Background Queue Pre-Resolution & Native ExoPlayer Queueing.
+     * Resolves the stream URL for the next track in the queue in the background.
+     * In gapless mode (crossfade = 0), appends the pre-resolved track directly into
+     * ExoPlayer's media list so ExoPlayer seamlessly transitions with 0ms gap.
+     */
+    fun preResolveAndQueueNextTrack(context: Context) {
+        val appContext = context.applicationContext
+        if (webPlaybackActive()) return
+        val state = boundState ?: return
+        val q = state.queue.value
+        if (q.isEmpty()) return
+        val curId = state.songId.value
+        val curIdx = q.indexOfFirst { it.id == curId }
+            .let { if (it >= 0) it else state.songIndex.value }
+            .coerceIn(0, q.size - 1)
+
+        val nextIdx: Int = if (curIdx < q.size - 1) {
+            curIdx + 1
+        } else if (state.repeat.value == RepeatMode.ALL) {
+            0
+        } else {
+            return
+        }
+
+        val nextSong = q[nextIdx]
+        scope.launch {
+            try {
+                val nextUrl = resolveStreamUrl(nextSong.url, appContext) ?: return@launch
+                val sanitizedUrl = com.music.spotui.util.StreamSanitizer.sanitizeStreamUrl(nextUrl)
+                val crossfadeMs = com.music.spotui.data.preferences.getCrossfadeMs(appContext)
+
+                // In gapless mode (crossfade = 0), queue directly in ExoPlayer for 0ms transition
+                if (crossfadeMs <= 0) {
+                    withContext(Dispatchers.Main) {
+                        val p = player ?: return@withContext
+                        if (p.mediaItemCount <= 1) {
+                            val nextItem = buildMediaItemForTrack(
+                                streamUrl = sanitizedUrl,
+                                mimeType = streamMimeType(sanitizedUrl),
+                                title = nextSong.title,
+                                artist = nextSong.singer,
+                                coverUri = nextSong.coverUri,
+                                mediaId = "song/${nextSong.id}"
+                            )
+                            p.addMediaItem(nextItem)
+                            Log.d(TAG, "Gapless: Pre-resolved and queued next track in ExoPlayer (${nextSong.title})")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Gapless pre-resolution failed for next track: ${nextSong.title}", e)
+            }
+        }
+    }
+
+    private fun buildMediaItemForTrack(
+        streamUrl: String,
+        mimeType: String? = null,
+        title: String,
+        artist: String,
+        coverUri: String,
+        mediaId: String? = null
+    ): MediaItem {
+        val metadataBuilder = androidx.media3.common.MediaMetadata.Builder()
+            .setTitle(title)
+            .setArtist(artist)
+        val ctx = appCtx ?: com.music.spotui.MyApplication.instance
+        com.music.spotui.util.ArtworkHelper.attachArtwork(
+            metadataBuilder, ctx, coverUri, mediaId, streamUrl
+        )
+        val metadata = metadataBuilder.build()
+        return MediaItem.Builder()
+            .apply { mediaId?.let { setMediaId(it) } }
+            .setUri(streamUrl)
+            .apply { if (mimeType != null) setMimeType(mimeType) }
+            .setMediaMetadata(metadata)
+            .build()
     }
 
     /** Warm the cache for an upcoming track (e.g. the next/previous queue item). */

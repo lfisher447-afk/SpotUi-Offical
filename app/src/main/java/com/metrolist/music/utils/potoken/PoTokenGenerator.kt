@@ -20,7 +20,13 @@ import java.util.concurrent.atomic.AtomicInteger
  * Manages YouTube player and streaming PoToken generation through a hidden background WebView.
  */
 class PoTokenGenerator(
-    private val contextProvider: () -> Context = { CipherDeobfuscator.appContext }
+    private val contextProvider: () -> Context = {
+        if (CipherDeobfuscator.isInitialized) {
+            CipherDeobfuscator.appContext
+        } else {
+            com.music.spotui.MyApplication.instance
+        }
+    }
 ) {
     companion object {
         private const val TAG = "PoTokenGenerator"

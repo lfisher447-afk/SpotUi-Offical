@@ -82,6 +82,13 @@ class MyApplication : Application(), Configuration.Provider {
         runCatching { com.music.spotui.engine.TrashBinManager.initialize(this) }
             .onFailure { AppDiagnostics.warning("TrashBin", "Initialization failed", it) }
 
+        // Explicitly initialize WorkManager with Hilt worker factory safely
+        runCatching {
+            if (!androidx.work.WorkManager.isInitialized()) {
+                androidx.work.WorkManager.initialize(this, workManagerConfiguration)
+            }
+        }.onFailure { AppDiagnostics.warning("WorkManager", "Initialization failed", it) }
+
         // Locale + visitorData must be set or the player can't mint a PoToken,
         // and googlevideo rejects the stream URL with HTTP 403 (tracks stuck at 0:00).
         val locale = Locale.getDefault()

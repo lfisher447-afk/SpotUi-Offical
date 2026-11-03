@@ -3,6 +3,17 @@ plugins {
     kotlin("jvm")
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
+    }
+}
+
+tasks.withType<JavaCompile> {
+    sourceCompatibility = "21"
+    targetCompatibility = "21"
+}
+
 
 dependencies {
     implementation(libs.ktor.client.core)

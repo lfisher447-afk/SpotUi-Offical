@@ -53,7 +53,10 @@ fun SpotuiTheme(
     if (!view.isInEditMode) {
         SideEffect {
             PaletteBridge.apply(colorScheme.primary, colorScheme.background, colorScheme.surface)
-            (view.context as? Activity)?.window?.let { window ->
+            val activity = generateSequence(view.context) { (it as? android.content.ContextWrapper)?.baseContext }
+                .filterIsInstance<Activity>()
+                .firstOrNull()
+            activity?.window?.let { window ->
                 window.statusBarColor = Color.Transparent.toArgb()
                 window.navigationBarColor = Color.Transparent.toArgb()
                 WindowCompat.getInsetsController(window, view).apply {
