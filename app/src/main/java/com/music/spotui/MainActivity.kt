@@ -68,6 +68,9 @@ class MainActivity : ComponentActivity() {
 
                 // Default link handler prompt: helps user enable open.spotify.com defaults.
                 com.music.spotui.ui.components.DefaultAppPrompt()
+
+                // Surfaces the latest crash stack trace if the previous session crashed.
+                com.music.spotui.ui.components.CrashReportPrompt()
             }
         }
 

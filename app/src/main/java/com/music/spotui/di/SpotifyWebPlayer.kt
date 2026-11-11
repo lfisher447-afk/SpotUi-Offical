@@ -241,11 +241,13 @@ object SpotifyWebPlayer {
         val wv = webView ?: return
         val spDc = com.music.spotui.data.api.SpotifySession.spDc(context)
         if (spDc.isBlank()) return
-        CookieManager.getInstance().apply {
-            val attrs = "Domain=.spotify.com; Path=/; Secure"
-            setCookie("https://open.spotify.com", "sp_dc=$spDc; $attrs")
-            setCookie("https://spotify.com", "sp_dc=$spDc; $attrs")
-            flush()
+        runCatching {
+            CookieManager.getInstance().apply {
+                val attrs = "Domain=.spotify.com; Path=/; Secure"
+                setCookie("https://open.spotify.com", "sp_dc=$spDc; $attrs")
+                setCookie("https://spotify.com", "sp_dc=$spDc; $attrs")
+                flush()
+            }
         }
         commandReady = false
         activated = false

@@ -264,7 +264,8 @@ class PlaybackService : MediaLibraryService() {
                 snapshotFlow { currentSongState.songId.value }
                     .distinctUntilChanged()
                     .collect { _ ->
-                        updateCurrentMetadata()
+                        runCatching { updateCurrentMetadata() }
+                            .onFailure { AppDiagnostics.warning("PlaybackService", "Metadata sync failed", it) }
                     }
             }
 
@@ -281,7 +282,8 @@ class PlaybackService : MediaLibraryService() {
                 snapshotFlow { currentSongState.repeat.value }
                     .distinctUntilChanged()
                     .collect { mode ->
-                        mediaSession?.setCustomLayout(buildCustomLayout(mode))
+                        runCatching { mediaSession?.setCustomLayout(buildCustomLayout(mode)) }
+                            .onFailure { AppDiagnostics.warning("PlaybackService", "Custom layout sync failed", it) }
                     }
             }
 
@@ -328,17 +330,6 @@ class PlaybackService : MediaLibraryService() {
     private fun updateCurrentMetadata() {
         val song = currentSongState.queue.value.getOrNull(currentSongState.songIndex.value)
         if (song == null) {
-            // No song available; clear metadata
-            val emptyMetadata = MediaMetadata.Builder()
-                .setTitle("No track")
-                .setArtist("")
-                .setAlbumTitle("")
-                .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                .build()
-            val emptyMediaItem = MediaItem.Builder()
-                .setMediaMetadata(emptyMetadata)
-                .build()
-            SongPlayer.exoPlayer?.setMediaItem(emptyMediaItem)
             return
         }
 
@@ -356,13 +347,19 @@ class PlaybackService : MediaLibraryService() {
         )
 
         val metadata = metadataBuilder.build()
-        val mediaItem = MediaItem.Builder()
-            .setMediaId("song/${song.id}")
-            .setMediaMetadata(metadata)
-            .build()
-
-        // Update the player's media item to reflect current track
-        SongPlayer.exoPlayer?.setMediaItem(mediaItem)
+        val player = SongPlayer.exoPlayer ?: return
+        val currentItem = player.currentMediaItem
+        if (currentItem != null && currentItem.localConfiguration != null) {
+            val updatedItem = currentItem.buildUpon()
+                .setMediaId("song/${song.id}")
+                .setMediaMetadata(metadata)
+                .build()
+            runCatching {
+                player.replaceMediaItem(player.currentMediaItemIndex, updatedItem)
+            }.onFailure {
+                AppDiagnostics.warning("PlaybackService", "Failed to update MediaMetadata", it)
+            }
+        }
         android.util.Log.d(
             "PlaybackService",
             "Updated MediaMetadata: title='${song.title}', artist='${song.singer}', album='${song.album}'"
