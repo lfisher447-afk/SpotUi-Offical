@@ -72,7 +72,7 @@ private const val KEY_COMPACT_UI = "ui_compact_mode"
 private const val KEY_CORNER_RADIUS_DP = "ui_corner_radius_dp"
 private const val KEY_YT_MUSIC_WEB_ENABLED = "youtube_music_web_enabled"
 private const val KEY_PLAYER_VIDEO_PREVIEW = "player_video_preview_enabled"
-const val DEFAULT_UPDATE_REPO_URL = "https://github.com/H4zh4n/Spotui"
+const val DEFAULT_UPDATE_REPO_URL = "https://github.com/lfisher447-afk/SpotUi-Offical"
 
 /** Off (0s) … 12s. 0 disables crossfade. */
 const val CROSSFADE_MIN_MS = 0
@@ -194,8 +194,13 @@ fun setCrossfadeDjMode(c: Context, v: Boolean) = prefs(c).edit().putBoolean(KEY_
 fun isIgnoreBatteryOptimization(c: Context): Boolean = prefs(c).getBoolean(KEY_IGNORE_BATTERY_OPT, false)
 fun setIgnoreBatteryOptimization(c: Context, v: Boolean) = prefs(c).edit().putBoolean(KEY_IGNORE_BATTERY_OPT, v).apply()
 
-fun getUpdateRepoUrl(c: Context): String =
-    prefs(c).getString(KEY_UPDATE_REPO_URL, DEFAULT_UPDATE_REPO_URL).orEmpty().ifBlank { DEFAULT_UPDATE_REPO_URL }
+fun getUpdateRepoUrl(c: Context): String {
+    val saved = prefs(c).getString(KEY_UPDATE_REPO_URL, DEFAULT_UPDATE_REPO_URL).orEmpty().trim()
+    if (saved.isBlank() || saved.trimEnd('/').equals("https://github.com/H4zh4n/Spotui", ignoreCase = true)) {
+        return DEFAULT_UPDATE_REPO_URL
+    }
+    return saved
+}
 
 fun setUpdateRepoUrl(c: Context, url: String) =
     prefs(c).edit().putString(KEY_UPDATE_REPO_URL, url).apply()

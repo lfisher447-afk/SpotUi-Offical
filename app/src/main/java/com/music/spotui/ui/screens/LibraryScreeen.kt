@@ -385,7 +385,7 @@ fun LibraryScreen(navController: NavController) {
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.clickable {
-                        uriHandler.openUri("https://github.com/H4zh4n/Spotui/")
+                        uriHandler.openUri("https://github.com/lfisher447-afk/SpotUi-Offical")
                     }
                 )
             }

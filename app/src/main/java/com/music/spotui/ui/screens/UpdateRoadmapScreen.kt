@@ -41,7 +41,7 @@ private data class ReleaseEntry(
     val details: String,
 )
 
-private const val ROADMAP_INTEGRATION_DATE = "2026-08-17"
+private const val ROADMAP_INTEGRATION_DATE = "2026-11-11"
 
 private val releaseHistory = listOf(
     ReleaseEntry("1.5.1", "Timed lyrics foundation", "Added corrected LRC timestamp parsing and sorted millisecond lyric streams."),
@@ -86,6 +86,10 @@ private val releaseHistory = listOf(
     ReleaseEntry("1.9.5", "NovaAc full-audio archive", "Added direct playlist and liked-song archive export with audio coverage planning, passphrase portability, adaptive navigation, and expanded audio controls."),
     ReleaseEntry("1.9.9", "Reliability and library expansion", "Added sequential playlist downloads, fresh resolver fallback, five-band EQ, software spatial processing, optional YouTube Music companion, MrBean transport settings, and collapsible library groups."),
     ReleaseEntry("2.0.0", "Integrated media and expressive release", "Updated all Media3 modules to 1.11.0; added concrete MrBean Media3 transport, provider routing policy, NovaAc v5 integrity/container metadata, official Google OAuth YouTube playlist sync, accessibility audio controls, and Material 3 expressive Theme Studio with JSON and image-derived palettes."),
+    ReleaseEntry("2.1.0", "NovaAc v6 framed stream archive engine", "Added 64 KiB AEAD framed encryption, NovaAc archive exporter, and MrBean transport telemetry."),
+    ReleaseEntry("2.1.5", "NovaAc v8 & Expressive M3 Controls", "Added NovaAc v8 Header-Bound AEAD encryption, MrBean NovaAc Controller v8, LRCLIB millisecond lyric sync, and dynamic M3 corner scaling."),
+    ReleaseEntry("2.1.6", "Dual-mode Spotify login & Web player", "Added Chrome desktop user-agent WebView login, direct sp_dc cookie authentication with clipboard paste, external browser handoff, and guest mode."),
+    ReleaseEntry("2.1.7", "Stability, Media3 NPE Fix & Auto-Updater", "Resolved launch crash in PlaybackService metadata synchronization, hardened Spotify/InnerTube null-safety, added CrashReportPrompt, and updated auto-updater to official lfisher447-afk/SpotUi-Offical repository."),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -123,7 +127,7 @@ fun UpdateRoadmapScreen(navController: NavController) {
                 Text("Sequential release integration", color = AppPalette, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "Every release entry from 1.5.1 to 1.8.9 is recorded below. Entries were added to this in-app changelog on $ROADMAP_INTEGRATION_DATE.",
+                    "Every release entry from 1.5.1 to 2.1.7 is recorded below. Entries were updated on $ROADMAP_INTEGRATION_DATE.",
                     color = Color(0xFFCACAD2),
                     fontSize = 13.sp,
                     lineHeight = 18.sp,

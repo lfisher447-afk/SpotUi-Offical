@@ -72,4 +72,28 @@ class ServiceAndApiTest {
         SpotifySession.setSpDc(context, "")
         assertTrue(SpotifySession.spDc(context).isBlank())
     }
+
+    @Test
+    fun updateChecker_usesOfficialGithubRepoAndMigratesLegacyDefault() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        assertEquals(
+            "https://github.com/lfisher447-afk/SpotUi-Offical",
+            com.music.spotui.data.preferences.DEFAULT_UPDATE_REPO_URL
+        )
+        assertEquals(
+            com.music.spotui.data.preferences.DEFAULT_UPDATE_REPO_URL,
+            com.music.spotui.data.preferences.getUpdateRepoUrl(context)
+        )
+        com.music.spotui.data.preferences.setUpdateRepoUrl(context, "https://github.com/H4zh4n/Spotui")
+        assertEquals(
+            com.music.spotui.data.preferences.DEFAULT_UPDATE_REPO_URL,
+            com.music.spotui.data.preferences.getUpdateRepoUrl(context)
+        )
+        assertEquals(
+            "https://api.github.com/repos/lfisher447-afk/SpotUi-Offical/releases/latest",
+            com.music.spotui.data.update.UpdateChecker.buildLatestReleaseApiUrl(
+                "https://github.com/lfisher447-afk/SpotUi-Offical/"
+            )
+        )
+    }
 }

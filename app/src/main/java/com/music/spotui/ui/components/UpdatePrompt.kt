@@ -98,130 +98,22 @@ fun UpdatePrompt() {
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
             ) {
-                // Status Box: Needs Full Updates
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(
-                            androidx.compose.ui.graphics.Brush.horizontalGradient(
-                                colors = listOf(Color(0xFFE91E63), Color(0xFF9C27B0))
-                            )
-                        )
-                        .padding(12.dp)
-                ) {
-                    Column {
-                        Text(
-                            "STATUS: NEEDS FULL UPDATES",
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                        Text(
-                            "The client is partially updated. Full core background daemon sync is active for v1.4.5 but downstream milestones are pending.",
-                            color = Color.White.copy(alpha = 0.9f),
-                            fontSize = 11.sp,
-                            lineHeight = 15.sp
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
+                Text(
+                    text = "Installed: v${com.music.spotui.BuildConfig.VERSION_NAME}  →  Latest: v${info.version}",
+                    color = Color(0xFF1DB954),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(modifier = Modifier.height(10.dp))
                 if (info.releaseBody.isNotBlank()) {
                     RenderMarkdown(info.releaseBody)
-                    Spacer(modifier = Modifier.height(14.dp))
-                }
-
-                // Unified Multi-Engine Playback Topology (ASCII Diagram)
-                Text(
-                    "UNIFIED PLAYBACK TOPOLOGY (ELECTRON/WEB)",
-                    color = Color(0xFF618DFF),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color.Black, RoundedCornerShape(6.dp))
-                        .padding(8.dp)
-                ) {
+                } else {
                     Text(
-                        text = """
-[Frontend Core UI] -> Is Running on Android + AxManager?
-                            |
-                     +------+------+
-                     | YES         | NO
-                     v             v
-              [AxManager Pipe] [Decoupled Priority]
-                     |             |
-              [Native Intent]  [Lossless Matrix]
-                     \             /
-                      v           v
-                     [YouTube Music]
-                        """.trimIndent(),
-                        color = Color(0xFF00FF66),
-                        fontFamily = FontFamily.SansSerif,
-                        fontSize = 10.sp,
-                        lineHeight = 13.sp
+                        text = "A new release (v${info.version}) is available on GitHub.",
+                        color = Color(0xFFB3B3B3),
+                        fontSize = 13.sp,
                     )
                 }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Added Updates (v1.4.5)
-                Text(
-                    "UPDATES ADDED TO VERSION v1.4.5",
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    UpdateBullet("Lossless Download Expansion", "Universal multi-backend raw FLAC extraction from Amazon, Qobuz, Deezer, and SoundCloud.")
-                    UpdateBullet("Dynamic Order Tracking", "Configured download routines to strictly track custom provider priority queues.")
-                    UpdateBullet("Granular Provider Checkboxes", "Added boolean toggles in settings to fully disable individual backends.")
-                    UpdateBullet("YT-Music Fallback Shield", "Hardcoded YouTube Music as the permanent un-deletable safety fallback option.")
-                    UpdateBullet("Track Invalidation & Flush", "Invalidate single track cache overrides and perform global cache flushes.")
-                    UpdateBullet("Crossfade State Mutex", "Synchronized blended transitions to lock artwork, title metadata, and seek controls.")
-                    UpdateBullet("UI & Performance Polish", "Eradicated play/pause flickering, audited debug logs, and optimized prefetch pooling.")
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // To-Do list / Scroll up for Future updates
-                Text(
-                    "FUTURE TO-DO LIST (SCROLL UP TO REVEAL)",
-                    color = Color.LightGray,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-
-                FutureMilestoneTile("v1.4.6", "AxManager Module & Sandbox Bypass", listOf(
-                    "Compile standalone Execution Module.",
-                    "Integrate non-blocking Named Pipes.",
-                    "Establish direct JS-to-AxManager WebView bindings."
-                ))
-                Spacer(modifier = Modifier.height(6.dp))
-                FutureMilestoneTile("v1.4.7", "Automated Protection Evasion & Sync Engine", listOf(
-                    "Scraping anti-bot mitigations & cookie refresh.",
-                    "Piped/Invidious public API fallbacks.",
-                    "WebSocket multi-device playlist & sync pipeline."
-                ))
-                Spacer(modifier = Modifier.height(6.dp))
-                FutureMilestoneTile("v1.4.8", "The Visual Engine Upgrade", listOf(
-                    "Electron DOM-Scraping sandboxed WebView injectors.",
-                    "Live audio Waveform visualization.",
-                    "Deep metadata parsing & millisecond lyrics sync."
-                ))
-                Spacer(modifier = Modifier.height(6.dp))
-                FutureMilestoneTile("v1.5.0", "The Omnipresent Music Engine", listOf(
-                    "Decentralized peer-to-peer local WiFi caching.",
-                    "Private local AI recommendation vector core on-device."
-                ))
             }
         },
         confirmButton = {

@@ -2057,7 +2057,7 @@ fun SettingsScreen(navController: NavController) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Roadmap & Update Master Plan", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
-                    Text("View active v1.4.5 sprints, future milestone to-dos (v1.4.6–v1.5.0), and pipeline topology", color = Color(0xFFB3B3B3), fontSize = 12.sp)
+                    Text("View complete release history and version changelogs (v1.5.1 through v2.1.7)", color = Color(0xFFB3B3B3), fontSize = 12.sp)
                 }
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.OpenInNew,

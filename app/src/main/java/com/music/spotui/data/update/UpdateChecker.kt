@@ -45,39 +45,49 @@ object UpdateChecker {
             .edit().putString(KEY_SKIP, info.fingerprint).apply()
     }
 
+    internal fun buildLatestReleaseApiUrl(repoUrl: String): String {
+        val clean = repoUrl.trim().trimEnd('/').removeSuffix(".git")
+        val repoPath = clean
+            .removePrefix("https://github.com/")
+            .removePrefix("http://github.com/")
+            .trim('/')
+        return "https://api.github.com/repos/$repoPath/releases/latest"
+    }
+
     private fun fetchLatestRelease(context: Context): UpdateInfo? {
-        val repoUrl = getUpdateRepoUrl(context).trimEnd('/')
-        val repoPath = repoUrl.removePrefix("https://github.com/").removePrefix("http://github.com/")
-        val apiLatest = "https://api.github.com/repos/$repoPath/releases/latest"
+        val repoUrl = getUpdateRepoUrl(context).trim().trimEnd('/').removeSuffix(".git")
+        val apiLatest = buildLatestReleaseApiUrl(repoUrl)
         val releasesPage = "$repoUrl/releases/latest"
 
         val request = Request.Builder()
             .url(apiLatest)
             .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "SpotUI/${BuildConfig.VERSION_NAME}")
             .build()
-        val response = client.newCall(request).execute()
-        if (!response.isSuccessful) return null
-        val body = response.body?.string() ?: return null
-        val json = JSONObject(body)
-        val tag = json.optString("tag_name").trim()
-        if (tag.isBlank()) return null
-        val version = extractVersion(tag)
-            ?: return null
-        val releaseBody = json.optString("body", "")
-        val htmlUrl = json.optString("html_url", releasesPage)
-            .ifBlank { releasesPage }
-        val assets = json.optJSONArray("assets")
-        val apkUrl = (0 until (assets?.length() ?: 0))
-            .asSequence()
-            .mapNotNull { assets?.optJSONObject(it) }
-            .firstOrNull { it.optString("name").endsWith(".apk") }
-            ?.optString("browser_download_url")
-        return UpdateInfo(
-            version = version,
-            downloadUrl = apkUrl?.ifBlank { null } ?: htmlUrl,
-            fingerprint = "${json.optLong("id")}:${json.optString("updated_at")}:$version",
-            releaseBody = releaseBody,
-        )
+        return client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return@use null
+            val body = response.body?.string() ?: return@use null
+            val json = JSONObject(body)
+            val tag = json.optString("tag_name").trim()
+            if (tag.isBlank()) return@use null
+            val version = extractVersion(tag)
+                ?: return@use null
+            val releaseBody = json.optString("body", "")
+            val htmlUrl = json.optString("html_url", releasesPage)
+                .ifBlank { releasesPage }
+            val assets = json.optJSONArray("assets")
+            val apkUrl = (0 until (assets?.length() ?: 0))
+                .asSequence()
+                .mapNotNull { assets?.optJSONObject(it) }
+                .firstOrNull { it.optString("name").endsWith(".apk") }
+                ?.optString("browser_download_url")
+            UpdateInfo(
+                version = version,
+                downloadUrl = apkUrl?.ifBlank { null } ?: htmlUrl,
+                fingerprint = "${json.optLong("id")}:${json.optString("updated_at")}:$version",
+                releaseBody = releaseBody,
+            )
+        }
     }
 
     private fun extractVersion(text: String): String? =
