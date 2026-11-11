@@ -76,9 +76,12 @@ object LyricsApi {
         if (cached is Lyrics) return
         if (cached is Miss && System.currentTimeMillis() - cached.at < MISS_RETRY_MS) return
         // Disk cache is already warm — populate in-memory cache without network.
-        LyricsCachePref.get(MyApplication.instance, key)?.let { disk ->
-            cache[key] = disk
-            return
+        val appContext = MyApplication.instanceOrNull
+        if (appContext != null) {
+            LyricsCachePref.get(appContext, key)?.let { disk ->
+                cache[key] = disk
+                return
+            }
         }
         prefetchScope.launch { runCatching { fetch(title, artist, album, durationSec) } }
     }
@@ -92,10 +95,12 @@ object LyricsApi {
 
         // 2nd-level cache: disk (survives process death). No expiry — lyrics are
         // static content that never change for a given song.
-        val ctx = MyApplication.instance
-        LyricsCachePref.get(ctx, key)?.let { disk ->
-            cache[key] = disk
-            return disk
+        val ctx = MyApplication.instanceOrNull
+        if (ctx != null) {
+            LyricsCachePref.get(ctx, key)?.let { disk ->
+                cache[key] = disk
+                return disk
+            }
         }
 
         val primaryArtist = artist.substringBefore(",").trim()
@@ -122,7 +127,7 @@ object LyricsApi {
         }
         // Persist successful results to disk so the next launch (or an offline
         // downloaded track) can serve lyrics without a network round-trip.
-        if (result != null) {
+        if (result != null && ctx != null) {
             LyricsCachePref.put(ctx, key, result)
         }
         return result
@@ -132,7 +137,8 @@ object LyricsApi {
         val trackId = trackIds[key] ?: return null
         // The web token expires hourly — refresh before hitting color-lyrics.
         runCatching {
-            SpotifyTokenProvider.ensureToken(com.music.spotui.MyApplication.instance)
+            val app = com.music.spotui.MyApplication.instanceOrNull
+            if (app != null) SpotifyTokenProvider.ensureToken(app)
         }
         return com.metrolist.spotify.Spotify.lyrics(trackId).fold(
             onSuccess = { sp ->

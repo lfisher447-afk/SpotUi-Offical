@@ -215,7 +215,9 @@ object SpotifyWebPlayer {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT,
             )
-            activity.addContentView(wv, params)
+            if (wv.parent == null) {
+                activity.addContentView(wv, params)
+            }
             wv.post { wv.translationX = wv.width.toFloat() + 2000f }
             wv.loadUrl("https://open.spotify.com/")
             webView = wv

@@ -303,8 +303,8 @@ object NovaAcExportManager {
                 songId = song.id,
                 title = song.title,
                 available = available,
-                bytes = if (available) file!!.length() else 0L,
-                path = if (available) file!!.absolutePath else null,
+                bytes = if (available && file != null) file.length() else 0L,
+                path = if (available && file != null) file.absolutePath else null,
             )
         }
         val audioBytes = coverage.sumOf { it.bytes }
@@ -1174,8 +1174,9 @@ object NovaAcExportManager {
                         durationMs = duration,
                         artistIds = artistIds,
                     )
-                    if (restoredAudio != null) {
-                        com.music.spotui.data.preferences.addDownload(context, song, restoredAudio!!.absolutePath)
+                    val audioFile = restoredAudio
+                    if (audioFile != null) {
+                        com.music.spotui.data.preferences.addDownload(context, song, audioFile.absolutePath)
                         importedAudioCount++
                     }
                     restoredSongs.add(song)
@@ -1613,7 +1614,8 @@ object NovaAcExportManager {
         var included = 0
         var skipped = if (plan.mode == AudioPayloadMode.INCLUDE_AVAILABLE_LOCAL_AUDIO) plan.missingTrackCount else 0
         val reusablePayloadBuffer = ByteArray(payloadBufferBytes.coerceIn(64 * 1024, 512 * 1024))
-        publish(ExportStage.WRITING_METADATA, 0, "Preparing framed encrypted NovaAc stream", 0L, 0L, 0L, countingOutput.bytesWritten, included, skipped, "MrBean ${MrbeanNovaAcController.snapshot(com.music.spotui.MyApplication.instance).profile.label} profile · archive header written")
+        val profileLabel = com.music.spotui.MyApplication.instanceOrNull?.let { MrbeanNovaAcController.snapshot(it).profile.label } ?: "default"
+        publish(ExportStage.WRITING_METADATA, 0, "Preparing framed encrypted NovaAc stream", 0L, 0L, 0L, countingOutput.bytesWritten, included, skipped, "MrBean $profileLabel profile · archive header written")
         FramedCipherOutputStream(countingOutput, encryptionKey, baseNonce, headerBytes).use { frameOutput ->
             GZIPOutputStream(frameOutput).use { gzipOutput ->
                 DataOutputStream(gzipOutput).use { out ->

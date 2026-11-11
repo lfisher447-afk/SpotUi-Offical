@@ -68,22 +68,26 @@ fun MyNavHost(
     // and arm the player to resume from the saved position on the first play tap.
     LaunchedEffect(Unit) {
         kotlinx.coroutines.delay(150L)
-        if (playerViewModel.currentSongTitle.value.isBlank()) {
-            com.music.spotui.data.preferences.loadLastPlayback(context)?.let { (song, positionMs) ->
-                val savedQueue = com.music.spotui.data.preferences.loadLastQueue(context)
-                val queue = if (savedQueue.isNotEmpty()) savedQueue else listOf(song)
-                val idx = queue.indexOfFirst { it.id == song.id }.coerceAtLeast(0)
-                playerViewModel.updateQueue(queue)
-                playerViewModel.updateSongState(
-                    song.coverUri, song.title, song.singer, false, song.id, idx, song.album)
-                com.music.spotui.di.SongPlayer.setRestorePoint(song.url, positionMs)
-                // Auto-play on startup: resume playing immediately if enabled.
-                if (com.music.spotui.data.preferences.isAutoPlayEnabled(context)) {
+        runCatching {
+            if (playerViewModel.currentSongTitle.value.isBlank()) {
+                com.music.spotui.data.preferences.loadLastPlayback(context)?.let { (song, positionMs) ->
+                    val savedQueue = com.music.spotui.data.preferences.loadLastQueue(context)
+                    val queue = if (savedQueue.isNotEmpty()) savedQueue else listOf(song)
+                    val idx = queue.indexOfFirst { it.id == song.id }.coerceAtLeast(0)
+                    playerViewModel.updateQueue(queue)
                     playerViewModel.updateSongState(
-                        song.coverUri, song.title, song.singer, true, song.id, idx, song.album)
-                    com.music.spotui.di.SongPlayer.playSong(song.url, context)
+                        song.coverUri, song.title, song.singer, false, song.id, idx, song.album)
+                    com.music.spotui.di.SongPlayer.setRestorePoint(song.url, positionMs)
+                    // Auto-play on startup: resume playing immediately if enabled.
+                    if (com.music.spotui.data.preferences.isAutoPlayEnabled(context)) {
+                        playerViewModel.updateSongState(
+                            song.coverUri, song.title, song.singer, true, song.id, idx, song.album)
+                        com.music.spotui.di.SongPlayer.playSong(song.url, context)
+                    }
                 }
             }
+        }.onFailure { err ->
+            com.music.spotui.util.AppDiagnostics.warning("MyNavHost", "Last session restore failed", err)
         }
     }
 

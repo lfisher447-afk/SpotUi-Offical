@@ -282,7 +282,7 @@ fun AiMusicInsightsSheet(
                     }
 
                     currentInsight != null -> {
-                        val insight = currentInsight!!
+                        val insight = currentInsight ?: return@Column
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()

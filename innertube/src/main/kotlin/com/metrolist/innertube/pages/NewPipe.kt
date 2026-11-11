@@ -84,7 +84,7 @@ private class NewPipeDownloaderImpl(
         }
 
         val latestUrl = response.request.url.toString()
-        val responseBodyToReturn = normalizeResponseBody(latestUrl, response.body.string())
+        val responseBodyToReturn = normalizeResponseBody(latestUrl, response.body?.string().orEmpty())
         return Response(
             response.code,
             response.message,

@@ -472,23 +472,33 @@ private fun RenderMarkdown(markdown: String) {
                 )
             }
             HEADER_RE.matches(trimmed) -> {
-                val match = HEADER_RE.find(trimmed)!!
-                val level = match.groupValues[1].length
-                val (size, weight) = when (level) {
-                    1 -> 18.sp to FontWeight.ExtraBold
-                    2 -> 16.sp to FontWeight.Bold
-                    3 -> 15.sp to FontWeight.SemiBold
-                    4 -> 14.sp to FontWeight.SemiBold
-                    5 -> 13.sp to FontWeight.SemiBold
-                    else -> 13.sp to FontWeight.Bold
+                val match = HEADER_RE.find(trimmed)
+                if (match != null && match.groupValues.size >= 3) {
+                    val level = match.groupValues[1].length
+                    val (size, weight) = when (level) {
+                        1 -> 18.sp to FontWeight.ExtraBold
+                        2 -> 16.sp to FontWeight.Bold
+                        3 -> 15.sp to FontWeight.SemiBold
+                        4 -> 14.sp to FontWeight.SemiBold
+                        5 -> 13.sp to FontWeight.SemiBold
+                        else -> 13.sp to FontWeight.Bold
+                    }
+                    Text(
+                        text = match.groupValues[2],
+                        color = headingColor,
+                        fontSize = size,
+                        fontWeight = weight,
+                        modifier = Modifier.padding(top = if (i > 0) 10.dp else 0.dp),
+                    )
+                } else {
+                    MarkdownInline(
+                        text = trimmed,
+                        prefix = "",
+                        linkColor = linkColor,
+                        bodyColor = bodyColor,
+                        uriHandler = uriHandler,
+                    )
                 }
-                Text(
-                    text = match.groupValues[2],
-                    color = headingColor,
-                    fontSize = size,
-                    fontWeight = weight,
-                    modifier = Modifier.padding(top = if (i > 0) 10.dp else 0.dp),
-                )
             }
             trimmed.startsWith("- ") || trimmed.startsWith("* ") -> {
                 val item = trimmed.removePrefix("- ").removePrefix("* ")
@@ -501,14 +511,24 @@ private fun RenderMarkdown(markdown: String) {
                 )
             }
             Regex("""^\d+\.\s""").containsMatchIn(trimmed) -> {
-                val numMatch = Regex("""^(\d+\.\s)(.*)""").find(trimmed)!!
-                MarkdownInline(
-                    text = numMatch.groupValues[2],
-                    prefix = numMatch.groupValues[1],
-                    linkColor = linkColor,
-                    bodyColor = bodyColor,
-                    uriHandler = uriHandler,
-                )
+                val numMatch = Regex("""^(\d+\.\s)(.*)""").find(trimmed)
+                if (numMatch != null && numMatch.groupValues.size >= 3) {
+                    MarkdownInline(
+                        text = numMatch.groupValues[2],
+                        prefix = numMatch.groupValues[1],
+                        linkColor = linkColor,
+                        bodyColor = bodyColor,
+                        uriHandler = uriHandler,
+                    )
+                } else {
+                    MarkdownInline(
+                        text = trimmed,
+                        prefix = "",
+                        linkColor = linkColor,
+                        bodyColor = bodyColor,
+                        uriHandler = uriHandler,
+                    )
+                }
             }
             else -> {
                 MarkdownInline(

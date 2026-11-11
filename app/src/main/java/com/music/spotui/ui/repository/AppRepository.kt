@@ -2,7 +2,9 @@ package com.music.spotui.ui.repository
 
 import com.music.spotui.data.api.Api
 import javax.inject.Inject
+import javax.inject.Singleton
 
+@Singleton
 class AppRepository @Inject constructor(private val api : Api) {
 
     suspend fun provideAlbums() = api.getAlbums()

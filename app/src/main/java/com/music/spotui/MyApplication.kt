@@ -30,10 +30,14 @@ class MyApplication : Application(), Configuration.Provider {
         @JvmStatic
         lateinit var instance: MyApplication
             private set
+
+        val instanceOrNull: MyApplication?
+            get() = runCatching { if (::instance.isInitialized) instance else null }.getOrNull()
     }
 
     override fun attachBaseContext(base: Context?) {
         super.attachBaseContext(base)
+        instance = this
         // Install global UncaughtExceptionHandler as early as possible before any class loading or onCreate
         base?.let { CrashHandler.install(it) }
     }

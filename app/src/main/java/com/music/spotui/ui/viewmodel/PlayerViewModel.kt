@@ -108,6 +108,7 @@ class PlayerViewModel @Inject constructor(private val currentSongState: CurrentS
     // Resolve where we currently are in the queue. The stored index can be stale
     // (e.g. queue swapped out), so match by song id first and fall back to the index.
     private fun currentPositionIn(queueSongs: List<SongsModel>): Int {
+        if (queueSongs.isEmpty()) return 0
         val byId = queueSongs.indexOfFirst { it.id == currentSongId.value }
         if (byId >= 0) return byId
         return currentSongIndex.value.coerceIn(0, queueSongs.size - 1)

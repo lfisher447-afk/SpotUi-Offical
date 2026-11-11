@@ -40,7 +40,7 @@ object CrashHandler {
      * Can safely be invoked multiple times (e.g. in attachBaseContext and onCreate).
      */
     fun install(context: Context) {
-        appContext = context.applicationContext
+        appContext = context.applicationContext ?: context
 
         if (isInstalled.compareAndSet(false, true)) {
             defaultUncaughtExceptionHandler = Thread.getDefaultUncaughtExceptionHandler()
@@ -290,8 +290,10 @@ object CrashHandler {
 
     private fun getRootCause(throwable: Throwable): Throwable {
         var current = throwable
-        while (current.cause != null && current.cause !== current) {
-            current = current.cause!!
+        while (true) {
+            val next = current.cause
+            if (next == null || next === current) break
+            current = next
         }
         return current
     }

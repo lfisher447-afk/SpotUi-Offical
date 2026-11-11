@@ -62,7 +62,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -170,9 +170,11 @@ fun SpotifyLoginScreen(navController: NavController) {
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
     val navigateToHome: () -> Unit = {
-        SpotifyWebPlayer.refreshLogin(context)
-        navController.navigate(Routes.Home.route) {
-            popUpTo(Routes.Login.route) { inclusive = true }
+        runCatching { SpotifyWebPlayer.refreshLogin(context) }
+        runCatching {
+            navController.navigate(Routes.Home.route) {
+                popUpTo(Routes.Login.route) { inclusive = true }
+            }
         }
     }
 
@@ -214,8 +216,8 @@ fun SpotifyLoginScreen(navController: NavController) {
         while (true) {
             delay(1000)
             if (tokenFetchStarted.get()) continue
-            val spDc = extractCookie("sp_dc", webViewRef?.url)
-            val spKey = extractCookie("sp_key", webViewRef?.url) ?: ""
+            val spDc = runCatching { extractCookie("sp_dc", webViewRef?.url) }.getOrNull()
+            val spKey = runCatching { extractCookie("sp_key", webViewRef?.url) }.getOrNull() ?: ""
             if (!spDc.isNullOrBlank() && tokenFetchStarted.compareAndSet(false, true)) {
                 processLoginSession(
                     context = context,
@@ -509,14 +511,14 @@ fun SpotifyLoginScreen(navController: NavController) {
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Divider(modifier = Modifier.weight(1f), color = Color(0xFF333333))
+                        HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFF333333))
                         Text(
                             text = "  OR ALTERNATIVES  ",
                             color = Color(0xFF777777),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                         )
-                        Divider(modifier = Modifier.weight(1f), color = Color(0xFF333333))
+                        HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFF333333))
                     }
 
                     Spacer(Modifier.height(20.dp))
@@ -970,8 +972,13 @@ fun SpotifyLoginScreen(navController: NavController) {
                     ) {
                         TextButton(
                             onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                                val clip = clipboard?.primaryClip?.getItemAt(0)?.text?.toString().orEmpty()
+                                val clip = runCatching {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                    val primaryClip = clipboard?.primaryClip
+                                    if (primaryClip != null && primaryClip.itemCount > 0) {
+                                        primaryClip.getItemAt(0)?.text?.toString()
+                                    } else null
+                                }.getOrNull().orEmpty()
                                 if (clip.isNotBlank()) {
                                     cookieInputValue = cleanSpDcCookie(clip)
                                     cookieError = null
@@ -1151,8 +1158,13 @@ fun SpotifyLoginScreen(navController: NavController) {
                         ) {
                             TextButton(
                                 onClick = {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                                    val clip = clipboard?.primaryClip?.getItemAt(0)?.text?.toString().orEmpty()
+                                    val clip = runCatching {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                        val primaryClip = clipboard?.primaryClip
+                                        if (primaryClip != null && primaryClip.itemCount > 0) {
+                                            primaryClip.getItemAt(0)?.text?.toString()
+                                        } else null
+                                    }.getOrNull().orEmpty()
                                     if (clip.isNotBlank()) {
                                         dialogCookieInput = cleanSpDcCookie(clip)
                                         dialogCookieError = null

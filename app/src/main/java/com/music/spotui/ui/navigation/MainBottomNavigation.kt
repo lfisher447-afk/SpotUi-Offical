@@ -121,8 +121,8 @@ fun MainBottomNavigation(
                             Routes.Settings.route
                         )
                         var currentTab by rememberSaveable { mutableStateOf(Routes.Home.route) }
-                        if (currentRoute in rootRoutes) {
-                            currentTab = currentRoute!!
+                        if (currentRoute in rootRoutes && currentRoute != null) {
+                            currentTab = currentRoute
                         }
 
                         navItems.forEach { item ->

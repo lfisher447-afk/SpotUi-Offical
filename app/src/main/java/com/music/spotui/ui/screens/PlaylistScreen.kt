@@ -129,7 +129,7 @@ private fun formatPlaylistNovaAcTime(millis: Long): String {
 fun getPlaylistSortOption(context: Context, playlistId: String): PlaylistSortOption {
     val prefs = context.getSharedPreferences(PREF_PLAYLIST_SORTS, Context.MODE_PRIVATE)
     val saved = prefs.getString("sort_option_$playlistId", PlaylistSortOption.DATE.name)
-    return runCatching { PlaylistSortOption.valueOf(saved!!) }.getOrDefault(PlaylistSortOption.DATE)
+    return saved?.let { runCatching { PlaylistSortOption.valueOf(it) }.getOrNull() } ?: PlaylistSortOption.DATE
 }
 
 fun isPlaylistSortDescending(context: Context, playlistId: String): Boolean {

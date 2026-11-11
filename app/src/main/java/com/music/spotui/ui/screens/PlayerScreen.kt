@@ -1043,7 +1043,7 @@ fun PlayerInfo(
                             )
                             Text(
                                 text = when {
-                                    hasError -> resolveError!!
+                                    hasError -> resolveError ?: "Stream unavailable"
                                     isResolvingState -> resolveStatus
                                     else -> {
                                         source + (if (quality.isNotBlank()) " • $quality" else "")
@@ -2316,7 +2316,7 @@ fun YouTubeSearchView(
 
             viewModel.error != null -> {
                 Text(
-                    text = viewModel.error!!,
+                    text = viewModel.error.orEmpty(),
                     color = Color(0xFFE57373),
                     fontSize = 13.sp,
                     modifier = Modifier.padding(top = 8.dp),

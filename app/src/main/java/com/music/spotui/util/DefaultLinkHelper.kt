@@ -15,52 +15,44 @@ object DefaultLinkHelper {
     private const val PREF_NAME = "default_link_prefs"
     private const val KEY_DONT_SHOW_AGAIN = "dont_show_default_prompt"
 
-    fun isAppDefaultLinkHandler(context: Context): Boolean {
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val dvm = context.getSystemService(DomainVerificationManager::class.java)
-                if (dvm != null) {
-                    val userState = dvm.getDomainVerificationUserState(context.packageName)
-                    if (userState != null && userState.isLinkHandlingAllowed) {
-                        val hostStates = userState.hostToStateMap
-                        val approved = hostStates.any { (host, state) ->
-                            host.contains("spotify") && (
-                                state == DomainVerificationUserState.DOMAIN_STATE_VERIFIED ||
-                                state == DomainVerificationUserState.DOMAIN_STATE_SELECTED
-                            )
-                        }
-                        if (approved) return true
-                    }
+    fun isAppDefaultLinkHandler(context: Context): Boolean = runCatching {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val dvm = context.getSystemService(DomainVerificationManager::class.java) ?: return@runCatching false
+            val userState = runCatching { dvm.getDomainVerificationUserState(context.packageName) }.getOrNull()
+            if (userState != null && userState.isLinkHandlingAllowed) {
+                val hostStates = userState.hostToStateMap
+                val approved = hostStates.any { (host, state) ->
+                    host.contains("spotify") && (
+                        state == DomainVerificationUserState.DOMAIN_STATE_VERIFIED ||
+                        state == DomainVerificationUserState.DOMAIN_STATE_SELECTED
+                    )
                 }
-                false
-            } else {
-                val testIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://open.spotify.com/track/55T3HvQKuTr6N57mMoIgMc"))
-                val resolveInfo = context.packageManager.resolveActivity(testIntent, PackageManager.MATCH_DEFAULT_ONLY)
-                resolveInfo?.activityInfo?.packageName == context.packageName
+                if (approved) return@runCatching true
             }
-        } catch (e: Exception) {
             false
+        } else {
+            val testIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://open.spotify.com/track/55T3HvQKuTr6N57mMoIgMc"))
+            val resolveInfo = context.packageManager.resolveActivity(testIntent, PackageManager.MATCH_DEFAULT_ONLY)
+            resolveInfo?.activityInfo?.packageName == context.packageName
         }
-    }
+    }.getOrDefault(false)
 
-    fun isOfficialSpotifyInstalled(context: Context): Boolean {
-        return runCatching {
-            context.packageManager.getPackageInfo("com.spotify.music", 0)
-            true
-        }.getOrDefault(false)
-    }
+    fun isOfficialSpotifyInstalled(context: Context): Boolean = runCatching {
+        context.packageManager.getPackageInfo("com.spotify.music", 0)
+        true
+    }.getOrDefault(false)
 
-    fun getCurrentDefaultHandlerApp(context: Context): HandlerAppInfo? {
+    fun getCurrentDefaultHandlerApp(context: Context): HandlerAppInfo? = runCatching {
         val testIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://open.spotify.com/track/55T3HvQKuTr6N57mMoIgMc"))
-        val pm = context.packageManager
-        val resolveInfo = pm.resolveActivity(testIntent, PackageManager.MATCH_DEFAULT_ONLY) ?: return null
-        val activityInfo = resolveInfo.activityInfo ?: return null
-        val targetPackage = activityInfo.packageName
+        val pm = context.packageManager ?: return@runCatching null
+        val resolveInfo = pm.resolveActivity(testIntent, PackageManager.MATCH_DEFAULT_ONLY) ?: return@runCatching null
+        val activityInfo = resolveInfo.activityInfo ?: return@runCatching null
+        val targetPackage = activityInfo.packageName ?: return@runCatching null
 
-        if (targetPackage == context.packageName) return null
+        if (targetPackage == context.packageName) return@runCatching null
 
         if (targetPackage == "android" || targetPackage == "com.android.internal.app" || targetPackage.contains("resolver")) {
-            return null
+            return@runCatching null
         }
 
         val appLabel = runCatching {
@@ -68,8 +60,8 @@ object DefaultLinkHelper {
             pm.getApplicationLabel(appInfo).toString()
         }.getOrDefault(targetPackage)
 
-        return HandlerAppInfo(packageName = targetPackage, label = appLabel)
-    }
+        HandlerAppInfo(packageName = targetPackage, label = appLabel)
+    }.getOrNull()
 
     fun openAppDetailsSettings(context: Context, packageName: String) {
         runCatching {
@@ -119,11 +111,15 @@ object DefaultLinkHelper {
         }
     }
 
-    fun shouldShowPrompt(context: Context): Boolean {
+    fun shouldShowPrompt(context: Context): Boolean = runCatching {
+        if (com.music.spotui.data.api.SpotifySession.spDc(context).isBlank()) return@runCatching false
         val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        if (prefs.getBoolean(KEY_DONT_SHOW_AGAIN, false)) return false
-        return !isAppDefaultLinkHandler(context)
-    }
+        if (prefs.getBoolean(KEY_DONT_SHOW_AGAIN, false)) return@runCatching false
+        val launchCount = prefs.getInt("launch_count", 0) + 1
+        prefs.edit().putInt("launch_count", launchCount).apply()
+        if (launchCount < 3) return@runCatching false
+        !isAppDefaultLinkHandler(context)
+    }.getOrDefault(false)
 
     fun setDontShowAgain(context: Context) {
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)

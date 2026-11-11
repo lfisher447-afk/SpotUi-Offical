@@ -28,7 +28,7 @@ enum class DownloadSortOption(val label: String) {
 fun getDownloadsSortOption(context: Context): DownloadSortOption {
     val prefs = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
     val saved = prefs.getString(KEY_DL_SORT, DownloadSortOption.DATE.name)
-    return runCatching { DownloadSortOption.valueOf(saved!!) }.getOrDefault(DownloadSortOption.DATE)
+    return saved?.let { runCatching { DownloadSortOption.valueOf(it) }.getOrNull() } ?: DownloadSortOption.DATE
 }
 
 fun isDownloadsSortDescending(context: Context): Boolean {

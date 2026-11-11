@@ -13,8 +13,10 @@ class ContentFilterInterceptor : Interceptor {
         val request = chain.request()
         val response = chain.proceed(request)
         
-        if (response.isSuccessful && response.body != null && request.url.host.contains("spotify.com")) {
-            val bodyString = response.body!!.string()
+        val body = response.body
+        if (response.isSuccessful && body != null && request.url.host.contains("spotify.com")) {
+            val contentType = body.contentType()
+            val bodyString = runCatching { body.string() }.getOrNull() ?: return response
             try {
                 val json = JSONObject(bodyString)
                 // Filter logic
@@ -31,11 +33,11 @@ class ContentFilterInterceptor : Interceptor {
                     json.put("items", newItems)
                 }
                 
-                val newBody = okhttp3.ResponseBody.create(response.body!!.contentType(), json.toString())
+                val newBody = okhttp3.ResponseBody.create(contentType, json.toString())
                 return response.newBuilder().body(newBody).build()
             } catch (e: Exception) {
                 // If it's not JSON or parsing fails, just return original
-                val newBody = okhttp3.ResponseBody.create(response.body!!.contentType(), bodyString)
+                val newBody = okhttp3.ResponseBody.create(contentType, bodyString)
                 return response.newBuilder().body(newBody).build()
             }
         }

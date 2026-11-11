@@ -67,8 +67,16 @@ fun DefaultAppPrompt(
     var showDialog by remember(forceShow) {
         mutableStateOf(forceShow || DefaultLinkHelper.shouldShowPrompt(context))
     }
-    var currentHandlerApp by remember { mutableStateOf(DefaultLinkHelper.getCurrentDefaultHandlerApp(context)) }
-    val officialSpotifyInstalled = remember(context) { DefaultLinkHelper.isOfficialSpotifyInstalled(context) }
+    var currentHandlerApp by remember { mutableStateOf<HandlerAppInfo?>(null) }
+    val officialSpotifyInstalled = remember(context, showDialog) {
+        if (showDialog) DefaultLinkHelper.isOfficialSpotifyInstalled(context) else false
+    }
+
+    androidx.compose.runtime.LaunchedEffect(showDialog) {
+        if (showDialog && currentHandlerApp == null) {
+            currentHandlerApp = DefaultLinkHelper.getCurrentDefaultHandlerApp(context)
+        }
+    }
 
     fun dismiss() {
         showDialog = false

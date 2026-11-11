@@ -21,6 +21,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * Spotify-backed replacement for the original Firebase Firestore data source.
@@ -32,6 +33,7 @@ import javax.inject.Inject
  * carries a stable playback key with the Spotify id plus the title/artist search
  * text, rather than a direct stream URL.
  */
+@Singleton
 class Api @Inject constructor(
     @param:ApplicationContext private val context: Context,
 ) {
@@ -699,8 +701,9 @@ class Api @Inject constructor(
                 isLocal = true,
             )
         }
-        if (HomeCache.library != null) {
-            val nonLocal = HomeCache.library!!.filterNot { it.isLocal }
+        val currentCachedLib = HomeCache.library
+        if (currentCachedLib != null) {
+            val nonLocal = currentCachedLib.filterNot { it.isLocal }
             val likedAndDownloaded = nonLocal.filter { it.spotifyId == LIKED_SONGS_ID || it.spotifyId == DOWNLOADS_ID }
             val restNonLocal = nonLocal.filterNot { it.spotifyId == LIKED_SONGS_ID || it.spotifyId == DOWNLOADS_ID }
             val updatedLibrary = deduplicateLibraryEntries(likedAndDownloaded + localEntries + restNonLocal)
@@ -710,7 +713,8 @@ class Api @Inject constructor(
             emit(Response.Loading())
         }
         if (!SpotifyTokenProvider.ensureToken(context)) {
-            if (HomeCache.library == null) {
+            val existingLib = HomeCache.library
+            if (existingLib == null) {
                 val liked = com.music.spotui.data.entity.LibraryEntry(
                     spotifyId = LIKED_SONGS_ID,
                     name = "Liked Songs",
@@ -739,7 +743,7 @@ class Api @Inject constructor(
                 HomeCache.library = offlineLibrary
                 emit(Response.Success(offlineLibrary))
             } else {
-                emit(Response.Success(HomeCache.library!!))
+                emit(Response.Success(existingLib))
             }
             return@flow
         }

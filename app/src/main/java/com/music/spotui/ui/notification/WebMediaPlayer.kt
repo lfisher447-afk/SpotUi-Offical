@@ -35,13 +35,15 @@ class WebMediaPlayer(
         val metadataBuilder = MediaMetadata.Builder()
             .setTitle(title)
             .setArtist(artist)
-        com.music.spotui.util.ArtworkHelper.attachArtwork(
-            metadataBuilder,
-            com.music.spotui.MyApplication.instance,
-            cover,
-            id,
-            currentSongState.songUrl.value
-        )
+        com.music.spotui.MyApplication.instanceOrNull?.let { ctx ->
+            com.music.spotui.util.ArtworkHelper.attachArtwork(
+                metadataBuilder,
+                ctx,
+                cover,
+                id,
+                currentSongState.songUrl.value
+            )
+        }
         val metadata = metadataBuilder.build()
         val mediaItem = MediaItem.Builder()
             .setMediaId(id)

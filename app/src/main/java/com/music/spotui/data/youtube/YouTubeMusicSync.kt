@@ -211,7 +211,7 @@ object YouTubeMusicSync {
             val json = getJson(url, accessToken)
             val items = json.optJSONArray("items")
             for (index in 0 until (items?.length() ?: 0)) {
-                val item = items!!.getJSONObject(index)
+                val item = items?.optJSONObject(index) ?: continue
                 val snippet = item.optJSONObject("snippet") ?: continue
                 val id = item.optString("id")
                 if (id.isBlank()) continue
@@ -232,7 +232,7 @@ object YouTubeMusicSync {
             val json = getJson(url, accessToken)
             val items = json.optJSONArray("items")
             for (index in 0 until (items?.length() ?: 0)) {
-                val item = items!!.getJSONObject(index)
+                val item = items?.optJSONObject(index) ?: continue
                 val snippet = item.optJSONObject("snippet") ?: continue
                 val videoId = snippet.optJSONObject("resourceId")?.optString("videoId").orEmpty()
                 if (videoId.isBlank()) continue

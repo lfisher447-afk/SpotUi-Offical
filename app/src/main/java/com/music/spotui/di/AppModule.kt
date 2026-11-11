@@ -50,14 +50,21 @@ object AppModule {
     @Provides
     @Singleton
     fun provideWorkManager(@ApplicationContext context: Context): WorkManager {
-        return runCatching {
+        return try {
             WorkManager.getInstance(context)
-        }.getOrElse {
+        } catch (e: Throwable) {
             val app = context.applicationContext as? com.music.spotui.MyApplication
             if (app != null) {
                 runCatching { WorkManager.initialize(context, app.workManagerConfiguration) }
+            } else {
+                runCatching { WorkManager.initialize(context, androidx.work.Configuration.Builder().build()) }
             }
-            WorkManager.getInstance(context)
+            try {
+                WorkManager.getInstance(context)
+            } catch (t: Throwable) {
+                runCatching { WorkManager.initialize(context, androidx.work.Configuration.Builder().build()) }
+                WorkManager.getInstance(context)
+            }
         }
     }
 

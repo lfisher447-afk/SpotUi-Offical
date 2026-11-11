@@ -168,7 +168,7 @@ object SongPlayer {
 
     private fun refreshArtworkInBackground(songIdStr: String?, coverUrl: String) {
         if (coverUrl.isBlank() || coverUrl.startsWith("file:") || coverUrl.startsWith("content:")) return
-        val ctx = appCtx ?: com.music.spotui.MyApplication.instance
+        val ctx = appCtx ?: com.music.spotui.MyApplication.instanceOrNull ?: return
         val cleanId = songIdStr?.removePrefix("song/")?.removePrefix("playlist/")?.removePrefix("album/")?.trim()
         scope.launch(Dispatchers.IO) {
             val file = runCatching {
@@ -342,15 +342,16 @@ object SongPlayer {
                         return@withContext
                     }
                     ensurePlayer(appContext)
-                    player!!.setMediaItem(buildMediaItem(streamUrl, streamMimeType(streamUrl)))
-                    player!!.prepare()
-                    com.music.spotui.audio.AudioEffectController.attach(appContext, player!!.audioSessionId)
+                    val p = player ?: return@withContext
+                    p.setMediaItem(buildMediaItem(streamUrl, streamMimeType(streamUrl)))
+                    p.prepare()
+                    com.music.spotui.audio.AudioEffectController.attach(appContext, p.audioSessionId)
                     // Restored session: continue from where the last run stopped.
                     if (song == restoreQuery && restorePositionMs > 0) {
-                        player!!.seekTo(restorePositionMs)
+                        p.seekTo(restorePositionMs)
                     }
                     restoreQuery = null
-                    player!!.playWhenReady = playWhenResolved
+                    p.playWhenReady = playWhenResolved
                     loadedQuery = song
                     updateResolveStatus(false)
                 }
@@ -370,10 +371,12 @@ object SongPlayer {
         val metadataBuilder = androidx.media3.common.MediaMetadata.Builder()
             .setTitle(metaTitle)
             .setArtist(metaArtist)
-        val ctx = appCtx ?: com.music.spotui.MyApplication.instance
-        com.music.spotui.util.ArtworkHelper.attachArtwork(
-            metadataBuilder, ctx, metaCover, currentMediaId, streamUrl
-        )
+        val ctx = appCtx ?: com.music.spotui.MyApplication.instanceOrNull
+        if (ctx != null) {
+            com.music.spotui.util.ArtworkHelper.attachArtwork(
+                metadataBuilder, ctx, metaCover, currentMediaId, streamUrl
+            )
+        }
         val metadata = metadataBuilder.build()
         return MediaItem.Builder()
             .apply { currentMediaId?.let { setMediaId(it) } }
@@ -466,10 +469,12 @@ object SongPlayer {
         val metadataBuilder = androidx.media3.common.MediaMetadata.Builder()
             .setTitle(title)
             .setArtist(artist)
-        val ctx = appCtx ?: com.music.spotui.MyApplication.instance
-        com.music.spotui.util.ArtworkHelper.attachArtwork(
-            metadataBuilder, ctx, coverUri, mediaId, streamUrl
-        )
+        val ctx = appCtx ?: com.music.spotui.MyApplication.instanceOrNull
+        if (ctx != null) {
+            com.music.spotui.util.ArtworkHelper.attachArtwork(
+                metadataBuilder, ctx, coverUri, mediaId, streamUrl
+            )
+        }
         val metadata = metadataBuilder.build()
         return MediaItem.Builder()
             .apply { mediaId?.let { setMediaId(it) } }
@@ -810,7 +815,7 @@ object SongPlayer {
             }
         }
 
-        val playback = ytDeferred!!.await()
+        val playback = ytDeferred?.await()
         if (playback == null) {
             if (forPlayback) {
                 val cacheKey = "$song|${com.metrolist.innertube.YouTube.SearchFilter.FILTER_SONG.value}"
@@ -887,10 +892,10 @@ object SongPlayer {
     // googlevideo stream URLs 403 without a browser User-Agent and need redirects
     // followed (http↔https) — ExoPlayer does both, so a raw URLConnection must too.
     private fun openDownloadConn(url: String): java.net.HttpURLConnection {
-        val context = appCtx ?: com.music.spotui.MyApplication.instance
-        val tuning = MrbeanNetworkSettings.snapshot(context)
-        val connectMs = if (tuning.enabled) tuning.connectTimeoutMs else 15_000
-        val readMs = if (tuning.enabled) tuning.readTimeoutMs else 30_000
+        val context = appCtx ?: com.music.spotui.MyApplication.instanceOrNull
+        val tuning = context?.let { MrbeanNetworkSettings.snapshot(it) }
+        val connectMs = if (tuning != null && tuning.enabled) tuning.connectTimeoutMs else 15_000
+        val readMs = if (tuning != null && tuning.enabled) tuning.readTimeoutMs else 30_000
         return (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
             connectTimeout = connectMs
             readTimeout = readMs
@@ -920,10 +925,10 @@ object SongPlayer {
      * file was written. Falls back gracefully if the server ignores Range (HTTP 200).
      */
     private fun httpDownloadRanged(url: String, tmpFile: java.io.File, query: String): Boolean {
-        val context = appCtx ?: com.music.spotui.MyApplication.instance
-        val tuning = MrbeanNetworkSettings.snapshot(context)
-        val chunkMiB = if (tuning.enabled) tuning.chunkMiB else 8
-        val maxRetries = if (tuning.enabled) tuning.rangeRetries else 3
+        val context = appCtx ?: com.music.spotui.MyApplication.instanceOrNull
+        val tuning = context?.let { MrbeanNetworkSettings.snapshot(it) }
+        val chunkMiB = if (tuning != null && tuning.enabled) tuning.chunkMiB else 8
+        val maxRetries = if (tuning != null && tuning.enabled) tuning.rangeRetries else 3
         val chunk = chunkMiB.toLong() * 1024 * 1024
         var total = -1L
         var position = 0L

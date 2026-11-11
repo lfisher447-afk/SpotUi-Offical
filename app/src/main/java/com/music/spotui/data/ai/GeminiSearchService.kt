@@ -80,7 +80,7 @@ object GeminiSearchService {
         prompt: String,
         systemInstruction: String = "You are SpotUI's music assistant. Provide accurate, concise, and up-to-date musical facts, backstories, tour dates, and release details grounded in Google Search."
     ): Result<GroundedInsight> = withContext(Dispatchers.IO) {
-        val context = runCatching { MyApplication.instance }.getOrNull()
+        val context = MyApplication.instanceOrNull
         val userApiKey = context?.let { getGeminiApiKey(it) }.orEmpty()
         val envApiKey = BuildConfig.GEMINI_API_KEY
         val effectiveApiKey = userApiKey.ifBlank { envApiKey }

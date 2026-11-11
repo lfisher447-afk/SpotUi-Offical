@@ -115,5 +115,5 @@ fun saveRepeatMode(context: Context, mode: RepeatMode) {
 fun loadRepeatMode(context: Context): RepeatMode {
     val raw = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
         .getString(KEY_REPEAT_MODE, null)
-    return runCatching { RepeatMode.valueOf(raw!!) }.getOrNull() ?: RepeatMode.OFF
+    return raw?.let { runCatching { RepeatMode.valueOf(it) }.getOrNull() } ?: RepeatMode.OFF
 }

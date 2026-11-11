@@ -1332,10 +1332,10 @@ fun SettingsScreen(navController: NavController) {
                     }
                 }
             }
-            if (novaAcImportStatus != null) {
+            novaAcImportStatus?.let { status ->
                 Text(
-                    novaAcImportStatus!!,
-                    color = if (novaAcImportStatus!!.startsWith("Compatible")) Color(0xFF81C784) else Color(0xFFFFB74D),
+                    status,
+                    color = if (status.startsWith("Compatible")) Color(0xFF81C784) else Color(0xFFFFB74D),
                     fontSize = 12.sp,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                 )

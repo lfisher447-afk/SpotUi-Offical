@@ -35,7 +35,7 @@ object AudioMatchService {
 
         // 2. Second attempt: resolve stream via SongPlayer's candidate resolver and YouTube/InnerTube
         val query = "$title $artist".trim()
-        val appContext = runCatching { MyApplication.instance }.getOrNull()
+        val appContext = MyApplication.instanceOrNull
         if (appContext != null && query.isNotBlank()) {
             val resolved = runCatching {
                 SongPlayer.resolveStreamUrl(query, appContext, forPlayback = false)

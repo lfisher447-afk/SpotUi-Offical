@@ -20,11 +20,12 @@ import java.util.concurrent.atomic.AtomicInteger
  * Manages YouTube player and streaming PoToken generation through a hidden background WebView.
  */
 class PoTokenGenerator(
-    private val contextProvider: () -> Context = {
+    private val contextProvider: () -> Context? = {
         if (CipherDeobfuscator.isInitialized) {
             CipherDeobfuscator.appContext
         } else {
-            com.music.spotui.MyApplication.instance
+            com.music.spotui.MyApplication.instanceOrNull
+                ?: if (CipherDeobfuscator.isInitialized) CipherDeobfuscator.appContext else null
         }
     }
 ) {
@@ -141,8 +142,9 @@ class PoTokenGenerator(
 
                 // WebView creation MUST occur on the Main Thread
                 val newGenerator = withContext(Dispatchers.Main.immediate) {
-                    PoTokenWebView.getNewPoTokenGenerator(contextProvider())
-                }
+                    val ctx = contextProvider() ?: return@withContext null
+                    PoTokenWebView.getNewPoTokenGenerator(ctx)
+                } ?: throw PoTokenException("Context or PoToken WebView unavailable")
                 webPoTokenGenerator = newGenerator
 
                 // Streaming token must be generated FIRST before any individual video token
@@ -154,9 +156,11 @@ class PoTokenGenerator(
                 Timber.tag(TAG).d("Streaming PoToken initialized successfully.")
             }
 
+            val currentGen = webPoTokenGenerator ?: throw PoTokenException("PoToken web generator unavailable")
+            val currentStreaming = webPoTokenStreamingPot.orEmpty()
             Triple(
-                webPoTokenGenerator!!,
-                webPoTokenStreamingPot!!,
+                currentGen,
+                currentStreaming,
                 shouldRecreate
             )
         }
@@ -179,7 +183,9 @@ class PoTokenGenerator(
 
         // Reset failure counter on success
         consecutiveFailures.set(0)
-        Timber.tag(TAG).d("PoTokens generated successfully: player=${playerPot.take(10)}..., streaming=${streamingPot.take(10)}...")
+        val pStr = playerPot.orEmpty()
+        val sStr = streamingPot.orEmpty()
+        Timber.tag(TAG).d("PoTokens generated successfully: player=${if (pStr.length > 10) pStr.substring(0, 10) else pStr}..., streaming=${if (sStr.length > 10) sStr.substring(0, 10) else sStr}...")
 
         return PoTokenResult(
             playerRequestPoToken = playerPot,

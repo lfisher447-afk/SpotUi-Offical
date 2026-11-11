@@ -216,34 +216,25 @@ class PlaybackService : MediaLibraryService() {
                     customLayout: ImmutableList<CommandButton>,
                     showPauseButton: Boolean
                 ): ImmutableList<CommandButton> {
-                    val base =
-                        super.getMediaButtons(session, playerCommands, customLayout, showPauseButton)
-                    android.util.Log.d(
-                        "PlaybackService",
-                        "getMediaButtons: playerCommands=$playerCommands"
-                    )
-                    android.util.Log.d(
-                        "PlaybackService",
-                        "getMediaButtons: baseButtons size=${base.size}"
-                    )
-                    for (b in base) {
-                        android.util.Log.d(
-                            "PlaybackService",
-                            "getMediaButtons: button displayName=${b.displayName}, customAction=${b.sessionCommand?.customAction}, playerCommand=${b.playerCommand}"
-                        )
+                    return runCatching {
+                        val base =
+                            super.getMediaButtons(session, playerCommands, customLayout, showPauseButton)
+                        val repeatBtn = base.find { it.sessionCommand?.customAction == "ACTION_REPEAT" }
+                        val closeBtn = base.find { it.sessionCommand?.customAction == "ACTION_CLOSE" }
+                        val transport = base.filterNotNull().filter {
+                            it.sessionCommand?.customAction != "ACTION_REPEAT" &&
+                                    it.sessionCommand?.customAction != "ACTION_CLOSE" &&
+                                    it.sessionCommand?.customAction != "ACTION_NONE"
+                        }
+                        val builder = ImmutableList.builder<CommandButton>()
+                        repeatBtn?.let { builder.add(it) }
+                        builder.addAll(transport)
+                        closeBtn?.let { builder.add(it) }
+                        builder.build()
+                    }.getOrElse {
+                        runCatching { super.getMediaButtons(session, playerCommands, customLayout, showPauseButton) }
+                            .getOrDefault(ImmutableList.of())
                     }
-                    val repeatBtn = base.find { it.sessionCommand?.customAction == "ACTION_REPEAT" }
-                    val closeBtn = base.find { it.sessionCommand?.customAction == "ACTION_CLOSE" }
-                    val transport = base.filter {
-                        it.sessionCommand?.customAction != "ACTION_REPEAT" &&
-                                it.sessionCommand?.customAction != "ACTION_CLOSE" &&
-                                it.sessionCommand?.customAction != "ACTION_NONE"
-                    }
-                    return ImmutableList.builder<CommandButton>()
-                        .apply { repeatBtn?.let { add(it) } }
-                        .addAll(transport)
-                        .apply { closeBtn?.let { add(it) } }
-                        .build()
                 }
             }
             setMediaNotificationProvider(notificationProvider)
@@ -906,21 +897,21 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
-        smartUnplugHandler?.unregister()
+        runCatching { smartUnplugHandler?.unregister() }
         smartUnplugHandler = null
-        serviceScope.cancel()
+        runCatching { serviceScope.cancel() }
         runCatching { unregisterReceiver(mediaControlReceiver) }
-        SongPlayer.exoPlayer?.removeListener(playerListener)
+        runCatching { SongPlayer.exoPlayer?.removeListener(playerListener) }
         SongPlayer.onPlayerSwapped = null
         SpotifyWebPlayer.onStateChanged = null
-        webPlayer?.release()
+        runCatching { webPlayer?.release() }
         webPlayer = null
         // The player belongs to this MediaLibraryService, not the UI activity. Release it only
         // when the service is genuinely being destroyed, after notification/session teardown.
-        SongPlayer.release()
-        SpotifyWebPlayer.release()
+        runCatching { SongPlayer.release() }
+        runCatching { SpotifyWebPlayer.release() }
         searchCache.clear()
-        mediaSession?.release()
+        runCatching { mediaSession?.release() }
         mediaSession = null
         super.onDestroy()
     }

@@ -379,11 +379,12 @@ object AudioEffectController {
         val appliedLevels: ShortArray = ShortArray(numBands.toInt()) { Short.MIN_VALUE }
 
         init {
-            val range = eq.bandLevelRange
-            minLevel = range[0]
-            maxLevel = range[1]
-            centerFreqsHz = IntArray(numBands.toInt()) { band ->
-                (eq.getCenterFreq(band.toShort()) / 1_000).coerceAtLeast(1)
+            val range = runCatching { eq.bandLevelRange }.getOrNull()
+            minLevel = range?.getOrNull(0) ?: (-1500).toShort()
+            maxLevel = range?.getOrNull(1) ?: 1500.toShort()
+            val bandsCount = numBands.toInt().coerceAtLeast(0)
+            centerFreqsHz = IntArray(bandsCount) { band ->
+                runCatching { (eq.getCenterFreq(band.toShort()) / 1_000).coerceAtLeast(1) }.getOrDefault(1000)
             }
         }
     }

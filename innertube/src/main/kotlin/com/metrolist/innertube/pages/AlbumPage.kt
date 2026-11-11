@@ -117,16 +117,17 @@ data class AlbumPage(
                 album = album?.let {
                     Album(it.title, it.browseId)
                 } ?: renderer.flexColumns.getOrNull(2)?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.firstOrNull()?.let {
+                    val browseId = it.navigationEndpoint?.browseEndpoint?.browseId ?: return@let null
                     Album(
                         name = it.text,
-                        id = it.navigationEndpoint?.browseEndpoint?.browseId!!
+                        id = browseId
                     )
-                }!!,
+                } ?: return null,
                 duration = renderer.fixedColumns?.firstOrNull()
                     ?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.firstOrNull()
                     ?.text?.parseTime() ?: return null,
                 musicVideoType = renderer.musicVideoType,
-                thumbnail = renderer.thumbnail?.getThumbnailUrl() ?: album?.thumbnail!!,
+                thumbnail = renderer.thumbnail?.getThumbnailUrl() ?: album?.thumbnail ?: return null,
                 explicit = renderer.badges?.find {
                     it.musicInlineBadgeRenderer?.icon?.iconType == "MUSIC_EXPLICIT_BADGE"
                 } != null,

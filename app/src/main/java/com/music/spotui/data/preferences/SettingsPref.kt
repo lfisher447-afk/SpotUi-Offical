@@ -88,8 +88,10 @@ private fun notifyUiSettingsChanged() { uiSettingsRevision.value += 1 }
 /** Allows appearance/accessibility modules to request an app-wide settings recomposition. */
 fun signalUiSettingsChanged() { notifyUiSettingsChanged() }
 
-private fun readQ(c: Context, key: String, def: StreamQuality): StreamQuality =
-    runCatching { StreamQuality.valueOf(prefs(c).getString(key, def.name)!!) }.getOrDefault(def)
+private fun readQ(c: Context, key: String, def: StreamQuality): StreamQuality {
+    val raw = prefs(c).getString(key, def.name)
+    return raw?.let { runCatching { StreamQuality.valueOf(it) }.getOrNull() } ?: def
+}
 
 private fun writeQ(c: Context, key: String, q: StreamQuality) =
     prefs(c).edit().putString(key, q.name).apply()
@@ -103,23 +105,26 @@ fun setCellularQuality(c: Context, q: StreamQuality) = writeQ(c, KEY_CELL_Q, q)
 fun getDownloadQuality(c: Context): StreamQuality = readQ(c, KEY_DL_Q, StreamQuality.LOSSLESS)
 fun setDownloadQuality(c: Context, q: StreamQuality) = writeQ(c, KEY_DL_Q, q)
 
-fun getWifiLosslessTimeout(c: Context): LosslessTimeout =
-    runCatching { LosslessTimeout.valueOf(prefs(c).getString(KEY_WIFI_LOSSLESS_TIMEOUT, LosslessTimeout.SHORT.name)!!) }
-        .getOrDefault(LosslessTimeout.SHORT)
+fun getWifiLosslessTimeout(c: Context): LosslessTimeout {
+    val raw = prefs(c).getString(KEY_WIFI_LOSSLESS_TIMEOUT, LosslessTimeout.SHORT.name)
+    return raw?.let { runCatching { LosslessTimeout.valueOf(it) }.getOrNull() } ?: LosslessTimeout.SHORT
+}
 
 fun setWifiLosslessTimeout(c: Context, timeout: LosslessTimeout) =
     prefs(c).edit().putString(KEY_WIFI_LOSSLESS_TIMEOUT, timeout.name).apply()
 
-fun getCellularLosslessTimeout(c: Context): LosslessTimeout =
-    runCatching { LosslessTimeout.valueOf(prefs(c).getString(KEY_CELL_LOSSLESS_TIMEOUT, LosslessTimeout.SHORT.name)!!) }
-        .getOrDefault(LosslessTimeout.SHORT)
+fun getCellularLosslessTimeout(c: Context): LosslessTimeout {
+    val raw = prefs(c).getString(KEY_CELL_LOSSLESS_TIMEOUT, LosslessTimeout.SHORT.name)
+    return raw?.let { runCatching { LosslessTimeout.valueOf(it) }.getOrNull() } ?: LosslessTimeout.SHORT
+}
 
 fun setCellularLosslessTimeout(c: Context, timeout: LosslessTimeout) =
     prefs(c).edit().putString(KEY_CELL_LOSSLESS_TIMEOUT, timeout.name).apply()
 
-fun getDownloadLosslessTimeout(c: Context): LosslessTimeout =
-    runCatching { LosslessTimeout.valueOf(prefs(c).getString(KEY_DL_LOSSLESS_TIMEOUT, LosslessTimeout.LONG.name)!!) }
-        .getOrDefault(LosslessTimeout.LONG)
+fun getDownloadLosslessTimeout(c: Context): LosslessTimeout {
+    val raw = prefs(c).getString(KEY_DL_LOSSLESS_TIMEOUT, LosslessTimeout.LONG.name)
+    return raw?.let { runCatching { LosslessTimeout.valueOf(it) }.getOrNull() } ?: LosslessTimeout.LONG
+}
 
 fun setDownloadLosslessTimeout(c: Context, timeout: LosslessTimeout) =
     prefs(c).edit().putString(KEY_DL_LOSSLESS_TIMEOUT, timeout.name).apply()
@@ -249,18 +254,20 @@ fun setAudioNormalizerEnabled(c: Context, v: Boolean) = prefs(c).edit().putBoole
 fun getAudioNormalizerGainMb(c: Context): Int = prefs(c).getInt(KEY_NORMALIZER_GAIN_MB, 250).coerceIn(0, 600)
 fun setAudioNormalizerGainMb(c: Context, v: Int) = prefs(c).edit().putInt(KEY_NORMALIZER_GAIN_MB, v.coerceIn(0, 600)).apply()
 
-fun getSpatialProfile(c: Context): SpatialProfile =
-    runCatching { SpatialProfile.valueOf(prefs(c).getString(KEY_SPATIAL_PROFILE, SpatialProfile.IMMERSIVE.name)!!) }
-        .getOrDefault(SpatialProfile.IMMERSIVE)
+fun getSpatialProfile(c: Context): SpatialProfile {
+    val raw = prefs(c).getString(KEY_SPATIAL_PROFILE, SpatialProfile.IMMERSIVE.name)
+    return raw?.let { runCatching { SpatialProfile.valueOf(it) }.getOrNull() } ?: SpatialProfile.IMMERSIVE
+}
 fun setSpatialProfile(c: Context, profile: SpatialProfile) = prefs(c).edit().putString(KEY_SPATIAL_PROFILE, profile.name).apply()
 
 /** Framework virtualizer strength: 0–1000. */
 fun getSpatialStrength(c: Context): Int = prefs(c).getInt(KEY_SPATIAL_STRENGTH, 900).coerceIn(0, 1000)
 fun setSpatialStrength(c: Context, strength: Int) = prefs(c).edit().putInt(KEY_SPATIAL_STRENGTH, strength.coerceIn(0, 1000)).apply()
 
-fun getNavigationMode(c: Context): NavigationMode =
-    runCatching { NavigationMode.valueOf(prefs(c).getString(KEY_NAVIGATION_MODE, NavigationMode.BOTTOM_BAR.name)!!) }
-        .getOrDefault(NavigationMode.BOTTOM_BAR)
+fun getNavigationMode(c: Context): NavigationMode {
+    val raw = prefs(c).getString(KEY_NAVIGATION_MODE, NavigationMode.BOTTOM_BAR.name)
+    return raw?.let { runCatching { NavigationMode.valueOf(it) }.getOrNull() } ?: NavigationMode.BOTTOM_BAR
+}
 fun setNavigationMode(c: Context, mode: NavigationMode) {
     prefs(c).edit().putString(KEY_NAVIGATION_MODE, mode.name).apply()
     notifyUiSettingsChanged()

@@ -83,8 +83,8 @@ fun HomeScreen(navController: NavController){
 
     val currentHour = remember {
         try {
-            LocalTime.now().hour
-        } catch (e: Exception) {
+            java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        } catch (e: Throwable) {
             12
         }
     }
@@ -447,7 +447,13 @@ fun SumUpHomeScreen(navController : NavController, albums: List<AlbumsModel>, ar
 
 @Composable
 fun GreetingSection(name : String = "User") {
-    val currentHour = LocalTime.now().hour
+    val currentHour = remember {
+        try {
+            java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        } catch (e: Throwable) {
+            12
+        }
+    }
     val greeting = when {
         currentHour < 12 -> "Good Morning"
         currentHour < 17 -> "Good Afternoon"
@@ -577,7 +583,7 @@ fun HomeAlbums(
     album : List<AlbumsModel>,
     navController: NavController
 ) {
-    val reversedAlbum = album.reversed().dropLast(1)
+    val reversedAlbum = if (album.size > 1) album.reversed().dropLast(1) else album.reversed()
     Text(modifier = Modifier
         .padding(20.dp, 10.dp, 0.dp, 0.dp),
         text = "Albums",
