@@ -1,21 +1,21 @@
 <div align="center">
 
-# 🔴 UNDER CONSTRUCTION 🚧
+# 🟢 OPERATIONAL — v2.1.7 STABILITY RELEASE 🚀
 
 <!-- Dynamic Status Badges -->
-[![App Status](https://shields.io)](https://github.com)
-[![Target Version](https://shields.io)](https://github.com)
-[![Development](https://shields.io)](https://github.com)
+[![App Status](https://img.shields.io/badge/App%20Status-Operational-1ED760?style=for-the-badge)](https://github.com/lfisher447-afk/SpotUi-Offical)
+[![Current Version](https://img.shields.io/badge/Version-v2.1.7-blue?style=for-the-badge)](https://github.com/lfisher447-afk/SpotUi-Offical)
+[![Tests](https://img.shields.io/badge/Tests-Passing-1ED760?style=for-the-badge)](https://github.com/lfisher447-afk/SpotUi-Offical)
 
 ---
 
-### 🚨 System Alert: App is Temporarily Down 🚨
+### ✅ System Status: Crash-on-Launch Resolved
 
-> [!CAUTION]
-> ### `CRASH_ON_LAUNCH_ERROR`
-> **Don't worry—the app will be back and better than ever soon!** 
-> 
-> The application is temporarily down and not working due to a crash-on-launch error. Because this project uses an older build version, I am currently redesigning the application and resolving the core stability issues. I am also fixing a few minor feature bugs and adding the final touches for the upcoming **v2.1.7** release.
+> [!NOTE]
+> ### `CRASH_ON_LAUNCH_FIXED` (v2.1.7)
+> **The crash-on-launch and post-login startup issues have been resolved!**
+>
+> Root-cause analysis uncovered a main-thread `NullPointerException` in `PlaybackService.updateCurrentMetadata()` triggered immediately after launch/login when `ExoPlayer.setMediaItem(...)` received a URI-less `MediaItem`, alongside unsafe `!!` assertions in `spotify` / `innertube` parsers and an unguarded `CookieManager` call in `SpotifyWebPlayer.refreshLogin()`. All have been fixed and verified with Robolectric, Compose UI, and multi-module unit tests.
 
 ---
 
@@ -23,36 +23,32 @@
 
 | Phase | Task Description | Status |
 | :---: | :--- | :---: |
-| `01` | Resolve core stability and crash-on-launch error code | 💻 **IN PROGRESS 💀** |
-| `02` | Upgrade legacy build versions & complete system redesign | 🔄 **PENDING⌛️** |
-| `03` | Fix minor feature bugs & apply final UI touches | ⏳ **PENDING** |
+| `01` | Resolve core stability and crash-on-launch error code | ✅ **RESOLVED** |
+| `02` | Harden `spotify`, `innertube`, and `WebView` null-safety | ✅ **COMPLETED** |
+| `03` | Add on-device crash report prompt & multi-module test suite | ✅ **COMPLETED** |
 
 </div>
 
 ### 📊 Current Pipeline Status
 
 ```diff
-- 🔴 STABLE BUILD: DOWN
-+ 🟡 REFACTOR BRANCH (v2.1.7): in progress stay tune
-! ⚠️ BUG TRACKER: CRASH ON LAUNCH DETECTED AND MORE MAJOR ISSUES.
++ 🟢 STABLE BUILD: OPERATIONAL (v2.1.7)
++ ✅ CRASH ON LAUNCH: FIXED (PlaybackService / Media3 / WebView / Parsers)
++ 🧪 MULTI-MODULE TESTS: PASSING (:app, :spotify, :innertube)
 ```
 
 ### 🎯 The Roadmap
-- [x] Identify legacy build bottlenecks
-- [/] Redesign application core and fix stability issues *(Current Focus)*
-- [ ] Patch remaining feature bugs & polish final touches
-- [ ] Push stable release `v2.1.7` 🚀
+- [x] Identify legacy build bottlenecks and launch crash root cause
+- [x] Fix `PlaybackService.updateCurrentMetadata()` main-thread `NullPointerException`
+- [x] Harden `SpotifyWebPlayer`, `Spotify` GraphQL, and `Innertube` page parsers
+- [x] Add `CrashReportPrompt` on-device crash viewer and multi-module Robolectric/unit tests
+- [x] Verify clean build and passing test suite for `v2.1.7` 🚀
 
 ---
 
 <div align="center">
 
-### ✨ *Redesigned. Rebuilt. Better than ever soon.* ✨
-
-```html
-<!-- Terminal status for visitors -->
-<kbd>v2.1.7</kbd> is currently compiling in the background...
-```
+### ✨ *Stable. Tested. Ready.* ✨
 
 </div>
 
@@ -62,9 +58,19 @@
 
 # Spotui Android
 
-> **Current source release: v2.1.6 (version code 202610106).** A Kotlin and Jetpack Compose Android music-client project with a Media3 playback service, Material 3 interface controls, configurable audio processing, local download management, and resilient framed NovaAc archive workflows.
+> **Current source release: v2.1.7 (stability update over v2.1.6 / version code 202610106).** A Kotlin and Jetpack Compose Android music-client project with a Media3 playback service, Material 3 interface controls, configurable audio processing, local download management, and resilient framed NovaAc archive workflows.
 
-## 🚀 What's New & Update Logs (v2.1.6 Latest)
+## 🚀 What's New & Update Logs (v2.1.7 Latest)
+
+### 🛠️ Stability, Crash Fixes & Diagnostics (v2.1.7)
+- **Fixed Crash on Launch / Post-Login (`PlaybackService.updateCurrentMetadata`)**: Fixed a main-thread `NullPointerException` inside `DefaultMediaSourceFactory.createMediaSource` caused by passing a URI-less `MediaItem` (`localConfiguration == null`) to `ExoPlayer.setMediaItem(...)` when `PlaybackService` initialized on startup. Now skips metadata replacement when no track is queued and preserves `localConfiguration` via `replaceMediaItem(...)` for active items.
+- **Guarded Service Coroutine Collectors**: Wrapped `PlaybackService` `snapshotFlow` collectors (`updateCurrentMetadata()` and `setCustomLayout()`) in `runCatching` so transient state emissions cannot crash the main thread.
+- **Guarded `SpotifyWebPlayer.refreshLogin()`**: Wrapped `CookieManager.getInstance()` in `runCatching` to prevent crashes on devices where the system WebView provider is unavailable or uninitialized after login.
+- **Hardened `Spotify` & `Innertube` Null-Safety**: Replaced unsafe `!!` assertions in `Spotify.kt` (`result.json!!`) and `innertube` (`HomePage.kt`, `AlbumPage.kt`, `NextPage.kt`, `SearchPage.kt`) with safe null-handling and explicit `SpotifyException` reporting.
+- **On-Device Crash Report Dialog (`CrashReportPrompt`)**: Added a startup dialog in `MainActivity` that automatically surfaces `CrashHandler.getLatestCrashReport(...)` with **Copy Log** and **Dismiss** actions if a previous session crashed.
+- **Expanded Multi-Module Test Suite**: Added `LaunchAndLoginCrashTest`, `AuthenticatedLaunchCrashTest`, `ServiceAndApiTest` (Robolectric + Compose UI), and `InnertubeSafetyTest`, verified passing across `:app`, `:spotify`, and `:innertube`.
+
+## 📦 Previous Release Logs (v2.1.6)
 
 ### 🌟 What's New*
 - **Dual-Mode Spotify Authentication Screen**:
