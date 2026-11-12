@@ -2,37 +2,75 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <uses-permission android:name="android.permission.INTERNET"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
-    <uses-permission android:name="android.permission.WAKE_LOCK"/>
-    <!-- Exporting downloads to public Music/ on API <=28 (MediaStore needs none on 29+). -->
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="28"/>
+    <!-- Core Network & Connectivity -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
-    <!-- Package visibility queries for Android 11+ to detect Spotify and link handler apps -->
+    <!-- Foreground Services & Background Execution (Prevents One UI & Android from killing playback/downloads) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Audio, Equalizer & Bluetooth Routing (Galaxy Buds, Android Auto, Headsets) -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+    <!-- Local Audio Playback & Downloads -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- Exporting downloads to public Music/ on API <=28 (MediaStore needs none on 29+). -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
+    <!-- Hardware Features (Marked required="false" so tablets/Chromebooks aren't filtered out) -->
+    <uses-feature android:name="android.hardware.audio.output" android:required="true" />
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+    <uses-feature android:name="android.hardware.screen.portrait" android:required="false" />
+
+    <!-- Package visibility queries for Android 11+ to detect Spotify, YouTube, Equalizers, and Android Auto -->
     <queries>
         <package android:name="com.spotify.music" />
+        <package android:name="com.google.android.apps.youtube.music" />
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.google.android.projection.gearhead" />
+        <intent>
+            <action android:name="android.media.action.DISPLAY_AUDIO_EFFECT_CONTROL_PANEL" />
+        </intent>
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" android:host="open.spotify.com" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
         </intent>
     </queries>
 
     <application
         android:name=".MyApplication"
         android:allowBackup="true"
+        android:allowAudioPlaybackCapture="true"
         android:appCategory="audio"
         android:dataExtractionRules="@xml/data_extraction_rules"
+        android:enableOnBackInvokedCallback="true"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:largeHeap="true"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:enableOnBackInvokedCallback="true"
         android:theme="@style/splashScreenTheme"
+        android:usesCleartextTraffic="true"
         tools:targetApi="31">
 
         <!-- Disables default WorkManagerInitializer so MyApplication's Configuration.Provider with HiltWorkerFactory handles initialization safely without crashing -->
@@ -46,6 +84,13 @@
                 android:value="androidx.startup"
                 tools:node="remove" />
         </provider>
+
+        <!-- Ensures WorkManager foreground download/sync workers work cleanly on Android 14+ -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
+
         <activity
             android:name=".ui.screens.YouTubeMusicWebActivity"
             android:exported="false"
@@ -54,17 +99,24 @@
 
         <activity
             android:name=".MainActivity"
-            android:screenOrientation="portrait"
             android:exported="true"
-            android:launchMode="singleTask"
             android:label="@string/app_name"
-            android:theme="@style/splashScreenTheme">
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait"
+            android:theme="@style/splashScreenTheme"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <action android:name="android.intent.action.MUSIC_PLAYER" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+
+            <!-- Voice Assistant & Android Auto "Play [song/artist]" Support -->
+            <intent-filter>
+                <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
             <!-- Spotify Web Deep Links -->
@@ -103,6 +155,20 @@
 
                 <data android:scheme="spotify" />
             </intent-filter>
+
+            <!-- Allow sharing links/text (e.g. sharing a Spotify/YouTube link from a browser) directly to Spotui -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
+            <!-- Allow opening local audio files directly with Spotui -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="audio/*" />
+            </intent-filter>
         </activity>
 
         <!-- Android Auto: declares the app as a media app for the car. -->
@@ -113,8 +179,8 @@
         <service
             android:name=".ui.notification.PlaybackService"
             android:exported="true"
-            android:stopWithTask="false"
-            android:foregroundServiceType="mediaPlayback">
+            android:foregroundServiceType="mediaPlayback"
+            android:stopWithTask="false">
             <intent-filter>
                 <action android:name="androidx.media3.session.MediaSessionService" />
                 <action android:name="androidx.media3.session.MediaLibraryService" />
@@ -124,8 +190,8 @@
         </service>
 
         <!-- Makes Spotui discoverable as a media button target for automation
-             apps (MacroDroid, Tasker, etc.) and forwards media key events to
-             the active PlaybackService MediaSession. -->
+             apps (MacroDroid, Tasker, Samsung Modes & Routines, etc.) and forwards
+             media key events to the active PlaybackService MediaSession. -->
         <receiver
             android:name="androidx.media3.session.MediaButtonReceiver"
             android:exported="true">
