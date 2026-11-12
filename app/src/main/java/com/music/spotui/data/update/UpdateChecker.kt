@@ -22,6 +22,7 @@ object UpdateChecker {
         val downloadUrl: String,
         val fingerprint: String,
         val releaseBody: String,
+        val isPrerelease: Boolean = false,
     )
 
     private val client = OkHttpClient.Builder()
@@ -71,6 +72,47 @@ object UpdateChecker {
         return "https://api.github.com/repos/$repoPath/releases/latest"
     }
 
+    internal fun selectBestApkUrl(assets: org.json.JSONArray?): String? {
+        if (assets == null) return null
+        val items = (0 until assets.length()).mapNotNull { assets.optJSONObject(it) }
+        val apkItems = items.filter { it.optString("name").endsWith(".apk", ignoreCase = true) }
+        val releaseApk = apkItems.firstOrNull { it.optString("name").contains("release", ignoreCase = true) }
+        return (releaseApk ?: apkItems.firstOrNull())?.optString("browser_download_url")?.ifBlank { null }
+    }
+
+    internal fun parseReleasesAtom(xml: String, repoUrl: String): UpdateInfo? {
+        return runCatching {
+            val entryMatch = Regex("""<entry>(.*?)</entry>""", RegexOption.DOT_MATCHES_ALL).find(xml) ?: return null
+            val entryContent = entryMatch.groupValues[1]
+
+            val entryTitle = Regex("""<title[^>]*>(.*?)</title>""").find(entryContent)?.groupValues?.get(1)?.trim().orEmpty()
+            val link = Regex("""<link[^>]*href=["']([^"']+)["']""").find(entryContent)?.groupValues?.get(1)?.trim().orEmpty()
+            val updated = Regex("""<updated>(.*?)</updated>""").find(entryContent)?.groupValues?.get(1)?.trim().orEmpty()
+            val content = Regex("""<content[^>]*>(.*?)</content>""", RegexOption.DOT_MATCHES_ALL).find(entryContent)?.groupValues?.get(1)?.trim().orEmpty()
+
+            val version = extractVersion(entryTitle) ?: extractVersion(link) ?: return null
+            val cleanBody = content
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&")
+                .replace("&quot;", "\"")
+                .replace(Regex("""<p[^>]*>"""), "")
+                .replace("</p>", "")
+                .trim()
+            val isPrerelease = entryTitle.contains("pre", ignoreCase = true) ||
+                entryTitle.contains("beta", ignoreCase = true) ||
+                entryTitle.contains("rc", ignoreCase = true) ||
+                link.contains("pre", ignoreCase = true)
+            UpdateInfo(
+                version = version,
+                downloadUrl = link.ifBlank { "$repoUrl/releases/latest" },
+                fingerprint = "$version:$updated",
+                releaseBody = cleanBody,
+                isPrerelease = isPrerelease,
+            )
+        }.getOrNull()
+    }
+
     private fun fetchLatestRelease(context: Context): UpdateInfo? {
         val repoUrl = getUpdateRepoUrl(context).trim().trimEnd('/').removeSuffix(".git")
         val apiLatest = buildLatestReleaseApiUrl(repoUrl)
@@ -93,16 +135,14 @@ object UpdateChecker {
             val htmlUrl = json.optString("html_url", releasesPage)
                 .ifBlank { releasesPage }
             val assets = json.optJSONArray("assets")
-            val apkUrl = (0 until (assets?.length() ?: 0))
-                .asSequence()
-                .mapNotNull { assets?.optJSONObject(it) }
-                .firstOrNull { it.optString("name").endsWith(".apk") }
-                ?.optString("browser_download_url")
+            val apkUrl = selectBestApkUrl(assets)
+            val isPrerelease = json.optBoolean("prerelease", false)
             UpdateInfo(
                 version = version,
-                downloadUrl = apkUrl?.ifBlank { null } ?: htmlUrl,
+                downloadUrl = apkUrl ?: htmlUrl,
                 fingerprint = "${json.optLong("id")}:${json.optString("updated_at")}:$version",
                 releaseBody = releaseBody,
+                isPrerelease = isPrerelease,
             )
         }
     }
@@ -110,13 +150,19 @@ object UpdateChecker {
     private fun extractVersion(text: String): String? =
         Regex("""\d+(?:\.\d+)+""").find(text)?.value
 
-    private fun isNewer(remote: String, installed: String): Boolean {
-        val r = remote.split('.').map { it.toIntOrNull() ?: 0 }
-        val i = installed.split('-', '+').first().split('.').map { it.toIntOrNull() ?: 0 }
+    internal fun isNewer(remote: String, installed: String): Boolean {
+        if (remote == installed) return false
+        val rBase = remote.split('-', '+').first()
+        val iBase = installed.split('-', '+').first()
+        val r = rBase.split('.').map { it.toIntOrNull() ?: 0 }
+        val i = iBase.split('.').map { it.toIntOrNull() ?: 0 }
         for (n in 0 until maxOf(r.size, i.size)) {
             val a = r.getOrElse(n) { 0 }
             val b = i.getOrElse(n) { 0 }
             if (a != b) return a > b
+        }
+        if (remote == iBase && installed.contains("-debug", ignoreCase = true)) {
+            return true
         }
         return false
     }

@@ -38,7 +38,7 @@ object TranslationCachePref {
                     LyricLine(
                         timeMs = o.getLong("t"),
                         text = o.getString("x"),
-                        translatedText = o.optString("tr", null as String?),
+                        translatedText = if (o.has("tr") && !o.isNull("tr")) o.optString("tr").takeIf { it.isNotBlank() } else null,
                     )
                 )
             }

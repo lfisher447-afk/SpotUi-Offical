@@ -429,6 +429,20 @@ fun setDeezerArl(c: Context, arl: String) {
     com.metrolist.spotify.SpotiFlac.deezerArl = clean.ifBlank { null }
 }
 
+private const val KEY_CUSTOM_LOSSLESS_MIRROR = "lossless_custom_mirror_url"
+fun getCustomLosslessMirrorUrl(c: Context): String = prefs(c).getString(KEY_CUSTOM_LOSSLESS_MIRROR, "").orEmpty()
+fun setCustomLosslessMirrorUrl(c: Context, url: String) {
+    val clean = url.trim().trimEnd('/')
+    prefs(c).edit().putString(KEY_CUSTOM_LOSSLESS_MIRROR, clean).apply()
+    com.metrolist.spotify.SpotiFlac.customMirrorBaseUrl = clean.ifBlank { null }
+}
+
+private const val KEY_STABLE_UPDATES_ONLY = "update_stable_only"
+fun isStableUpdatesOnly(c: Context): Boolean = prefs(c).getBoolean(KEY_STABLE_UPDATES_ONLY, true)
+fun setStableUpdatesOnly(c: Context, value: Boolean) =
+    prefs(c).edit().putBoolean(KEY_STABLE_UPDATES_ONLY, value).apply()
+
+
 
 
 
