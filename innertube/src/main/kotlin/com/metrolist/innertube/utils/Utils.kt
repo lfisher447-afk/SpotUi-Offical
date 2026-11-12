@@ -82,14 +82,57 @@ fun ByteArray.toHex(): String = joinToString(separator = "") { eachByte -> "%02x
 fun sha1(str: String): String = MessageDigest.getInstance("SHA-1").digest(str.toByteArray()).toHex()
 
 fun parseCookieString(cookie: String): Map<String, String> =
-    cookie.split("; ")
+    cookie.split(";")
+        .asSequence()
+        .map { it.trim() }
         .filter { it.isNotEmpty() }
         .mapNotNull { part ->
             val splitIndex = part.indexOf('=')
-            if (splitIndex == -1) null
-            else part.substring(0, splitIndex) to part.substring(splitIndex + 1)
+            if (splitIndex <= 0) {
+                null
+            } else {
+                val key = part.substring(0, splitIndex).trim()
+                val value = part.substring(splitIndex + 1).trim()
+                if (key.isEmpty()) null else key to value
+            }
         }
         .toMap()
+
+private val YOUTUBE_LOGIN_COOKIE_KEYS = listOf("SAPISID", "__Secure-3PAPISID", "__Secure-1PAPISID")
+
+fun hasYouTubeLoginCookie(cookie: String?): Boolean {
+    if (cookie.isNullOrBlank()) return false
+    val cookieMap = parseCookieString(cookie)
+    return YOUTUBE_LOGIN_COOKIE_KEYS.any { key -> !cookieMap[key].isNullOrBlank() }
+}
+
+fun youtubeLoginCookieValue(cookie: String?): String? {
+    if (cookie.isNullOrBlank()) return null
+    val cookieMap = parseCookieString(cookie)
+    return YOUTUBE_LOGIN_COOKIE_KEYS.firstNotNullOfOrNull { key ->
+        cookieMap[key]?.takeIf(String::isNotBlank)
+    }
+}
+
+fun sapisidAuthorizationHeader(
+    cookie: String?,
+    origin: String = com.metrolist.innertube.models.YouTubeClient.ORIGIN_YOUTUBE_MUSIC,
+    timestampSeconds: Long = System.currentTimeMillis() / 1000L,
+): String? {
+    if (cookie.isNullOrBlank()) return null
+    val cookieMap = parseCookieString(cookie)
+    val parts = mutableListOf<String>()
+    cookieMap["SAPISID"]?.takeIf(String::isNotBlank)?.let { sapisid ->
+        parts += "SAPISIDHASH ${timestampSeconds}_${sha1("$timestampSeconds $sapisid $origin")}"
+    }
+    cookieMap["__Secure-1PAPISID"]?.takeIf(String::isNotBlank)?.let { sapisid1p ->
+        parts += "SAPISID1PHASH ${timestampSeconds}_${sha1("$timestampSeconds $sapisid1p $origin")}"
+    }
+    cookieMap["__Secure-3PAPISID"]?.takeIf(String::isNotBlank)?.let { sapisid3p ->
+        parts += "SAPISID3PHASH ${timestampSeconds}_${sha1("$timestampSeconds $sapisid3p $origin")}"
+    }
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" ")
+}
 
 fun String.parseTime(): Int? {
     try {

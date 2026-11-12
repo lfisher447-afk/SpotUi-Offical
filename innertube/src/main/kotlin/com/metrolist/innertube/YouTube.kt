@@ -1,5 +1,6 @@
 package com.metrolist.innertube
 
+import com.metrolist.innertube.models.AccountChannel
 import com.metrolist.innertube.models.AccountInfo
 import com.metrolist.innertube.models.AlbumItem
 import com.metrolist.innertube.models.Artist
@@ -73,9 +74,14 @@ import com.metrolist.innertube.pages.SearchSummary
 import com.metrolist.innertube.pages.SearchSummaryPage
 import io.ktor.client.call.body
 import io.ktor.client.statement.bodyAsText
+import com.metrolist.innertube.network.AuthSessionParsing
+import com.metrolist.innertube.network.AuthSessionStore
+import com.metrolist.innertube.network.PlaybackAuthState
+import com.metrolist.innertube.playback.InnerTubePlayback
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -93,7 +99,11 @@ import kotlin.random.Random
  */
 object YouTube {
     private val innerTube = InnerTube()
+    private val playback = InnerTubePlayback(innerTube.http, AuthSessionStore)
     private const val ENABLE_NEWPIPE_STREAM_INFO_EXTRACTOR = false
+
+    val authStateFlow: StateFlow<PlaybackAuthState>
+        get() = AuthSessionStore.authStateFlow
 
     var locale: YouTubeLocale
         get() = innerTube.locale
@@ -115,6 +125,26 @@ object YouTube {
         set(value) {
             innerTube.cookie = value
         }
+    var poToken: String?
+        get() = innerTube.poToken
+        set(value) {
+            innerTube.poToken = value
+        }
+    var poTokenGvs: String?
+        get() = innerTube.poTokenGvs
+        set(value) {
+            innerTube.poTokenGvs = value
+        }
+    var poTokenPlayer: String?
+        get() = innerTube.poTokenPlayer
+        set(value) {
+            innerTube.poTokenPlayer = value
+        }
+    var webClientPoTokenEnabled: Boolean
+        get() = innerTube.webClientPoTokenEnabled
+        set(value) {
+            innerTube.webClientPoTokenEnabled = value
+        }
     var proxy: Proxy?
         get() = innerTube.proxy
         set(value) {
@@ -131,6 +161,16 @@ object YouTube {
         set(value) {
             innerTube.useLoginForBrowse = value
         }
+
+    var timingHook: com.metrolist.innertube.network.InnerTubeTimingHook?
+        get() = innerTube.timingHook
+        set(value) {
+            innerTube.timingHook = value
+        }
+
+    fun currentAuthState(): PlaybackAuthState = AuthSessionStore.currentAuthState()
+
+    fun applyAuthState(state: PlaybackAuthState): PlaybackAuthState = innerTube.applyAuthState(state)
 
     suspend fun searchSuggestions(query: String): Result<SearchSuggestions> =
         runCatching {
@@ -1917,31 +1957,7 @@ object YouTube {
                         setLogin = true,
                     ).body<BrowseResponse>()
 
-            val contents = response.continuationContents
-
-            when {
-                contents?.gridContinuation != null -> {
-                    LibraryContinuationPage(
-                        items =
-                            contents.gridContinuation.items
-                                .mapNotNull(GridRenderer.Item::musicTwoRowItemRenderer)
-                                .mapNotNull { LibraryPage.fromMusicTwoRowItemRenderer(it) },
-                        continuation = contents.gridContinuation.continuations?.getContinuation(),
-                    )
-                }
-
-                else -> { // contents?.musicShelfContinuation != null
-                    LibraryContinuationPage(
-                        items =
-                            contents
-                                ?.musicShelfContinuation
-                                ?.contents!!
-                                .mapNotNull(MusicShelfRenderer.Content::musicResponsiveListItemRenderer)
-                                .mapNotNull { LibraryPage.fromMusicResponsiveListItemRenderer(it) },
-                        continuation = contents.musicShelfContinuation.continuations?.getContinuation(),
-                    )
-                }
-            }
+            AuthSessionParsing.parseLibraryContinuation(response)
         }
 
     suspend fun libraryRecentActivity(): Result<LibraryPage> =
@@ -3085,150 +3101,30 @@ object YouTube {
         signatureTimestamp: Int? = null,
         poToken: String? = null,
     ): Result<PlayerResponse> =
-        runCatching {
-            innerTube.player(client, videoId, playlistId, signatureTimestamp, poToken).body<PlayerResponse>()
-        }
+        playback.player(
+            videoId = videoId,
+            playlistId = playlistId,
+            client = client,
+            signatureTimestamp = signatureTimestamp,
+            poToken = poToken,
+        )
 
     suspend fun registerPlayback(
         playlistId: String? = null,
         playbackTracking: String,
-    ) = runCatching {
-        val cpn =
-            (1..16)
-                .map {
-                    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"[
-                        Random.Default.nextInt(
-                            0,
-                            64,
-                        ),
-                    ]
-                }.joinToString("")
-
-        innerTube.registerPlayback(
-            url = playbackTracking,
-            playlistId = playlistId,
-            cpn = cpn,
-        )
-    }
+    ) = playback.registerPlayback(
+        playlistId = playlistId,
+        playbackTracking = playbackTracking,
+    )
 
     suspend fun next(
         endpoint: WatchEndpoint,
         continuation: String? = null,
     ): Result<NextResult> =
-        runCatching {
-            val response =
-                innerTube
-                    .next(
-                        WEB_REMIX,
-                        endpoint.videoId,
-                        endpoint.playlistId,
-                        endpoint.playlistSetVideoId,
-                        endpoint.index,
-                        endpoint.params,
-                        continuation,
-                    ).body<NextResponse>()
-            val playlistPanelRenderer =
-                response.continuationContents?.playlistPanelContinuation
-                    ?: response.contents.singleColumnMusicWatchNextResultsRenderer
-                        ?.tabbedRenderer
-                        ?.watchNextTabbedResultsRenderer
-                        ?.tabs
-                        ?.get(0)
-                        ?.tabRenderer
-                        ?.content
-                        ?.musicQueueRenderer
-                        ?.content
-                        ?.playlistPanelRenderer!!
-            val title =
-                response.contents.singleColumnMusicWatchNextResultsRenderer
-                    ?.tabbedRenderer
-                    ?.watchNextTabbedResultsRenderer
-                    ?.tabs
-                    ?.get(0)
-                    ?.tabRenderer
-                    ?.content
-                    ?.musicQueueRenderer
-                    ?.header
-                    ?.musicQueueHeaderRenderer
-                    ?.subtitle
-                    ?.runs
-                    ?.firstOrNull()
-                    ?.text
-            val items =
-                playlistPanelRenderer.contents.mapNotNull { content ->
-                    content.playlistPanelVideoRenderer
-                        ?.let(NextPage::fromPlaylistPanelVideoRenderer)
-                        ?.let { it to content.playlistPanelVideoRenderer.selected }
-                }
-            val songs = items.map { it.first }
-            val currentIndex = items.indexOfFirst { it.second }.takeIf { it != -1 }
-
-            // load automix items
-            playlistPanelRenderer.contents
-                .lastOrNull()
-                ?.automixPreviewVideoRenderer
-                ?.content
-                ?.automixPlaylistVideoRenderer
-                ?.navigationEndpoint
-                ?.watchPlaylistEndpoint
-                ?.let { watchPlaylistEndpoint ->
-                    return@runCatching next(watchPlaylistEndpoint).getOrThrow().let { result ->
-                        result.copy(
-                            title = title,
-                            items = songs + result.items,
-                            lyricsEndpoint =
-                                response.contents.singleColumnMusicWatchNextResultsRenderer
-                                    ?.tabbedRenderer
-                                    ?.watchNextTabbedResultsRenderer
-                                    ?.tabs
-                                    ?.getOrNull(
-                                        1,
-                                    )?.tabRenderer
-                                    ?.endpoint
-                                    ?.browseEndpoint,
-                            relatedEndpoint =
-                                response.contents.singleColumnMusicWatchNextResultsRenderer
-                                    ?.tabbedRenderer
-                                    ?.watchNextTabbedResultsRenderer
-                                    ?.tabs
-                                    ?.getOrNull(
-                                        2,
-                                    )?.tabRenderer
-                                    ?.endpoint
-                                    ?.browseEndpoint,
-                            currentIndex = currentIndex,
-                            endpoint = watchPlaylistEndpoint,
-                        )
-                    }
-                }
-            NextResult(
-                title = title,
-                items = songs,
-                currentIndex = currentIndex,
-                lyricsEndpoint =
-                    response.contents.singleColumnMusicWatchNextResultsRenderer
-                        ?.tabbedRenderer
-                        ?.watchNextTabbedResultsRenderer
-                        ?.tabs
-                        ?.getOrNull(
-                            1,
-                        )?.tabRenderer
-                        ?.endpoint
-                        ?.browseEndpoint,
-                relatedEndpoint =
-                    response.contents.singleColumnMusicWatchNextResultsRenderer
-                        ?.tabbedRenderer
-                        ?.watchNextTabbedResultsRenderer
-                        ?.tabs
-                        ?.getOrNull(
-                            2,
-                        )?.tabRenderer
-                        ?.endpoint
-                        ?.browseEndpoint,
-                continuation = playlistPanelRenderer.continuations?.getContinuation(),
-                endpoint = endpoint,
-            )
-        }
+        playback.next(
+            endpoint = endpoint,
+            continuation = continuation,
+        )
 
     suspend fun lyrics(endpoint: BrowseEndpoint): Result<String?> =
         runCatching {
@@ -3298,20 +3194,11 @@ object YouTube {
         videoIds: List<String>? = null,
         playlistId: String? = null,
     ): Result<List<SongItem>> =
-        runCatching {
-            if (videoIds != null) {
-                assert(videoIds.size <= MAX_GET_QUEUE_SIZE) // Max video limit
-            }
-            innerTube
-                .getQueue(WEB_REMIX, videoIds, playlistId)
-                .body<GetQueueResponse>()
-                .queueDatas
-                .mapNotNull {
-                    it.content.playlistPanelVideoRenderer?.let { renderer ->
-                        NextPage.fromPlaylistPanelVideoRenderer(renderer)
-                    }
-                }
-        }
+        playback.queue(
+            videoIds = videoIds,
+            playlistId = playlistId,
+            maxQueueSize = MAX_GET_QUEUE_SIZE,
+        )
 
     suspend fun transcript(videoId: String): Result<String> =
         runCatching {
@@ -3324,19 +3211,17 @@ object YouTube {
                 ?.body
                 ?.transcriptBodyRenderer
                 ?.cueGroups
-                ?.joinToString(
-                    separator = "\n",
-                ) { group ->
-                    val time =
-                        group.transcriptCueGroupRenderer.cues[0]
-                            .transcriptCueRenderer.startOffsetMs
-                    val text =
-                        group.transcriptCueGroupRenderer.cues[0]
-                            .transcriptCueRenderer.cue.simpleText
-                            .trim('♪')
-                            .trim(' ')
+                ?.mapNotNull { group ->
+                    val cueRenderer = group.transcriptCueGroupRenderer.cues.firstOrNull()?.transcriptCueRenderer
+                        ?: return@mapNotNull null
+                    val time = cueRenderer.startOffsetMs
+                    val text = cueRenderer.cue.simpleText
+                        .trim('♪')
+                        .trim(' ')
                     "[%02d:%02d.%03d]$text".format(time / 60000, (time / 1000) % 60, time % 1000)
-                }!!
+                }
+                ?.joinToString(separator = "\n")
+                ?: throw IllegalStateException("Transcript not available")
         }
 
     suspend fun visitorData(): Result<String> =
@@ -3355,14 +3240,15 @@ object YouTube {
 
     suspend fun accountInfo(): Result<AccountInfo> =
         runCatching {
-            innerTube
-                .accountMenu(WEB_REMIX)
-                .body<AccountMenuResponse>()
-                .actions[0]
-                .openPopupAction.popup.multiPageMenuRenderer
-                .header
-                ?.activeAccountHeaderRenderer
-                ?.toAccountInfo()!!
+            val response = innerTube.accountMenu(WEB_REMIX).body<AccountMenuResponse>()
+            AuthSessionParsing.parseAccountInfo(response)
+                ?: throw IllegalStateException("Account info missing from account menu response")
+        }
+
+    suspend fun accountChannels(): Result<List<AccountChannel>> =
+        runCatching {
+            val response = innerTube.accountMenu(WEB_REMIX).body<AccountMenuResponse>()
+            AuthSessionParsing.parseAccountChannels(response)
         }
 
     suspend fun feedback(tokens: List<String>): Result<Boolean> =

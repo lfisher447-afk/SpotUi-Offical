@@ -41,7 +41,7 @@ private data class ReleaseEntry(
     val details: String,
 )
 
-private const val ROADMAP_INTEGRATION_DATE = "2026-11-11"
+private const val ROADMAP_INTEGRATION_DATE = "2026-11-12"
 
 private val releaseHistory = listOf(
     ReleaseEntry("1.5.1", "Timed lyrics foundation", "Added corrected LRC timestamp parsing and sorted millisecond lyric streams."),
@@ -89,7 +89,7 @@ private val releaseHistory = listOf(
     ReleaseEntry("2.1.0", "NovaAc v6 framed stream archive engine", "Added 64 KiB AEAD framed encryption, NovaAc archive exporter, and MrBean transport telemetry."),
     ReleaseEntry("2.1.5", "NovaAc v8 & Expressive M3 Controls", "Added NovaAc v8 Header-Bound AEAD encryption, MrBean NovaAc Controller v8, LRCLIB millisecond lyric sync, and dynamic M3 corner scaling."),
     ReleaseEntry("2.1.6", "Dual-mode Spotify login & Web player", "Added Chrome desktop user-agent WebView login, direct sp_dc cookie authentication with clipboard paste, external browser handoff, and guest mode."),
-    ReleaseEntry("2.1.7", "Stability, Media3 NPE Fix & Auto-Updater", "Resolved launch crash in PlaybackService metadata synchronization, hardened Spotify/InnerTube null-safety, added CrashReportPrompt, and updated auto-updater to official lfisher447-afk/SpotUi-Offical repository."),
+    ReleaseEntry("2.1.7", "Thanksgiving Edition — Auth, DoH/Proxy & Full Controls", "Thanksgiving Harvest Gold icon & expressive theme preset, ArchiveTune/YumaPlayer PlaybackAuthState, AuthSessionStore, DoH presets, rotating proxy & PoToken controls, YouTube account & channel verification, persisted speed/pitch/skip-silence tuning in Player & Settings, manual update checker, one-tap batch runtime permissions, full intent handling (Search/Send/Local Audio), and PlaybackService stability fixes."),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)

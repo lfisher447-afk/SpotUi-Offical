@@ -31,6 +31,8 @@ dependencies {
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.json)
     implementation(libs.ktor.client.encoding)
+    api(libs.okhttp)
+    api(libs.okhttp.dnsoverhttps)
     implementation(libs.brotli)
     implementation(libs.newpipeextractor)
     implementation(libs.timber)

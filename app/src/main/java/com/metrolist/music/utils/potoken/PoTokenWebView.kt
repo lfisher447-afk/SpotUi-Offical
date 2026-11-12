@@ -7,7 +7,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 import androidx.annotation.MainThread
 import androidx.collection.ArrayMap
-import com.metrolist.innertube.YouTube
+import com.metrolist.innertube.network.AuthSessionStore
 import com.music.spotui.BuildConfig
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
@@ -285,16 +285,15 @@ class PoTokenWebView private constructor(
                     "x-user-agent" to "grpc-web-javascript/0.1",
                 ).toHeaders())
                 .url(url)
-            val response = withContext(Dispatchers.IO) {
-                httpClient.newCall(requestBuilder.build()).execute()
+            val result = withContext(Dispatchers.IO) {
+                resolveHttpClient().newCall(requestBuilder.build()).execute().use { response ->
+                    response.code to response.body?.string().orEmpty()
+                }
             }
-            val httpCode = response.code
+            val (httpCode, body) = result
             if (httpCode != 200) {
                 onInitializationErrorCloseAndCancel(PoTokenException("Invalid response code: $httpCode"))
             } else {
-                val body = withContext(Dispatchers.IO) {
-                    response.body?.string().orEmpty()
-                }
                 handleResponseBody(body)
             }
         }
@@ -328,9 +327,26 @@ class PoTokenWebView private constructor(
                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.3"
         private const val JS_INTERFACE = "PoTokenWebView"
 
-        private val httpClient = OkHttpClient.Builder()
-            .proxy(YouTube.proxy)
-            .build()
+        private val clientLock = Any()
+
+        @Volatile
+        private var cachedFingerprint: String = ""
+
+        @Volatile
+        private var cachedHttpClient: OkHttpClient =
+            AuthSessionStore.applyOkHttpSettings(OkHttpClient.Builder(), forStream = false).build()
+
+        private fun resolveHttpClient(): OkHttpClient {
+            val fingerprint = AuthSessionStore.currentNetworkFingerprint()
+            if (fingerprint == cachedFingerprint) return cachedHttpClient
+            return synchronized(clientLock) {
+                if (fingerprint != cachedFingerprint) {
+                    cachedHttpClient = AuthSessionStore.applyOkHttpSettings(OkHttpClient.Builder(), forStream = false).build()
+                    cachedFingerprint = fingerprint
+                }
+                cachedHttpClient
+            }
+        }
 
         suspend fun getNewPoTokenGenerator(context: Context): PoTokenWebView {
             return withContext(Dispatchers.Main) {

@@ -14,7 +14,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -358,10 +357,14 @@ private fun RenderMarkdown(markdown: String) {
             }
             trimmed == "---" || trimmed == "***" || trimmed == "___"
                 || (trimmed.length >= 3 && trimmed.all { it == '_' || it == '-' || it == '*' }) -> {
-                HorizontalDivider(
-                    color = Color(0xFF2A2A2A),
-                    modifier = Modifier.padding(vertical = 8.dp),
+                Spacer(modifier = Modifier.height(10.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(Color(0xFF2A2A2A)),
                 )
+                Spacer(modifier = Modifier.height(10.dp))
             }
             HEADER_RE.matches(trimmed) -> {
                 val match = HEADER_RE.find(trimmed)

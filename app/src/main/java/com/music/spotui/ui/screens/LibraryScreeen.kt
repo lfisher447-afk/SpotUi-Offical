@@ -380,7 +380,7 @@ fun LibraryScreen(navController: NavController) {
                 )
                 val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
                 Text(
-                    text = "Hazhan Salih",
+                    text = "Andrew",
                     color = Color.White,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
@@ -555,7 +555,7 @@ fun SumUpLibraryScreen(
     val albumEntries = entries.filter { !it.isPlaylist && it !in specialEntries }
     var playlistsExpanded by rememberSaveable { mutableStateOf(true) }
     var albumsExpanded by rememberSaveable { mutableStateOf(true) }
-    var youtubeMusicExpanded by rememberSaveable { mutableStateOf(false) }
+    var youtubeMusicExpanded by rememberSaveable(youtubePlaylistEntries.isNotEmpty()) { mutableStateOf(youtubePlaylistEntries.isNotEmpty()) }
     val libraryContext = LocalContext.current
 
     LazyColumn(

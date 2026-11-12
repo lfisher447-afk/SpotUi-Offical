@@ -20,6 +20,7 @@ enum class ExpressiveThemePreset(
 ) {
     SPOTUI_BLUE("Spotui Blue", "Focused blue with a cool, high-contrast music surface", 0xFF618DFF.toInt()),
     AURORA("Aurora", "Violet, cyan, and luminous night-sky highlights", 0xFF9A7BFF.toInt()),
+    THANKSGIVING("Harvest Gold", "Warm Thanksgiving amber, autumn maple, and deep espresso", 0xFFE87A24.toInt()),
     SUNSET("Sunset", "Warm coral and amber with soft dark surfaces", 0xFFFF6F61.toInt()),
     FOREST("Forest", "Deep green and mint for a calm listening environment", 0xFF46B989.toInt()),
     MONOCHROME("Monochrome", "Minimal neutral palette with a precise electric accent", 0xFFB8C1FF.toInt()),
@@ -189,6 +190,7 @@ object ThemePreferences {
     fun presetSpec(preset: ExpressiveThemePreset): SpotuiThemeSpec = when (preset) {
         ExpressiveThemePreset.SYSTEM -> fromSeed("System dynamic", preset, preset.seed, description = "Android wallpaper colors when available")
         ExpressiveThemePreset.AURORA -> fromSeed("Aurora", preset, preset.seed, secondaryOverride = 0xFF56D7F1.toInt(), tertiaryOverride = 0xFFFF8FE9.toInt(), description = preset.description)
+        ExpressiveThemePreset.THANKSGIVING -> fromSeed("Harvest Gold", preset, preset.seed, secondaryOverride = 0xFFFFB74D.toInt(), tertiaryOverride = 0xFFD94F30.toInt(), description = preset.description)
         ExpressiveThemePreset.SUNSET -> fromSeed("Sunset", preset, preset.seed, secondaryOverride = 0xFFFFB15C.toInt(), tertiaryOverride = 0xFFFFA5B4.toInt(), description = preset.description)
         ExpressiveThemePreset.FOREST -> fromSeed("Forest", preset, preset.seed, secondaryOverride = 0xFF9EE8C9.toInt(), tertiaryOverride = 0xFF87BFFF.toInt(), description = preset.description)
         ExpressiveThemePreset.MONOCHROME -> fromSeed("Monochrome", preset, preset.seed, secondaryOverride = 0xFFD4D8E8.toInt(), tertiaryOverride = 0xFF9AA7FF.toInt(), description = preset.description)

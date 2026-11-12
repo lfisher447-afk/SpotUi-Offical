@@ -1,10 +1,17 @@
 package com.music.spotui.util
 
+import android.app.SearchManager
 import android.content.Context
 import android.content.Intent
+import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.util.Log
 import androidx.navigation.NavController
+import com.metrolist.innertube.YouTube
+import com.metrolist.innertube.models.SongItem
+import com.metrolist.innertube.utils.YouTubeUrlParser
 import com.metrolist.spotify.Spotify
 import com.music.spotui.data.api.SpotifyTokenProvider
 import com.music.spotui.data.entity.SongsModel
@@ -23,39 +30,122 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 
 /**
- * Handles incoming Spotify deep links and routes them to playback or UI navigation.
+ * Handles incoming Spotify/YouTube deep links, ACTION_SEND shares,
+ * MEDIA_PLAY_FROM_SEARCH voice queries, and local audio ACTION_VIEW intents.
  */
 object DeepLinkHandler {
     private const val TAG = "DeepLinkHandler"
 
+    sealed class IncomingAction {
+        data class DeepLinkUri(val uri: Uri) : IncomingAction()
+        data class LocalAudioUri(val uri: Uri, val mimeType: String? = null) : IncomingAction()
+        data class SharedText(val text: String) : IncomingAction()
+        data class PlayFromSearch(
+            val query: String,
+            val title: String? = null,
+            val artist: String? = null,
+            val album: String? = null,
+        ) : IncomingAction()
+    }
+
     private val _deepLinkFlow = MutableSharedFlow<Uri>(
         replay = 0,
         extraBufferCapacity = 10,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
     val deepLinkFlow = _deepLinkFlow.asSharedFlow()
+
+    private val _incomingActionFlow = MutableSharedFlow<IncomingAction>(
+        replay = 0,
+        extraBufferCapacity = 10,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val incomingActionFlow = _incomingActionFlow.asSharedFlow()
 
     @Volatile
     private var pendingUri: Uri? = null
 
-    fun handleIntent(intent: Intent?) {
-        val data = intent?.data ?: return
+    @Volatile
+    private var pendingAction: IncomingAction? = null
+
+    fun parseIntent(intent: Intent?): IncomingAction? {
+        if (intent == null) return null
+        val action = intent.action
+        val type = intent.type?.lowercase()
+
+        when (action) {
+            "android.media.action.MEDIA_PLAY_FROM_SEARCH" -> {
+                val query = intent.getStringExtra(SearchManager.QUERY)?.trim().orEmpty()
+                val title = intent.getStringExtra(MediaStore.EXTRA_MEDIA_TITLE)?.trim()
+                val artist = intent.getStringExtra(MediaStore.EXTRA_MEDIA_ARTIST)?.trim()
+                val album = intent.getStringExtra(MediaStore.EXTRA_MEDIA_ALBUM)?.trim()
+                val effectiveQuery = query.ifBlank {
+                    listOfNotNull(title, artist, album)
+                        .filter { it.isNotBlank() }
+                        .joinToString(" ")
+                }
+                return IncomingAction.PlayFromSearch(
+                    query = effectiveQuery,
+                    title = title,
+                    artist = artist,
+                    album = album,
+                )
+            }
+
+            Intent.ACTION_SEND -> {
+                if (type == null || type.startsWith("text/")) {
+                    val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)?.trim()
+                        ?: intent.getStringExtra(Intent.EXTRA_SUBJECT)?.trim()
+                    if (!sharedText.isNullOrBlank()) {
+                        val extractedUrl = extractFirstSupportedUrl(sharedText)
+                        return if (extractedUrl != null) {
+                            IncomingAction.DeepLinkUri(Uri.parse(extractedUrl))
+                        } else {
+                            IncomingAction.SharedText(sharedText)
+                        }
+                    }
+                }
+                return null
+            }
+        }
+
+        val data = intent.data ?: return null
         val scheme = data.scheme?.lowercase()
         val host = data.host?.lowercase()
 
+        // Local audio playback (ACTION_VIEW with audio/* or content/file scheme)
+        if (action == Intent.ACTION_VIEW &&
+            (type?.startsWith("audio/") == true || scheme == "content" || scheme == "file")
+        ) {
+            return IncomingAction.LocalAudioUri(data, type)
+        }
+
         val isSpotifyLink = (scheme == "spotify") ||
-                (host != null && (host == "open.spotify.com" || host.endsWith(".spotify.com") || host.contains("spotify")))
+            (host != null && (host == "open.spotify.com" || host.endsWith(".spotify.com") || host.contains("spotify")))
+        val isYouTubeLink = YouTubeUrlParser.isYouTubeUrl(data.toString())
 
-        if (!isSpotifyLink) return
+        return if (isSpotifyLink || isYouTubeLink) {
+            IncomingAction.DeepLinkUri(data)
+        } else {
+            null
+        }
+    }
 
-        Log.d(TAG, "Received deep link intent: $data")
-        pendingUri = data
-        _deepLinkFlow.tryEmit(data)
+    fun handleIntent(intent: Intent?) {
+        val parsed = parseIntent(intent) ?: return
+        Log.d(TAG, "Received intent action: $parsed")
+        if (parsed is IncomingAction.DeepLinkUri) {
+            pendingUri = parsed.uri
+            _deepLinkFlow.tryEmit(parsed.uri)
+        }
+        pendingAction = parsed
+        _incomingActionFlow.tryEmit(parsed)
     }
 
     fun consumePendingUri(): Uri? {
@@ -64,35 +154,80 @@ object DeepLinkHandler {
         return uri
     }
 
+    fun consumePendingAction(): IncomingAction? {
+        val action = pendingAction
+        pendingAction = null
+        if (action is IncomingAction.DeepLinkUri) {
+            pendingUri = null
+        }
+        return action
+    }
+
+    fun processAction(
+        action: IncomingAction,
+        context: Context,
+        navController: NavController,
+        playerViewModel: PlayerViewModel,
+        scope: CoroutineScope,
+    ) {
+        when (action) {
+            is IncomingAction.DeepLinkUri ->
+                processUri(action.uri, context, navController, playerViewModel, scope)
+
+            is IncomingAction.LocalAudioUri ->
+                processLocalAudioUri(action.uri, context, navController, playerViewModel, scope)
+
+            is IncomingAction.SharedText ->
+                processPlayFromSearch(
+                    query = action.text,
+                    title = null,
+                    artist = null,
+                    context = context,
+                    navController = navController,
+                    playerViewModel = playerViewModel,
+                    scope = scope,
+                )
+
+            is IncomingAction.PlayFromSearch ->
+                processPlayFromSearch(
+                    query = action.query,
+                    title = action.title,
+                    artist = action.artist,
+                    context = context,
+                    navController = navController,
+                    playerViewModel = playerViewModel,
+                    scope = scope,
+                )
+        }
+    }
+
     fun processUri(
         uri: Uri,
         context: Context,
         navController: NavController,
         playerViewModel: PlayerViewModel,
-        scope: CoroutineScope
+        scope: CoroutineScope,
     ) {
         scope.launch(Dispatchers.IO) {
             val targetUri = resolveShortenedUriIfNeeded(uri)
-            val link = SpotifyDeepLink.parse(targetUri)
-            if (link == null) {
-                Log.w(TAG, "Unrecognized Spotify deep link: $targetUri")
+            val ytParsed = YouTubeUrlParser.parse(targetUri.toString())
+            if (ytParsed != null) {
+                processYouTubeUrl(ytParsed, context, navController, playerViewModel)
                 return@launch
             }
 
-            Log.d(TAG, "Processing deep link: $link")
+            val link = SpotifyDeepLink.parse(targetUri)
+            if (link == null) {
+                Log.w(TAG, "Unrecognized deep link: $targetUri")
+                return@launch
+            }
+
+            Log.d(TAG, "Processing Spotify deep link: $link")
 
             when (link) {
                 is SpotifyDeepLink.Track -> {
                     val song = resolveTrackInfo(link.id, context)
-                    withContext(Dispatchers.Main) {
-                        playerViewModel.updateQueue(listOf(song))
-                        playerViewModel.updateSongState(
-                            song.coverUri, song.title, song.singer, true, song.id, 0, song.album
-                        )
-                        SongPlayer.invalidateResolvedStream(song.url)
-                        SongPlayer.playSong(song.url, context)
-                        navigateToPlayer(navController)
-                    }
+                    playResolvedSong(song, context, navController, playerViewModel)
                 }
 
                 is SpotifyDeepLink.Playlist -> {
@@ -182,18 +317,244 @@ object DeepLinkHandler {
 
                 is SpotifyDeepLink.Episode -> {
                     val song = resolveEpisodeInfo(link.id, context)
+                    playResolvedSong(song, context, navController, playerViewModel)
+                }
+            }
+        }
+    }
+
+    private suspend fun processYouTubeUrl(
+        parsed: YouTubeUrlParser.ParsedUrl,
+        context: Context,
+        navController: NavController,
+        playerViewModel: PlayerViewModel,
+    ) {
+        when (parsed) {
+            is YouTubeUrlParser.ParsedUrl.Video -> {
+                val playerInfo = runCatching {
+                    YouTube.player(
+                        videoId = parsed.id,
+                        client = com.metrolist.innertube.models.YouTubeClient.WEB_REMIX,
+                    ).getOrNull()
+                }.getOrNull()
+                val details = playerInfo?.videoDetails
+                val song = SongsModel(
+                    id = (("yt:" + parsed.id).hashCode() and 0x7fffffff),
+                    title = details?.title?.ifBlank { null } ?: "YouTube Track",
+                    album = "",
+                    singer = details?.author.orEmpty(),
+                    coverUri = details?.thumbnail?.thumbnails?.lastOrNull()?.url
+                        ?: "https://i.ytimg.com/vi/${parsed.id}/hqdefault.jpg",
+                    url = "https://music.youtube.com/watch?v=${parsed.id}",
+                    durationMs = (details?.lengthSeconds?.toIntOrNull() ?: 0) * 1000,
+                )
+                playResolvedSong(song, context, navController, playerViewModel)
+            }
+
+            is YouTubeUrlParser.ParsedUrl.Playlist,
+            is YouTubeUrlParser.ParsedUrl.Album -> {
+                val songs = runCatching {
+                    YouTube.playlist(parsed.id).getOrNull()?.songs.orEmpty()
+                }.getOrDefault(emptyList())
+                val first = songs.firstOrNull()
+                if (first != null) {
+                    val queue = songs.map { it.toSongsModel() }
                     withContext(Dispatchers.Main) {
-                        playerViewModel.updateQueue(listOf(song))
+                        playerViewModel.updateQueue(queue)
+                        val lead = queue.first()
                         playerViewModel.updateSongState(
-                            song.coverUri, song.title, song.singer, true, song.id, 0, song.album
+                            lead.coverUri, lead.title, lead.singer, true, lead.id, 0, lead.album,
                         )
-                        SongPlayer.invalidateResolvedStream(song.url)
-                        SongPlayer.playSong(song.url, context)
+                        SongPlayer.invalidateResolvedStream(lead.url)
+                        SongPlayer.playSong(lead.url, context)
                         navigateToPlayer(navController)
                     }
                 }
             }
+
+            is YouTubeUrlParser.ParsedUrl.Artist -> {
+                withContext(Dispatchers.Main) {
+                    navController.navigate(Routes.Search.route) { launchSingleTop = true }
+                }
+            }
         }
+    }
+
+    private fun processLocalAudioUri(
+        uri: Uri,
+        context: Context,
+        navController: NavController,
+        playerViewModel: PlayerViewModel,
+        scope: CoroutineScope,
+    ) {
+        scope.launch(Dispatchers.IO) {
+            val retriever = MediaMetadataRetriever()
+            var title = queryDisplayName(context, uri)?.substringBeforeLast('.') ?: "Local Audio"
+            var artist = "Local File"
+            var album = ""
+            var durationMs = 0
+            var coverUri = ""
+
+            runCatching {
+                retriever.setDataSource(context, uri)
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
+                    ?.trim()?.takeIf(String::isNotEmpty)?.let { title = it }
+                val metaArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
+                    ?.trim()?.takeIf(String::isNotEmpty)
+                    ?: retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST)
+                        ?.trim()?.takeIf(String::isNotEmpty)
+                if (metaArtist != null) artist = metaArtist
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
+                    ?.trim()?.takeIf(String::isNotEmpty)?.let { album = it }
+                durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    ?.toIntOrNull() ?: 0
+                retriever.embeddedPicture?.let { artBytes ->
+                    val artFile = File(context.cacheDir, "local_art_${uri.toString().hashCode()}.jpg")
+                    artFile.writeBytes(artBytes)
+                    coverUri = Uri.fromFile(artFile).toString()
+                }
+            }.onFailure { err ->
+                AppDiagnostics.warning(TAG, "Local audio metadata extraction failed for $uri", err)
+            }
+            runCatching { retriever.release() }
+
+            val song = SongsModel(
+                id = (("local:" + uri.toString()).hashCode() and 0x7fffffff),
+                title = title,
+                album = album,
+                singer = artist,
+                coverUri = coverUri,
+                url = uri.toString(),
+                durationMs = durationMs,
+            )
+            playResolvedSong(song, context, navController, playerViewModel)
+        }
+    }
+
+    private fun processPlayFromSearch(
+        query: String,
+        title: String?,
+        artist: String?,
+        context: Context,
+        navController: NavController,
+        playerViewModel: PlayerViewModel,
+        scope: CoroutineScope,
+    ) {
+        if (query.isBlank()) {
+            scope.launch(Dispatchers.Main) {
+                if (playerViewModel.currentSongTitle.value.isNotBlank()) {
+                    SongPlayer.play()
+                    navigateToPlayer(navController)
+                } else {
+                    navController.navigate(Routes.Search.route) { launchSingleTop = true }
+                }
+            }
+            return
+        }
+
+        scope.launch(Dispatchers.IO) {
+            val cleanQuery = listOfNotNull(title?.takeIf(String::isNotBlank), artist?.takeIf(String::isNotBlank))
+                .takeIf { it.isNotEmpty() }
+                ?.joinToString(" ")
+                ?: query
+
+            val spotifyTrack = if (SpotifyTokenProvider.ensureToken(context)) {
+                runCatching { Spotify.search(cleanQuery, types = listOf("track"), limit = 5).getOrNull()?.tracks?.items?.firstOrNull() }
+                    .getOrNull()
+            } else {
+                null
+            }
+
+            if (spotifyTrack != null) {
+                val singer = spotifyTrack.artists.joinToString(", ") { it.name }
+                val song = SongsModel(
+                    id = (("track:" + spotifyTrack.id).hashCode() and 0x7fffffff),
+                    title = spotifyTrack.name.take(128),
+                    album = spotifyTrack.album?.name.orEmpty(),
+                    singer = singer,
+                    coverUri = spotifyTrack.album?.images?.firstOrNull()?.url.orEmpty(),
+                    url = SongPlayer.buildSpotifyPlayQuery(spotifyTrack.id, spotifyTrack.name, singer),
+                    spotifyTrackId = spotifyTrack.id,
+                    explicit = spotifyTrack.explicit,
+                    durationMs = spotifyTrack.durationMs,
+                    artistIds = spotifyTrack.artists.joinToString(",") { it.id.orEmpty() },
+                )
+                playResolvedSong(song, context, navController, playerViewModel)
+                return@launch
+            }
+
+            val ytItems = runCatching {
+                YouTube.search(cleanQuery, YouTube.SearchFilter.FILTER_SONG).getOrNull()?.items.orEmpty()
+            }.getOrDefault(emptyList())
+            val ytSong = ytItems.filterIsInstance<SongItem>().firstOrNull()
+            if (ytSong != null) {
+                playResolvedSong(ytSong.toSongsModel(), context, navController, playerViewModel)
+            } else {
+                withContext(Dispatchers.Main) {
+                    navController.navigate(Routes.Search.route) { launchSingleTop = true }
+                }
+            }
+        }
+    }
+
+    private suspend fun playResolvedSong(
+        song: SongsModel,
+        context: Context,
+        navController: NavController,
+        playerViewModel: PlayerViewModel,
+    ) {
+        withContext(Dispatchers.Main) {
+            playerViewModel.updateQueue(listOf(song))
+            playerViewModel.updateSongState(
+                song.coverUri,
+                song.title,
+                song.singer,
+                true,
+                song.id,
+                0,
+                song.album,
+            )
+            SongPlayer.invalidateResolvedStream(song.url)
+            SongPlayer.playSong(song.url, context)
+            navigateToPlayer(navController)
+        }
+    }
+
+    private fun SongItem.toSongsModel(): SongsModel =
+        SongsModel(
+            id = (("yt:" + id).hashCode() and 0x7fffffff),
+            title = title,
+            album = album?.name.orEmpty(),
+            singer = artists.joinToString(", ") { it.name },
+            coverUri = thumbnail,
+            url = "https://music.youtube.com/watch?v=$id",
+            explicit = explicit,
+            durationMs = (duration ?: 0) * 1000,
+        )
+
+    private fun queryDisplayName(context: Context, uri: Uri): String? =
+        runCatching {
+            if (uri.scheme == "content") {
+                context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (idx >= 0) return@runCatching cursor.getString(idx)
+                    }
+                }
+            }
+            uri.lastPathSegment
+        }.getOrNull()
+
+    private fun extractFirstSupportedUrl(text: String): String? {
+        val urlRegex = Regex("""(spotify:[a-zA-Z0-9:_/?=&%-]+|https?://[^\s<>"']+)""", RegexOption.IGNORE_CASE)
+        return urlRegex.findAll(text)
+            .map { it.value.trimEnd('.', ',', ')', ']', '!') }
+            .firstOrNull { candidate ->
+                candidate.startsWith("spotify:", ignoreCase = true) ||
+                    candidate.contains("spotify.com", ignoreCase = true) ||
+                    candidate.contains("spotify.link", ignoreCase = true) ||
+                    YouTubeUrlParser.isYouTubeUrl(candidate)
+            }
     }
 
     private fun navigateToPlayer(navController: NavController) {
@@ -220,12 +581,11 @@ object DeepLinkHandler {
                     spotifyTrackId = trackId,
                     explicit = track.explicit,
                     durationMs = track.durationMs,
-                    artistIds = track.artists.joinToString(",") { it.id.orEmpty() }
+                    artistIds = track.artists.joinToString(",") { it.id.orEmpty() },
                 )
             }
         }
 
-        // Web embed metadata resolution (extracts exact track title, artist name, cover art, duration, explicit flag without requiring login)
         val webMeta = fetchSpotifyEmbedMeta("track", trackId)
         if (webMeta != null && webMeta.title.isNotBlank()) {
             return SongsModel(
@@ -237,11 +597,10 @@ object DeepLinkHandler {
                 url = SongPlayer.buildSpotifyPlayQuery(trackId, webMeta.title, webMeta.artist),
                 spotifyTrackId = trackId,
                 explicit = webMeta.explicit,
-                durationMs = webMeta.durationMs
+                durationMs = webMeta.durationMs,
             )
         }
 
-        // Public Spotify oEmbed API fallback
         val oembed = fetchOEmbedMetadata("https://open.spotify.com/track/$trackId")
         val title = oembed?.title?.ifBlank { null } ?: "Track $trackId"
         val singer = oembed?.authorName.orEmpty()
@@ -254,7 +613,7 @@ object DeepLinkHandler {
             singer = singer,
             coverUri = cover,
             url = SongPlayer.buildSpotifyPlayQuery(trackId, title, singer),
-            spotifyTrackId = trackId
+            spotifyTrackId = trackId,
         )
     }
 
@@ -272,7 +631,7 @@ object DeepLinkHandler {
             coverUri = cover,
             url = "episode:$episodeId",
             spotifyTrackId = episodeId,
-            durationMs = webMeta?.durationMs ?: 0
+            durationMs = webMeta?.durationMs ?: 0,
         )
     }
 
@@ -281,7 +640,7 @@ object DeepLinkHandler {
         val artist: String,
         val coverUri: String,
         val durationMs: Int = 0,
-        val explicit: Boolean = false
+        val explicit: Boolean = false,
     )
 
     private fun fetchSpotifyEmbedMeta(type: String, id: String): SpotifyWebMeta? {
@@ -341,7 +700,7 @@ object DeepLinkHandler {
                                 artist = artist,
                                 coverUri = coverUri,
                                 durationMs = durationMs,
-                                explicit = isExplicit
+                                explicit = isExplicit,
                             )
                         }
                     }
@@ -357,7 +716,7 @@ object DeepLinkHandler {
     private data class OEmbedMetadata(
         val title: String,
         val authorName: String,
-        val thumbnailUrl: String
+        val thumbnailUrl: String,
     )
 
     private fun fetchOEmbedMetadata(spotifyUrl: String): OEmbedMetadata? {

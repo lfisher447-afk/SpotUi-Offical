@@ -100,14 +100,23 @@ class MyApplication : Application(), Configuration.Provider {
             gl = locale.country.takeIf { it.isNotBlank() } ?: "US",
             hl = locale.language.takeIf { it.isNotBlank() } ?: "en",
         )
+        YouTube.timingHook = com.metrolist.innertube.network.InnerTubeTimingHook { endpoint, method, durationMs, statusCode, error ->
+            if (error != null || (statusCode != null && statusCode >= 400) || durationMs >= 2_500L) {
+                AppDiagnostics.warning(
+                    "InnerTube",
+                    "$method $endpoint status=${statusCode ?: -1} durationMs=$durationMs${if (error != null) " err=$error" else ""}",
+                )
+            }
+        }
+        // Apply DoH, proxy pool, WebClient PoToken flag, and optional YouTube session cookie on IO.
         appScope.launch {
+            runCatching {
+                com.music.spotui.data.preferences.applyNetworkAndAuthSettings(applicationContext)
+            }.onFailure { AppDiagnostics.warning("NetworkSettings", "Restore failed", it) }
             runCatching {
                 YouTube.visitorData = YouTube.visitorData().getOrNull() ?: YouTube.visitorData
             }.onFailure { AppDiagnostics.warning("YouTube", "Visitor data warm-up failed", it) }
         }
-        // YouTube playback runs anonymously; age-gated official audio falls back
-        // to matching normal YouTube uploads instead of requiring sign-in.
-        YouTube.cookie = null
 
         // Warm the Home feed cache so the first navigation to Home is instant.
         // No-op (gracefully) until a Spotify token is available.

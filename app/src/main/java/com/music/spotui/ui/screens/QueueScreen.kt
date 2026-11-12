@@ -118,7 +118,7 @@ fun QueueScreen(navController: NavController) {
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(16.dp, 12.dp, 16.dp, 6.dp)
                     )
-                    QueueRow(song = it, highlight = true, onClick = {})
+                    QueueRow(song = it, highlight = true, onClick = { navController.navigateUp() })
                 }
             }
             if (upcoming.isNotEmpty()) {

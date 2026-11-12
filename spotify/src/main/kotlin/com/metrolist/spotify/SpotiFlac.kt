@@ -146,6 +146,26 @@ object SpotiFlac {
     var logger: ((level: String, message: String) -> Unit)? = null
     private fun log(level: String, msg: String) = logger?.invoke(level, "SpotiFlac: $msg")
 
+    @Volatile
+    var deezerArl: String? = null
+        set(value) {
+            field = value?.trim()?.takeIf { it.isNotEmpty() }
+        }
+
+    @Volatile
+    var customMirrorBaseUrl: String? = null
+        set(value) {
+            val cleaned = value?.trim()?.trimEnd('/')
+            field = cleaned?.takeIf { it.startsWith("https://", ignoreCase = true) }
+        }
+
+    data class DeezerAccountStatus(
+        val valid: Boolean,
+        val userName: String = "",
+        val losslessCapable: Boolean = false,
+        val detail: String = "",
+    )
+
     private val client by lazy {
         HttpClient(OkHttp) {
             engine {
@@ -213,24 +233,85 @@ object SpotiFlac {
     }
 
     /**
+     * Validates a user-provided Deezer ARL cookie against Deezer's session endpoint.
+     * Never logs or leaks the ARL value.
+     */
+    suspend fun validateDeezerArl(arl: String): DeezerAccountStatus {
+        val cleanArl = arl.trim()
+        if (cleanArl.isEmpty()) {
+            return DeezerAccountStatus(valid = false, detail = "Enter a Deezer ARL cookie.")
+        }
+        return runCatching {
+            val resp = client.get("https://www.deezer.com/ajax/gw-light.php") {
+                parameter("method", "deezer.getUserData")
+                parameter("input", "3")
+                parameter("api_version", "1.0")
+                parameter("api_token", "")
+                header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36")
+                header("Cookie", "arl=$cleanArl")
+                header("Accept", "application/json")
+            }
+            if (resp.status.value !in 200..299) {
+                return@runCatching DeezerAccountStatus(
+                    valid = false,
+                    detail = "Deezer responded HTTP ${resp.status.value}",
+                )
+            }
+            val root = json.parseToJsonElement(resp.bodyAsText()).jsonObject
+            val results = root["results"] as? JsonObject
+            val user = results?.get("USER") as? JsonObject
+            val userId = user?.get("USER_ID")?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 0L
+            if (userId <= 0L) {
+                return@runCatching DeezerAccountStatus(
+                    valid = false,
+                    detail = "ARL cookie is invalid or expired. Sign in again to refresh it.",
+                )
+            }
+            val blogName = user?.get("BLOG_NAME")?.jsonPrimitive?.contentOrNull.orEmpty().ifBlank { "Deezer User #$userId" }
+            val options = user?.get("OPTIONS") as? JsonObject
+            val lossless = options?.get("web_lossless")?.jsonPrimitive?.booleanOrNull
+                ?: options?.get("mobile_lossless")?.jsonPrimitive?.booleanOrNull
+                ?: false
+            DeezerAccountStatus(
+                valid = true,
+                userName = blogName,
+                losslessCapable = lossless,
+                detail = if (lossless) "Signed in as $blogName (HiFi FLAC eligible)" else "Signed in as $blogName (Standard tier)",
+            )
+        }.getOrElse { err ->
+            DeezerAccountStatus(valid = false, detail = "Deezer check failed: ${err.message ?: "network error"}")
+        }
+    }
+
+    /**
      * Live status of each individual provider (Tidal, Qobuz, Amazon, Deezer, Monochrome)
      * including up/down status and active 503 cooldowns.
      */
     suspend fun getProviderStatuses(): List<ProviderStatus> {
         val up = upLosslessProviders()
         val now = System.currentTimeMillis()
+        val arlReady = !deezerArl.isNullOrBlank()
+        val mirrorActive = !customMirrorBaseUrl.isNullOrBlank()
 
         val providers = listOf(
-            Triple("tidal", "Tidal (Community)", "High-res & CD quality FLAC"),
+            Triple("tidal", "Tidal (Community)", "High-res & CD quality FLAC via spotbye mirror"),
             Triple("qobuz", "Qobuz (Community)", "24-bit Hi-Res & CD quality FLAC via ISRC"),
             Triple("amazon", "Amazon Music (Community)", "24-bit Ultra HD FLAC"),
-            Triple("deezer", "Deezer (Community)", "16-bit CD quality FLAC via ISRC"),
+            Triple(
+                "deezer",
+                "Deezer (Community${if (arlReady) " + ARL" else ""})",
+                if (arlReady) {
+                    "16-bit CD FLAC via ISRC · Session ARL linked"
+                } else {
+                    "16-bit CD FLAC via ISRC · Link Deezer ARL in Settings if proxy requires login"
+                },
+            ),
         )
 
         val list = mutableListOf<ProviderStatus>()
 
         for ((id, name, desc) in providers) {
-            val isUp = id in up
+            val isUp = id in up || mirrorActive
             val cooldownUntil = providerCooldowns[id] ?: 0L
             val isCooldown = cooldownUntil > now
             val cdSec = if (isCooldown) ((cooldownUntil - now) / 1000).toInt() else 0
@@ -250,23 +331,26 @@ object SpotiFlac {
         list.add(
             ProviderStatus(
                 id = "monochrome",
-                name = "Tidal (Monochrome)",
+                name = "Tidal (Monochrome / Squid.wtf)",
                 isUp = monoInstances.isNotEmpty(),
                 isCooldown = false,
-                detail = "${monoInstances.size} live public mirror instances",
+                detail = "${monoInstances.size} live no-login public mirrors",
             )
         )
 
         return list
     }
 
-    /** True if any SpotiFLAC lossless server is up — gate lossless attempts on this. */
-    suspend fun anyLosslessServerUp(): Boolean = upLosslessProviders().isNotEmpty()
+    /** True if any lossless resolver path (community or public Monochrome mirrors) can be queried. */
+    suspend fun anyLosslessServerUp(): Boolean =
+        upLosslessProviders().isNotEmpty() || TIDAL_MONOCHROME_INSTANCES.isNotEmpty()
 
     /**
      * Resolve a lossless FLAC URL for a Spotify track.
-     * @param isrc the track's ISRC (used for Qobuz matching); may be null.
+     * @param isrc the track's ISRC (used for Qobuz & Deezer matching); may be null.
      * @param preferHiRes request 24-bit where available, else CD-quality 16-bit.
+     * @param enabledProviders subset of enabled provider IDs ("tidal", "qobuz", "amazon", "deezer").
+     * @param soloProvider if true, only queries the highest-priority enabled provider.
      */
     suspend fun resolve(
         spotifyTrackId: String,
@@ -274,37 +358,62 @@ object SpotiFlac {
         preferHiRes: Boolean = true,
         providerOrder: List<String> = listOf("tidal", "qobuz", "amazon", "deezer"),
         rejectPreviewLength: Boolean = true,
+        enabledProviders: Set<String> = allProviders,
+        soloProvider: Boolean = false,
     ): Result = coroutineScope {
         val upProvidersDeferred = async { upLosslessProviders() }
         val idsDeferred = async { runCatching { resolveProviderIds(spotifyTrackId, isrc) }.getOrDefault(ProviderIds()) }
 
         val upProviders = upProvidersDeferred.await()
-        // All lossless servers down → don't waste time; caller falls back to YouTube.
-        if (upProviders.isEmpty()) {
-            log("D", "all lossless servers down — skipping lossless")
-            return@coroutineScope Result.NotFound
-        }
         val quality = if (preferHiRes) "24" else "16"
         val ids = idsDeferred.await()
 
+        val allowed = enabledProviders.map { it.lowercase() }.toSet().ifEmpty { allProviders }
+        val orderedActive = (providerOrder.map { it.lowercase() } + allProviders)
+            .distinct()
+            .filter { it in allowed }
+            .let { if (soloProvider) it.take(1) else it }
+
         val candidates = mutableListOf<suspend () -> Result>()
-        val normalizedOrder = (providerOrder.map { it.lowercase() } + allProviders).distinct()
-        normalizedOrder.forEach { provider ->
+        val customBase = customMirrorBaseUrl
+
+        orderedActive.forEach { provider ->
+            val onCooldown = (providerCooldowns[provider] ?: 0L) > System.currentTimeMillis()
+            if (onCooldown) return@forEach
             when (provider) {
-                "tidal" -> if ((providerCooldowns["tidal"] ?: 0L) <= System.currentTimeMillis() && !ids.tidalId.isNullOrBlank()) {
-                    // The direct provider-compatible mirror path is tried before the
-                    // legacy community candidate while retaining the user's route order.
+                "tidal" -> if (!ids.tidalId.isNullOrBlank()) {
+                    // Monochrome / Squid.wtf direct mirrors work independently without login or spotbye status.
                     candidates.add { resolveTidalMonochrome(ids.tidalId, preferHiRes, rejectPreviewLength) }
-                    if ("tidal" in upProviders) candidates.add { communityDownload("tidal", TIDAL_BASE, ids.tidalId, quality, rejectPreviewLength) }
+                    if (customBase != null) {
+                        candidates.add { communityDownload("tidal", customBase, ids.tidalId, quality, rejectPreviewLength) }
+                    }
+                    if ("tidal" in upProviders) {
+                        candidates.add { communityDownload("tidal", TIDAL_BASE, ids.tidalId, quality, rejectPreviewLength) }
+                    }
                 }
-                "qobuz" -> if ((providerCooldowns["qobuz"] ?: 0L) <= System.currentTimeMillis() && !ids.qobuzId.isNullOrBlank() && "qobuz" in upProviders) {
-                    candidates.add { communityDownload("qobuz", QOBUZ_BASE, ids.qobuzId, quality, rejectPreviewLength) }
+                "qobuz" -> if (!ids.qobuzId.isNullOrBlank()) {
+                    if (customBase != null) {
+                        candidates.add { communityDownload("qobuz", customBase, ids.qobuzId, quality, rejectPreviewLength) }
+                    }
+                    if ("qobuz" in upProviders) {
+                        candidates.add { communityDownload("qobuz", QOBUZ_BASE, ids.qobuzId, quality, rejectPreviewLength) }
+                    }
                 }
-                "amazon" -> if ((providerCooldowns["amazon"] ?: 0L) <= System.currentTimeMillis() && !ids.amazonId.isNullOrBlank() && "amazon" in upProviders) {
-                    candidates.add { communityDownload("amazon", AMAZON_BASE, ids.amazonId, quality, rejectPreviewLength) }
+                "amazon" -> if (!ids.amazonId.isNullOrBlank()) {
+                    if (customBase != null) {
+                        candidates.add { communityDownload("amazon", customBase, ids.amazonId, quality, rejectPreviewLength) }
+                    }
+                    if ("amazon" in upProviders) {
+                        candidates.add { communityDownload("amazon", AMAZON_BASE, ids.amazonId, quality, rejectPreviewLength) }
+                    }
                 }
-                "deezer" -> if ((providerCooldowns["deezer"] ?: 0L) <= System.currentTimeMillis() && !ids.deezerId.isNullOrBlank() && "deezer" in upProviders) {
-                    candidates.add { communityDownload("deezer", DEEZER_BASE, ids.deezerId, quality, rejectPreviewLength) }
+                "deezer" -> if (!ids.deezerId.isNullOrBlank()) {
+                    if (customBase != null) {
+                        candidates.add { communityDownload("deezer", customBase, ids.deezerId, quality, rejectPreviewLength, arl = deezerArl) }
+                    }
+                    if ("deezer" in upProviders) {
+                        candidates.add { communityDownload("deezer", DEEZER_BASE, ids.deezerId, quality, rejectPreviewLength, arl = deezerArl) }
+                    }
                 }
             }
         }
@@ -316,7 +425,7 @@ object SpotiFlac {
         val channel = Channel<Result>(candidates.size)
         val jobs = candidates.map { task ->
             launch {
-                val r = withTimeoutOrNull(2500L) { task() } ?: Result.NotFound
+                val r = withTimeoutOrNull(4500L) { task() } ?: Result.NotFound
                 channel.send(r)
             }
         }
@@ -439,6 +548,7 @@ object SpotiFlac {
         id: String,
         quality: String,
         rejectPreviewLength: Boolean,
+        arl: String? = null,
     ): Result {
         // Retry transient errors (429/502/504) with a short backoff — the proxies
         // are flaky-but-alive far more often than genuinely down. 503 is a real
@@ -451,10 +561,16 @@ object SpotiFlac {
                     header("x-api-key", API_KEY)
                     header("User-Agent", UA)
                     header("Accept", "application/json")
+                    if (!arl.isNullOrBlank()) {
+                        header("X-Deezer-ARL", arl)
+                    }
                     contentType(ContentType.Application.Json)
                     setBody(json.encodeToString(JsonObject.serializer(), buildJsonObject {
                         put("id", id)
                         put("quality", quality)
+                        if (!arl.isNullOrBlank()) {
+                            put("arl", arl)
+                        }
                     }))
                 }
             }.getOrElse { return Result.Error(it.message ?: "network error") }

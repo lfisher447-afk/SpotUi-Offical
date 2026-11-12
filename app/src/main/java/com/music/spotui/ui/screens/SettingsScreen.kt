@@ -1,6 +1,7 @@
 package com.music.spotui.ui.screens
 
 import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -113,8 +114,34 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.platform.testTag
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.metrolist.innertube.YouTube
+import com.metrolist.innertube.network.AuthSessionStore
+import com.metrolist.innertube.network.DnsOverHttpsPreset
+import com.music.spotui.BuildConfig
+import com.music.spotui.data.preferences.getDnsPreset
+import com.music.spotui.data.preferences.getPlaybackPitchPref
+import com.music.spotui.data.preferences.getPlaybackSpeedPref
+import com.music.spotui.data.preferences.getProxyUrls
+import com.music.spotui.data.preferences.isIpRotationEnabled
+import com.music.spotui.data.preferences.isSkipSilenceEnabled
+import com.music.spotui.data.preferences.isStreamBypassProxyEnabled
+import com.music.spotui.data.preferences.isWebClientPoTokenEnabled
+import com.music.spotui.data.preferences.setDnsPreset
+import com.music.spotui.data.preferences.setIpRotationEnabled
+import com.music.spotui.data.preferences.setPlaybackPitchPref
+import com.music.spotui.data.preferences.setPlaybackSpeedPref
+import com.music.spotui.data.preferences.setProxyUrls
+import com.music.spotui.data.preferences.setSkipSilenceEnabled
+import com.music.spotui.data.preferences.setStreamBypassProxyEnabled
+import com.music.spotui.data.preferences.setWebClientPoTokenEnabled
+import com.music.spotui.data.preferences.setYoutubeCookie
+import com.music.spotui.data.update.UpdateChecker
 import com.music.spotui.ui.components.DefaultAppPrompt
 import com.music.spotui.util.DefaultLinkHelper
+import com.music.spotui.util.PermissionHelper
 import com.music.spotui.ui.theme.AppBackground
 import com.music.spotui.ui.theme.AppPalette
 import com.music.spotui.data.cache.CacheStorageManager
@@ -216,6 +243,29 @@ fun SettingsScreen(navController: NavController) {
     var oneUiSquircle by remember { mutableStateOf(com.music.spotui.data.preferences.isOneUiSquircleIcons(context)) }
     var explicitSectionExpanded by rememberSaveable { mutableStateOf(true) }
     var oneUiSectionExpanded by rememberSaveable { mutableStateOf(true) }
+    var networkSessionSectionExpanded by rememberSaveable { mutableStateOf(false) }
+    var permissionsSectionExpanded by rememberSaveable { mutableStateOf(false) }
+
+    val authState by AuthSessionStore.authStateFlow.collectAsStateWithLifecycle()
+    var dnsPreset by remember { mutableStateOf(getDnsPreset(context)) }
+    var webClientPoToken by remember { mutableStateOf(isWebClientPoTokenEnabled(context)) }
+    var proxyUrlsInput by remember { mutableStateOf(getProxyUrls(context)) }
+    var ipRotationEnabled by remember { mutableStateOf(isIpRotationEnabled(context)) }
+    var streamBypassProxy by remember { mutableStateOf(isStreamBypassProxyEnabled(context)) }
+    var activeProxyCount by remember { mutableStateOf(AuthSessionStore.activeProxyCount()) }
+    var proxyStatusNote by remember { mutableStateOf("") }
+
+    var hasNotifPerm by remember { mutableStateOf(PermissionHelper.hasNotificationPermission(context)) }
+    var hasMediaPerm by remember { mutableStateOf(PermissionHelper.hasMediaReadPermission(context)) }
+    var hasBluetoothPerm by remember { mutableStateOf(PermissionHelper.hasBluetoothConnectPermission(context)) }
+    var playbackSpeed by remember { mutableStateOf(getPlaybackSpeedPref(context)) }
+    var playbackPitch by remember { mutableStateOf(getPlaybackPitchPref(context)) }
+    var skipSilence by remember { mutableStateOf(isSkipSilenceEnabled(context)) }
+    var ytSessionVerifyBusy by remember { mutableStateOf(false) }
+    var ytSessionSummary by remember { mutableStateOf("") }
+    var manualUpdateBusy by remember { mutableStateOf(false) }
+    var manualUpdateStatus by remember { mutableStateOf("") }
+    var manualUpdateInfo by remember { mutableStateOf<UpdateChecker.UpdateInfo?>(null) }
 
     fun refreshCacheSummary() {
         val summary = CacheStorageManager.summarize(context)
@@ -270,6 +320,10 @@ fun SettingsScreen(navController: NavController) {
                     updateRepoUrl = getUpdateRepoUrl(context)
                     backupDirUri = BackupPref.getDirectoryUri(context)
                     isAutoBackup = BackupPref.isAutoBackupEnabled(context)
+                    playbackSpeed = getPlaybackSpeedPref(context)
+                    playbackPitch = getPlaybackPitchPref(context)
+                    skipSilence = isSkipSilenceEnabled(context)
+                    SongPlayer.refreshPlaybackTuning(context)
                 }
             }
         }
@@ -336,12 +390,39 @@ fun SettingsScreen(navController: NavController) {
         }
     }
 
+    val notifPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) {
+        hasNotifPerm = PermissionHelper.hasNotificationPermission(context)
+    }
+    val mediaPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) {
+        hasMediaPerm = PermissionHelper.hasMediaReadPermission(context)
+    }
+    val bluetoothPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) {
+        hasBluetoothPerm = PermissionHelper.hasBluetoothConnectPermission(context)
+    }
+    val batchPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) {
+        hasNotifPerm = PermissionHelper.hasNotificationPermission(context)
+        hasMediaPerm = PermissionHelper.hasMediaReadPermission(context)
+        hasBluetoothPerm = PermissionHelper.hasBluetoothConnectPermission(context)
+    }
+
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 isDefaultLinkHandler = DefaultLinkHelper.isAppDefaultLinkHandler(context)
                 youtubeSyncStatus = com.music.spotui.data.youtube.YouTubeMusicSync.status(context)
+                batteryOptExempt = BatteryOptimizationHelper.isIgnoringBatteryOptimization(context)
+                hasNotifPerm = PermissionHelper.hasNotificationPermission(context)
+                hasMediaPerm = PermissionHelper.hasMediaReadPermission(context)
+                hasBluetoothPerm = PermissionHelper.hasBluetoothConnectPermission(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -1064,6 +1145,360 @@ fun SettingsScreen(navController: NavController) {
                     )
                 }
             }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            CollapsibleSettingsSection(
+                title = "Network, DNS & InnerTube Session",
+                subtitle = "DnsOverHttps, proxy rotation, PoToken, and playback auth telemetry",
+                expanded = networkSessionSectionExpanded,
+                onExpandedChange = { networkSessionSectionExpanded = it },
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF1A1A20))
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    val sessionLabel = when {
+                        authState.hasPlaybackLoginContext -> "Authenticated Playback Context"
+                        authState.hasLoginCookie -> "Cookie Active (Sync Pending)"
+                        else -> "Anonymous Visitor Session"
+                    }
+                    val poTokenLabel = if (!authState.poToken.isNullOrBlank() || !authState.poTokenPlayer.isNullOrBlank()) {
+                        "PoToken ready"
+                    } else {
+                        "No cached PoToken"
+                    }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF12161D))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(sessionLabel, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            "Fingerprint ${authState.fingerprint.take(12)} · $poTokenLabel · Proxies active: $activeProxyCount",
+                            color = Color(0xFFB3B8C4),
+                            fontSize = 11.sp,
+                        )
+                        if (ytSessionSummary.isNotBlank()) {
+                            Text(ytSessionSummary, color = AppPalette, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            TextButton(
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .testTag("yt_session_signin_button"),
+                                onClick = {
+                                    context.startActivity(Intent(context, YouTubeMusicWebActivity::class.java))
+                                },
+                            ) {
+                                Text(
+                                    if (authState.hasLoginCookie) "Refresh YT Login" else "Sign in to YT Music",
+                                    color = AppPalette,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                            TextButton(
+                                enabled = !ytSessionVerifyBusy,
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .testTag("yt_session_verify_button"),
+                                onClick = {
+                                    ytSessionVerifyBusy = true
+                                    scope.launch {
+                                        val infoResult = YouTube.accountInfo()
+                                        val channelsResult = YouTube.accountChannels()
+                                        ytSessionVerifyBusy = false
+                                        ytSessionSummary = infoResult.fold(
+                                            onSuccess = { info ->
+                                                val channelsCount = channelsResult.getOrNull()?.size ?: 0
+                                                val handle = info.channelHandle?.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty()
+                                                "Verified: ${info.name}$handle · $channelsCount channel(s)"
+                                            },
+                                            onFailure = { err ->
+                                                val visitorOk = !AuthSessionStore.visitorData.isNullOrBlank()
+                                                if (visitorOk) {
+                                                    "Visitor context ready (sign in for personal YT channels)"
+                                                } else {
+                                                    "Session check failed: ${err.message ?: "offline"}"
+                                                }
+                                            },
+                                        )
+                                    }
+                                },
+                            ) {
+                                Text(
+                                    if (ytSessionVerifyBusy) "Checking…" else "Verify Channels",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                            if (authState.hasLoginCookie) {
+                                TextButton(
+                                    modifier = Modifier
+                                        .heightIn(min = 48.dp)
+                                        .testTag("yt_session_signout_button"),
+                                    onClick = {
+                                        setYoutubeCookie(context, "")
+                                        ytSessionSummary = "YouTube cookie cleared; using anonymous visitor context."
+                                    },
+                                ) {
+                                    Text("Sign Out YT", color = Color(0xFFFF8B94), fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                    }
+
+                    SettingsSwitchRow(
+                        title = "WebClient Service Integrity PoToken",
+                        subtitle = "Attach PoToken checks to WEB / WEB_REMIX / TVHTML5 stream resolution.",
+                        checked = webClientPoToken,
+                        onCheckedChange = { enabled ->
+                            webClientPoToken = enabled
+                            setWebClientPoTokenEnabled(context, enabled)
+                        },
+                    )
+
+                    Text("DNS-over-HTTPS (DoH) resolver", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        DnsOverHttpsPreset.entries.forEach { preset ->
+                            val selected = dnsPreset == preset
+                            Box(
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(if (selected) AppPalette else Color.White.copy(alpha = 0.08f))
+                                    .clickable {
+                                        dnsPreset = preset
+                                        setDnsPreset(context, preset)
+                                    }
+                                    .testTag("doh_preset_${preset.name.lowercase()}")
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    preset.displayName,
+                                    color = if (selected) Color.Black else Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+                    }
+
+                    Text("Proxy Pool (comma or newline separated)", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    OutlinedTextField(
+                        value = proxyUrlsInput,
+                        onValueChange = { proxyUrlsInput = it },
+                        placeholder = { Text("http://user:pass@host:8080, socks5://host:1080", color = Color.Gray, fontSize = 12.sp) },
+                        singleLine = false,
+                        maxLines = 3,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("proxy_urls_input"),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = AppPalette,
+                            unfocusedBorderColor = Color(0xFF34343F),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                        ),
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        TextButton(
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("apply_proxy_button"),
+                            onClick = {
+                                setProxyUrls(context, proxyUrlsInput)
+                                activeProxyCount = AuthSessionStore.activeProxyCount()
+                                proxyStatusNote = if (activeProxyCount > 0) {
+                                    "Applied $activeProxyCount active proxy endpoint(s)."
+                                } else {
+                                    "Cleared proxy pool; using direct connection."
+                                }
+                            },
+                        ) {
+                            Text("Apply Proxies", color = AppPalette, fontWeight = FontWeight.Bold)
+                        }
+                        if (activeProxyCount > 1) {
+                            TextButton(
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .testTag("rotate_ip_button"),
+                                onClick = {
+                                    val rotated = AuthSessionStore.rotateIp()
+                                    proxyStatusNote = if (rotated) "Rotated to next proxy endpoint." else "No alternate proxy available."
+                                },
+                            ) {
+                                Text("Rotate IP Now", color = Color.White, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                    if (proxyStatusNote.isNotBlank()) {
+                        Text(proxyStatusNote, color = Color(0xFF9FA9BC), fontSize = 11.sp)
+                    }
+
+                    SettingsSwitchRow(
+                        title = "Automatic IP rotation",
+                        subtitle = "Rotates across configured proxies on failure or HTTP 429 responses.",
+                        checked = ipRotationEnabled,
+                        onCheckedChange = { enabled ->
+                            ipRotationEnabled = enabled
+                            setIpRotationEnabled(context, enabled)
+                        },
+                    )
+                    SettingsSwitchRow(
+                        title = "Bypass proxy for media streams",
+                        subtitle = "Keep API metadata behind proxy while streaming CDN audio directly.",
+                        checked = streamBypassProxy,
+                        onCheckedChange = { bypass ->
+                            streamBypassProxy = bypass
+                            setStreamBypassProxyEnabled(context, bypass)
+                        },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            CollapsibleSettingsSection(
+                title = "App Permissions & System Access",
+                subtitle = "Runtime permissions for notifications, local audio, Bluetooth, and battery",
+                expanded = permissionsSectionExpanded,
+                onExpandedChange = { permissionsSectionExpanded = it },
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF1A1A20))
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    val notifPerms = PermissionHelper.notificationPermissions()
+                    PermissionStatusRow(
+                        title = "Playback & Download Notifications",
+                        subtitle = if (hasNotifPerm) "Granted — media controls and updates active" else "Needed on Android 13+ for player controls",
+                        granted = hasNotifPerm,
+                        testTag = "permission_notifications_row",
+                        onAction = {
+                            if (!hasNotifPerm && notifPerms.isNotEmpty()) {
+                                notifPermissionLauncher.launch(notifPerms.toTypedArray())
+                            } else {
+                                PermissionHelper.openAppPermissionSettings(context)
+                            }
+                        },
+                    )
+                    val mediaPerms = PermissionHelper.mediaReadPermissions()
+                    PermissionStatusRow(
+                        title = "Local Audio Library Access",
+                        subtitle = if (hasMediaPerm) "Granted — local audio files and downloads readable" else "Required to browse and play on-device audio tracks",
+                        granted = hasMediaPerm,
+                        testTag = "permission_media_row",
+                        onAction = {
+                            if (!hasMediaPerm && mediaPerms.isNotEmpty()) {
+                                mediaPermissionLauncher.launch(mediaPerms.toTypedArray())
+                            } else {
+                                PermissionHelper.openAppPermissionSettings(context)
+                            }
+                        },
+                    )
+                    val btPerms = PermissionHelper.bluetoothConnectPermissions()
+                    PermissionStatusRow(
+                        title = "Bluetooth Audio Device Routing",
+                        subtitle = if (hasBluetoothPerm) "Granted — headset & speaker output routing active" else "Needed on Android 12+ to display and route BT devices",
+                        granted = hasBluetoothPerm,
+                        testTag = "permission_bluetooth_row",
+                        onAction = {
+                            if (!hasBluetoothPerm && btPerms.isNotEmpty()) {
+                                bluetoothPermissionLauncher.launch(btPerms.toTypedArray())
+                            } else {
+                                PermissionHelper.openAppPermissionSettings(context)
+                            }
+                        },
+                    )
+                    PermissionStatusRow(
+                        title = "Unrestricted Background Battery",
+                        subtitle = if (batteryOptExempt) "Exempt — uninterrupted background playback" else "Tap to request exemption from battery optimization",
+                        granted = batteryOptExempt,
+                        testTag = "permission_battery_row",
+                        onAction = {
+                            if (!batteryOptExempt) {
+                                batteryOptLauncher.launch(PermissionHelper.requestIgnoreBatteryOptimizationIntent(context))
+                            } else {
+                                PermissionHelper.openAppPermissionSettings(context)
+                            }
+                        },
+                    )
+                    val missingPerms = remember(hasNotifPerm, hasMediaPerm, hasBluetoothPerm) {
+                        PermissionHelper.missingRuntimePermissions(context)
+                    }
+                    if (missingPerms.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(AppPalette.copy(alpha = 0.16f))
+                                .border(1.dp, AppPalette.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                                .clickable { batchPermissionLauncher.launch(missingPerms.toTypedArray()) }
+                                .testTag("grant_all_permissions_button")
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "Grant All Missing Runtime Permissions (${missingPerms.size})",
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                Text(
+                                    "Requests notifications, audio library, and Bluetooth connect in one prompt",
+                                    color = Color(0xFFD0D6E0),
+                                    fontSize = 11.sp,
+                                )
+                            }
+                            Text("Allow All", color = AppPalette, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Text(
+                            "All Play-compliant runtime audio & notification permissions granted.",
+                            color = Color(0xFF81C784),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    TextButton(
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("open_system_app_settings_button"),
+                        onClick = { PermissionHelper.openAppPermissionSettings(context) },
+                    ) {
+                        Text("Open Android App Permission Settings", color = AppPalette, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
 
             Spacer(Modifier.height(16.dp))
@@ -1957,6 +2392,79 @@ fun SettingsScreen(navController: NavController) {
                 autoPlay = it
                 setAutoPlayEnabled(context, it)
             }
+            Spacer(Modifier.height(8.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF1A1A20))
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Playback Speed", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text("${String.format("%.2f", playbackSpeed)}x", color = AppPalette, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+                Slider(
+                    value = playbackSpeed,
+                    onValueChange = { playbackSpeed = (it * 20f).toInt() / 20f },
+                    onValueChangeFinished = {
+                        setPlaybackSpeedPref(context, playbackSpeed)
+                        SongPlayer.refreshPlaybackTuning(context)
+                    },
+                    valueRange = 0.5f..2.0f,
+                    modifier = Modifier.testTag("playback_speed_slider"),
+                    colors = SliderDefaults.colors(activeTrackColor = AppPalette, thumbColor = AppPalette),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Playback Pitch", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text("${String.format("%.2f", playbackPitch)}x", color = AppPalette, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+                Slider(
+                    value = playbackPitch,
+                    onValueChange = { playbackPitch = (it * 20f).toInt() / 20f },
+                    onValueChangeFinished = {
+                        setPlaybackPitchPref(context, playbackPitch)
+                        SongPlayer.refreshPlaybackTuning(context)
+                    },
+                    valueRange = 0.75f..1.25f,
+                    modifier = Modifier.testTag("playback_pitch_slider"),
+                    colors = SliderDefaults.colors(activeTrackColor = AppPalette, thumbColor = AppPalette),
+                )
+                SettingsSwitchRow(
+                    title = "Skip silence",
+                    subtitle = "Automatically compresses extended silent passages during playback",
+                    checked = skipSilence,
+                ) { enabled ->
+                    skipSilence = enabled
+                    setSkipSilenceEnabled(context, enabled)
+                    SongPlayer.refreshPlaybackTuning(context)
+                }
+                TextButton(
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("reset_playback_tuning_button"),
+                    onClick = {
+                        playbackSpeed = 1.0f
+                        playbackPitch = 1.0f
+                        skipSilence = false
+                        setPlaybackSpeedPref(context, 1.0f)
+                        setPlaybackPitchPref(context, 1.0f)
+                        setSkipSilenceEnabled(context, false)
+                        SongPlayer.refreshPlaybackTuning(context)
+                    },
+                ) {
+                    Text("Reset Speed & Pitch to 1.00x", color = AppPalette, fontWeight = FontWeight.Bold)
+                }
+            }
 
             Spacer(Modifier.height(12.dp))
             SectionTitle("Crossfade")
@@ -2043,6 +2551,105 @@ fun SettingsScreen(navController: NavController) {
                     )
                 },
             )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = "Installed: v${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})",
+                color = Color(0xFFB3B3B3),
+                fontSize = 12.sp,
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(AppPalette)
+                        .clickable(enabled = !manualUpdateBusy) {
+                            manualUpdateBusy = true
+                            manualUpdateStatus = "Checking GitHub Releases…"
+                            scope.launch {
+                                when (val result = UpdateChecker.checkManual(context)) {
+                                    is UpdateChecker.ManualCheckResult.UpdateAvailable -> {
+                                        manualUpdateInfo = result.info
+                                        manualUpdateStatus = "New version v${result.info.version} available on GitHub!"
+                                    }
+                                    is UpdateChecker.ManualCheckResult.UpToDate -> {
+                                        manualUpdateInfo = null
+                                        manualUpdateStatus = "You are up to date (v${result.installedVersion})."
+                                    }
+                                    is UpdateChecker.ManualCheckResult.Failed -> {
+                                        manualUpdateInfo = null
+                                        manualUpdateStatus = "Check failed: ${result.reason}"
+                                    }
+                                }
+                                manualUpdateBusy = false
+                            }
+                        }
+                        .testTag("check_updates_now_button")
+                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (manualUpdateBusy) "Checking…" else "Check for Updates",
+                        color = Color.Black,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF232530))
+                        .clickable {
+                            val cleanRepo = updateRepoUrl.trim().trimEnd('/').removeSuffix(".git")
+                            runCatching {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("$cleanRepo/releases")))
+                            }
+                        }
+                        .testTag("open_github_releases_button")
+                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("GitHub Releases", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+            if (manualUpdateStatus.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF1A1A20))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        manualUpdateStatus,
+                        color = if (manualUpdateInfo != null) Color(0xFF81C784) else Color(0xFFD0D6E0),
+                        fontSize = 12.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    manualUpdateInfo?.let { info ->
+                        TextButton(
+                            modifier = Modifier.heightIn(min = 48.dp),
+                            onClick = {
+                                runCatching {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(info.downloadUrl)))
+                                }
+                            },
+                        ) {
+                            Text("Download APK", color = AppPalette, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
             Spacer(Modifier.height(12.dp))
             Row(
                 modifier = Modifier
@@ -2502,6 +3109,39 @@ private fun SettingsSwitchRow(
                 uncheckedThumbColor = Color(0xFFB3B3B3),
                 uncheckedTrackColor = Color(0xFF333333),
             ),
+        )
+    }
+}
+
+@Composable
+private fun PermissionStatusRow(
+    title: String,
+    subtitle: String,
+    granted: Boolean,
+    testTag: String,
+    onAction: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xFF12161D))
+            .clickable { onAction() }
+            .testTag(testTag)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, color = Color(0xFFB3B8C4), fontSize = 11.sp)
+        }
+        Text(
+            text = if (granted) "Granted" else "Allow",
+            color = if (granted) Color(0xFF81C784) else AppPalette,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
         )
     }
 }

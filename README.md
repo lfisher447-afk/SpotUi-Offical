@@ -63,12 +63,15 @@
 ## 🚀 What's New & Update Logs (v2.1.7 Latest)
 
 ### 🛠️ Stability, Crash Fixes & Diagnostics (v2.1.7)
+- **Thanksgiving Edition Icon & Theme Preset**: Custom copper-gold equalizer + maple-leaf adaptive launcher icon (`Harvest Gold` `#E87A24` / `#281109`) plus an expressive **Harvest Gold** Material 3 preset in Theme Studio.
+- **Full Audio & Playback Controls**: Persisted **Playback Speed** (`0.50x–2.00x`), **Pitch** (`0.75x–1.25x`), **Skip Silence**, and **Reset 1.0x** controls directly in **Settings -> Playback** and the Player **Options** bottom sheet.
+- **Session, Permissions & Auto-Update Controls**: In-settings YouTube Music login, live **Verify Channels** (`YouTube.accountInfo()` / `accountChannels()`) and **Sign Out**, one-tap **Grant All Missing Runtime Permissions**, plus **Check for Updates** / **GitHub Releases** launch links.
 - **Fixed Crash on Launch / Post-Login (`PlaybackService.updateCurrentMetadata`)**: Fixed a main-thread `NullPointerException` inside `DefaultMediaSourceFactory.createMediaSource` caused by passing a URI-less `MediaItem` (`localConfiguration == null`) to `ExoPlayer.setMediaItem(...)` when `PlaybackService` initialized on startup. Now skips metadata replacement when no track is queued and preserves `localConfiguration` via `replaceMediaItem(...)` for active items.
 - **Guarded Service Coroutine Collectors**: Wrapped `PlaybackService` `snapshotFlow` collectors (`updateCurrentMetadata()` and `setCustomLayout()`) in `runCatching` so transient state emissions cannot crash the main thread.
 - **Guarded `SpotifyWebPlayer.refreshLogin()`**: Wrapped `CookieManager.getInstance()` in `runCatching` to prevent crashes on devices where the system WebView provider is unavailable or uninitialized after login.
 - **Hardened `Spotify` & `Innertube` Null-Safety**: Replaced unsafe `!!` assertions in `Spotify.kt` (`result.json!!`) and `innertube` (`HomePage.kt`, `AlbumPage.kt`, `NextPage.kt`, `SearchPage.kt`) with safe null-handling and explicit `SpotifyException` reporting.
 - **On-Device Crash Report Dialog (`CrashReportPrompt`)**: Added a startup dialog in `MainActivity` that automatically surfaces `CrashHandler.getLatestCrashReport(...)` with **Copy Log** and **Dismiss** actions if a previous session crashed.
-- **Expanded Multi-Module Test Suite**: Added `LaunchAndLoginCrashTest`, `AuthenticatedLaunchCrashTest`, `ServiceAndApiTest` (Robolectric + Compose UI), and `InnertubeSafetyTest`, verified passing across `:app`, `:spotify`, and `:innertube`.
+- **Expanded Multi-Module Test Suite**: Added `LaunchAndLoginCrashTest`, `AuthenticatedLaunchCrashTest`, `ServiceAndApiTest` (Robolectric + Compose UI), `AuthSessionStoreTest`, `IntentAndPermissionTest`, and `InnertubeSafetyTest`, verified passing across `:app`, `:spotify`, and `:innertube`.
 
 ## 📦 Previous Release Logs (v2.1.6)
 
@@ -117,17 +120,24 @@ This README is the complete GitHub documentation reference for **[lfisher447-afk
 | Archive engine | NovaAc v8 framed AES-GCM with adaptive I/O and MrBean controller telemetry |
 | License and trademarks | See `LICENSE`; Spotify is a trademark of Spotify AB. |
 
-## Build the app
+## Build & Publish Release APK (GitHub Releases)
 
+### Option A — 1-Click Automated GitHub Releases (`.github/workflows/release-apk.yml`)
+1. Push a version tag (for example `git tag v2.1.7 && git push origin v2.1.7`) **OR** open the **Actions** tab on **[lfisher447-afk/SpotUi-Offical](https://github.com/lfisher447-afk/SpotUi-Offical)** -> **Build & Publish Release APK** -> **Run workflow**.
+2. GitHub Actions automatically runs all unit tests, builds `:app:assembleRelease`, and attaches `SpotUI-v2.1.7-release.apk` + `.sha256` directly to your repository's **Releases** tab.
+
+### Option B — Local / Termux APK Script (`tools/build-release-apk.sh`)
 Install JDK 21 and Android SDK Platform 36, then run from the repository root:
 
 ```bash
 export ANDROID_HOME=/path/to/android-sdk
 export JAVA_HOME=/path/to/jdk-21
-./gradlew assembleRelease --no-daemon --max-workers=2
+bash tools/build-release-apk.sh
 ```
 
-The included release setup is suitable for local sideload validation. Before distribution, use your own controlled signing configuration and do not commit real account data, provider tokens, cookies, or private keystores.
+This builds `dist/SpotUI-v2.1.7-release.apk` (alongside its SHA-256 checksum) ready to upload directly to the GitHub **Releases** tab.
+
+The included release setup is suitable for local sideload validation. Before store distribution, use your own controlled signing configuration and do not commit real account data, provider tokens, cookies, or private keystores.
 
 ## Project map
 

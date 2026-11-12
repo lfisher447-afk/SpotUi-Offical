@@ -71,6 +71,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -1704,9 +1708,13 @@ fun PlayerOptionsSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showSleep by remember { mutableStateOf(false) }
+    var showPlaybackTuning by remember { mutableStateOf(false) }
     var showSavedIn by remember { mutableStateOf(false) }
     var showAlternativeStream by remember { mutableStateOf(false) }
     var showYouTubeSearch by remember { mutableStateOf(false) }
+    var tuningSpeed by remember { mutableStateOf(com.music.spotui.data.preferences.getPlaybackSpeedPref(context)) }
+    var tuningPitch by remember { mutableStateOf(com.music.spotui.data.preferences.getPlaybackPitchPref(context)) }
+    var tuningSkipSilence by remember { mutableStateOf(com.music.spotui.data.preferences.isSkipSilenceEnabled(context)) }
     val altSearchViewModel: com.music.spotui.ui.viewmodel.AlternativeSearchViewModel =
         hiltViewModel()
 
@@ -1855,7 +1863,7 @@ fun PlayerOptionsSheet(
                     },
                     onOpenYouTubeSearch = { showYouTubeSearch = true },
                 )
-            } else if (!showSleep) {
+            } else if (!showSleep && !showPlaybackTuning) {
                 // ── Now-playing header ──
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -2027,11 +2035,98 @@ fun PlayerOptionsSheet(
                     }
                 }
                 PlayerMenuRow(
+                    icon = Icons.Default.Tune,
+                    label = "Speed, pitch & silence",
+                    subtitle = "${String.format("%.2f", tuningSpeed)}x speed · ${String.format("%.2f", tuningPitch)}x pitch",
+                    trailingArrow = true,
+                ) { showPlaybackTuning = true }
+                PlayerMenuRow(
                     icon = Icons.Default.Notifications,
                     label = "Sleep timer",
                     subtitle = if (minutesLeft > 0) "$minutesLeft min left" else null,
                     trailingArrow = true
                 ) { showSleep = true }
+            } else if (showPlaybackTuning) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        tint = Color.White,
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clickable { showPlaybackTuning = false },
+                        contentDescription = "Back",
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        "Speed, pitch & silence",
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = {
+                        tuningSpeed = 1.0f
+                        tuningPitch = 1.0f
+                        tuningSkipSilence = false
+                        com.music.spotui.data.preferences.setPlaybackSpeedPref(context, 1.0f)
+                        com.music.spotui.data.preferences.setPlaybackPitchPref(context, 1.0f)
+                        com.music.spotui.data.preferences.setSkipSilenceEnabled(context, false)
+                        SongPlayer.refreshPlaybackTuning(context)
+                    }) {
+                        Text("Reset", color = Color(AppPalette.toArgb()), fontWeight = FontWeight.Bold)
+                    }
+                }
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Speed", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Text("${String.format("%.2f", tuningSpeed)}x", color = Color(AppPalette.toArgb()), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Slider(
+                        value = tuningSpeed,
+                        onValueChange = { tuningSpeed = (it * 20f).toInt() / 20f },
+                        onValueChangeFinished = {
+                            com.music.spotui.data.preferences.setPlaybackSpeedPref(context, tuningSpeed)
+                            SongPlayer.refreshPlaybackTuning(context)
+                        },
+                        valueRange = 0.5f..2.0f,
+                        colors = SliderDefaults.colors(activeTrackColor = Color(AppPalette.toArgb()), thumbColor = Color(AppPalette.toArgb())),
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Pitch", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Text("${String.format("%.2f", tuningPitch)}x", color = Color(AppPalette.toArgb()), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Slider(
+                        value = tuningPitch,
+                        onValueChange = { tuningPitch = (it * 20f).toInt() / 20f },
+                        onValueChangeFinished = {
+                            com.music.spotui.data.preferences.setPlaybackPitchPref(context, tuningPitch)
+                            SongPlayer.refreshPlaybackTuning(context)
+                        },
+                        valueRange = 0.75f..1.25f,
+                        colors = SliderDefaults.colors(activeTrackColor = Color(AppPalette.toArgb()), thumbColor = Color(AppPalette.toArgb())),
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("Skip silence", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Switch(
+                            checked = tuningSkipSilence,
+                            onCheckedChange = { enabled ->
+                                tuningSkipSilence = enabled
+                                com.music.spotui.data.preferences.setSkipSilenceEnabled(context, enabled)
+                                SongPlayer.refreshPlaybackTuning(context)
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(AppPalette.toArgb())),
+                        )
+                    }
+                }
             } else {
                 Row(
                     modifier = Modifier

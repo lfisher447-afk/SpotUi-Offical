@@ -29,6 +29,12 @@ object UpdateChecker {
         .readTimeout(8, TimeUnit.SECONDS)
         .build()
 
+    sealed class ManualCheckResult {
+        data class UpdateAvailable(val info: UpdateInfo) : ManualCheckResult()
+        data class UpToDate(val installedVersion: String) : ManualCheckResult()
+        data class Failed(val reason: String) : ManualCheckResult()
+    }
+
     suspend fun check(context: Context): UpdateInfo? = withContext(Dispatchers.IO) {
         val info = runCatching { fetchLatestRelease(context) }
             .onFailure { Log.d(TAG, "update check failed: ${it.message}") }
@@ -38,6 +44,17 @@ object UpdateChecker {
             .getString(KEY_SKIP, null)
         if (skipped == info.fingerprint) return@withContext null
         info
+    }
+
+    suspend fun checkManual(context: Context): ManualCheckResult = withContext(Dispatchers.IO) {
+        val result = runCatching { fetchLatestRelease(context) }
+        val info = result.getOrNull()
+        when {
+            result.isFailure -> ManualCheckResult.Failed(result.exceptionOrNull()?.message ?: "Network error")
+            info == null -> ManualCheckResult.UpToDate(BuildConfig.VERSION_NAME)
+            isNewer(info.version, BuildConfig.VERSION_NAME) -> ManualCheckResult.UpdateAvailable(info)
+            else -> ManualCheckResult.UpToDate(BuildConfig.VERSION_NAME)
+        }
     }
 
     fun skipRelease(context: Context, info: UpdateInfo) {

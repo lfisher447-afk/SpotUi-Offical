@@ -1,6 +1,6 @@
 package com.metrolist.music.utils.cipher
 
-import com.metrolist.innertube.YouTube
+import com.metrolist.innertube.network.AuthSessionStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -20,9 +20,26 @@ object PlayerJsFetcher {
     private const val PLAYER_JS_URL_TEMPLATE = "https://www.youtube.com/s/player/%s/player_ias.vflset/en_GB/base.js"
     private const val CACHE_TTL_MS = 6 * 60 * 60 * 1000L // 6 hours
 
-    private val httpClient = OkHttpClient.Builder()
-        .proxy(YouTube.proxy)
-        .build()
+    private val clientLock = Any()
+
+    @Volatile
+    private var cachedFingerprint: String = ""
+
+    @Volatile
+    private var cachedHttpClient: OkHttpClient =
+        AuthSessionStore.applyOkHttpSettings(OkHttpClient.Builder(), forStream = false).build()
+
+    private fun resolveHttpClient(): OkHttpClient {
+        val fingerprint = AuthSessionStore.currentNetworkFingerprint()
+        if (fingerprint == cachedFingerprint) return cachedHttpClient
+        return synchronized(clientLock) {
+            if (fingerprint != cachedFingerprint) {
+                cachedHttpClient = AuthSessionStore.applyOkHttpSettings(OkHttpClient.Builder(), forStream = false).build()
+                cachedFingerprint = fingerprint
+            }
+            cachedHttpClient
+        }
+    }
 
     // Regex to extract player hash from iframe_api response
     private val PLAYER_HASH_REGEX = Regex("""\\?/s\\?/player\\?/([a-zA-Z0-9_-]+)\\?/""")
@@ -194,15 +211,14 @@ object PlayerJsFetcher {
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             .build()
 
-        val response = httpClient.newCall(request).execute()
-        Timber.tag(TAG).d("iframe_api response: HTTP ${response.code}")
-
-        if (!response.isSuccessful) {
-            Timber.tag(TAG).e("iframe_api HTTP ${response.code}")
-            return null
+        val body = resolveHttpClient().newCall(request).execute().use { response ->
+            Timber.tag(TAG).d("iframe_api response: HTTP ${response.code}")
+            if (!response.isSuccessful) {
+                Timber.tag(TAG).e("iframe_api HTTP ${response.code}")
+                return null
+            }
+            response.body?.string()
         }
-
-        val body = response.body?.string()
         if (body == null) {
             Timber.tag(TAG).e("iframe_api response body is null")
             return null
@@ -232,15 +248,14 @@ object PlayerJsFetcher {
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             .build()
 
-        val response = httpClient.newCall(request).execute()
-        Timber.tag(TAG).d("player.js response: HTTP ${response.code}")
-
-        if (!response.isSuccessful) {
-            Timber.tag(TAG).e("player.js download HTTP ${response.code}")
-            return null
+        val body = resolveHttpClient().newCall(request).execute().use { response ->
+            Timber.tag(TAG).d("player.js response: HTTP ${response.code}")
+            if (!response.isSuccessful) {
+                Timber.tag(TAG).e("player.js download HTTP ${response.code}")
+                return null
+            }
+            response.body?.string()
         }
-
-        val body = response.body?.string()
         if (body == null) {
             Timber.tag(TAG).e("player.js response body is null")
             return null

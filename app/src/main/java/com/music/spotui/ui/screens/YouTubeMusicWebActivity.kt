@@ -10,7 +10,10 @@ import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import com.metrolist.innertube.network.AuthSessionStore
+import com.music.spotui.BuildConfig
 import com.music.spotui.data.preferences.setYoutubeCookie
+import com.music.spotui.util.AppDiagnostics
 
 /**
  * Optional user-authorized YouTube Music companion.
@@ -22,41 +25,68 @@ import com.music.spotui.data.preferences.setYoutubeCookie
  * collected by this screen.
  */
 class YouTubeMusicWebActivity : Activity() {
-    private lateinit var webView: WebView
+    private var webView: WebView? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        CookieManager.getInstance().setAcceptCookie(true)
-        webView = WebView(this).apply {
-            setBackgroundColor(Color.BLACK)
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            settings.mediaPlaybackRequiresUserGesture = true
-            settings.userAgentString = settings.userAgentString + " Spotui/1.9.9"
-            webChromeClient = WebChromeClient()
-            webViewClient = object : WebViewClient() {
-                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = false
-                override fun onPageFinished(view: WebView, url: String) {
-                    persistYoutubeCookies()
+        runCatching { CookieManager.getInstance().setAcceptCookie(true) }
+            .onFailure { AppDiagnostics.warning("YouTubeWeb", "CookieManager setup failed", it) }
+
+        val createdWebView = runCatching {
+            WebView(this).apply {
+                setBackgroundColor(Color.BLACK)
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                settings.mediaPlaybackRequiresUserGesture = true
+                settings.userAgentString = "${settings.userAgentString} Spotui/${BuildConfig.VERSION_NAME}"
+                webChromeClient = WebChromeClient()
+                webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = false
+                    override fun onPageFinished(view: WebView, url: String) {
+                        persistYoutubeCookies()
+                    }
                 }
+                loadUrl("https://music.youtube.com/library/playlists")
             }
-            loadUrl("https://music.youtube.com/library/playlists")
-        }
-        setContentView(webView, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }.onFailure {
+            AppDiagnostics.error("YouTubeWeb", "WebView creation failed", it)
+            finish()
+        }.getOrNull() ?: return
+
+        webView = createdWebView
+        setContentView(
+            createdWebView,
+            ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT),
+        )
     }
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        if (webView.canGoBack()) webView.goBack() else finish()
+        val wv = webView
+        if (wv != null && wv.canGoBack()) {
+            wv.goBack()
+        } else {
+            finish()
+        }
     }
 
     private fun persistYoutubeCookies() {
-        val cookie = CookieManager.getInstance().getCookie("https://www.youtube.com")
-            ?: CookieManager.getInstance().getCookie("https://music.youtube.com")
-            ?: return
-        setYoutubeCookie(applicationContext, cookie)
-        CookieManager.getInstance().flush()
+        runCatching {
+            val cookieManager = CookieManager.getInstance()
+            val ytCookie = cookieManager.getCookie("https://www.youtube.com")
+            val ytmCookie = cookieManager.getCookie("https://music.youtube.com")
+            val cookie = listOfNotNull(ytCookie, ytmCookie)
+                .filter { it.isNotBlank() }
+                .distinct()
+                .joinToString("; ")
+                .ifBlank { return@runCatching }
+            setYoutubeCookie(applicationContext, cookie)
+            AuthSessionStore.updateFromWebViewCookies(cookie)
+            cookieManager.flush()
+        }.onFailure {
+            AppDiagnostics.warning("YouTubeWeb", "Cookie persistence failed", it)
+        }
     }
 
     override fun onPause() {
@@ -65,8 +95,11 @@ class YouTubeMusicWebActivity : Activity() {
     }
 
     override fun onDestroy() {
-        webView.stopLoading()
-        webView.destroy()
+        runCatching {
+            webView?.stopLoading()
+            webView?.destroy()
+        }
+        webView = null
         super.onDestroy()
     }
 }

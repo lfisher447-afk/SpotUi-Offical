@@ -11,7 +11,9 @@ import android.net.Uri
 import android.util.Log
 import androidx.media3.common.PlaybackException
 import com.metrolist.innertube.NewPipeExtractor
+import com.metrolist.innertube.PlayerClient
 import com.metrolist.innertube.YouTube
+import com.metrolist.innertube.network.AuthSessionStore
 import com.metrolist.innertube.models.YouTubeClient
 import com.metrolist.innertube.models.YouTubeClient.Companion.ANDROID_CREATOR
 import com.metrolist.innertube.models.YouTubeClient.Companion.ANDROID_NO_SDK
@@ -57,20 +59,51 @@ object YTPlayerUtils {
     /** Dedicated Coroutine Scope for background operations (replaces dangerous GlobalScope) */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private val httpClient = OkHttpClient.Builder()
-        .proxy(YouTube.proxy)
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .writeTimeout(20, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
-        .build()
+    private val clientLock = Any()
 
-    /** Fast 5-second probe client to prevent multi-client fallbacks from stalling playback. */
-    private val probeHttpClient = httpClient.newBuilder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.SECONDS)
-        .callTimeout(5, TimeUnit.SECONDS)
-        .build()
+    @Volatile
+    private var cachedNetworkFingerprint: String = ""
+
+    @Volatile
+    private var cachedHttpClient: OkHttpClient = buildHttpClient()
+
+    @Volatile
+    private var cachedProbeClient: OkHttpClient = buildProbeClient()
+
+    private fun buildHttpClient(): OkHttpClient =
+        AuthSessionStore.applyOkHttpSettings(
+            OkHttpClient.Builder()
+                .connectTimeout(20, TimeUnit.SECONDS)
+                .readTimeout(20, TimeUnit.SECONDS)
+                .writeTimeout(20, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(true),
+            forStream = false,
+        ).build()
+
+    private fun buildProbeClient(): OkHttpClient =
+        AuthSessionStore.applyOkHttpSettings(
+            OkHttpClient.Builder()
+                .connectTimeout(5, TimeUnit.SECONDS)
+                .readTimeout(5, TimeUnit.SECONDS)
+                .callTimeout(5, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(false),
+            forStream = true,
+        ).build()
+
+    private fun probeHttpClient(): OkHttpClient {
+        val fingerprint = AuthSessionStore.currentNetworkFingerprint()
+        if (fingerprint == cachedNetworkFingerprint) {
+            return cachedProbeClient
+        }
+        return synchronized(clientLock) {
+            if (fingerprint != cachedNetworkFingerprint) {
+                cachedHttpClient = buildHttpClient()
+                cachedProbeClient = buildProbeClient()
+                cachedNetworkFingerprint = fingerprint
+            }
+            cachedProbeClient
+        }
+    }
 
     private val poTokenGenerator = PoTokenGenerator()
 
@@ -124,11 +157,12 @@ object YTPlayerUtils {
         Timber.tag(TAG).d("Content type detection (preliminary):")
         Timber.tag(TAG).d("  isUploadedTrack (from playlistId): $isUploadedTrack")
 
-        val isLoggedIn = YouTube.cookie != null
+        val authState = YouTube.currentAuthState()
+        val isLoggedIn = authState.hasLoginCookie
         Timber.tag(TAG).d("Authentication status: ${if (isLoggedIn) "LOGGED_IN" else "ANONYMOUS"}")
 
-        val sessionId = if (isLoggedIn) YouTube.dataSyncId else YouTube.visitorData
-        val mainClientNeedsPoToken = MAIN_CLIENT.useWebPoTokens
+        val sessionId = authState.sessionId
+        val mainClientNeedsPoToken = MAIN_CLIENT.useWebPoTokens && authState.webClientPoTokenEnabled
 
         // Run signature-timestamp and PoToken generation natively in parallel Coroutines
         val (signatureTimestamp, poToken) = coroutineScope {
@@ -139,7 +173,12 @@ object YTPlayerUtils {
                 async(Dispatchers.IO) {
                     Timber.tag(logTag).d("Generating PoToken for WEB_REMIX with sessionId")
                     runCatching { 
-                        poTokenGenerator.getWebClientPoToken(videoId, sessionId)?.also {
+                        poTokenGenerator.getWebClientPoToken(videoId, sessionId)?.also { generated ->
+                            PlayerClient.setPoTokens(
+                                poToken = generated.playerRequestPoToken,
+                                poTokenPlayer = generated.playerRequestPoToken,
+                                poTokenGvs = generated.streamingDataPoToken,
+                            )
                             Timber.tag(logTag).d("PoToken generated successfully")
                         }
                     }.getOrNull()
@@ -168,14 +207,15 @@ object YTPlayerUtils {
         // If MAIN_CLIENT needs a PoToken but we couldn't get one (WebView missing, JS
         // blocked, network hostile), WEB_REMIX will return streams that 403 on play.
         // Skip it and go straight to the fallback chain.
-        val skipMainClient = mainClientNeedsPoToken && poToken == null
+        val resolvedMainPoToken = poToken?.playerRequestPoToken ?: authState.resolvePlayerPoToken(MAIN_CLIENT)
+        val skipMainClient = MAIN_CLIENT.useWebPoTokens && resolvedMainPoToken == null
         if (skipMainClient) {
             Timber.tag(TAG).w("PoToken unavailable — skipping MAIN_CLIENT and using fallback chain directly")
         }
 
         var mainPlayerResponse: PlayerResponse? = if (skipMainClient) null else {
             Timber.tag(logTag).d("Attempting to get player response using MAIN_CLIENT: ${MAIN_CLIENT.clientName}")
-            YouTube.player(videoId, playlistId, MAIN_CLIENT, signatureTimestamp.timestamp, poToken?.playerRequestPoToken).getOrNull()
+            YouTube.player(videoId, playlistId, MAIN_CLIENT, signatureTimestamp.timestamp, resolvedMainPoToken).getOrNull()
         }
 
         // Debug uploaded track response
@@ -293,7 +333,11 @@ object YTPlayerUtils {
 
                 Timber.tag(logTag).d("Fetching player response for fallback client: ${client.clientName}")
                 // Only pass poToken for clients that support it
-                val clientPoToken = if (client.useWebPoTokens) poToken?.playerRequestPoToken else null
+                val clientPoToken = if (client.useWebPoTokens && authState.webClientPoTokenEnabled) {
+                    poToken?.playerRequestPoToken ?: authState.resolvePlayerPoToken(client)
+                } else {
+                    null
+                }
                 // Skip signature timestamp for age-restricted (faster), use it for normal content
                 val clientSigTimestamp = if (wasOriginallyAgeRestricted) null else signatureTimestamp.timestamp
                 streamPlayerResponse =
@@ -393,17 +437,21 @@ object YTPlayerUtils {
                         Timber.tag(TAG).d("  Transformed URL length: ${streamUrl.length}")
                         Timber.tag(TAG).d("  URL changed: ${originalUrl != streamUrl}")
 
-                        // Append pot= parameter with streaming data poToken
-                        val needsPoToken = (currentClient.useWebPoTokens || isPrivatelyOwnedTrack) && poToken?.streamingDataPoToken != null
+                        // Append pot= parameter with streaming data poToken (or AuthSessionStore GVS token)
+                        val gvsToken = poToken?.streamingDataPoToken ?: AuthSessionStore.currentAuthState().resolveGvsPoToken(currentClient)
+                        val needsPoToken = (currentClient.useWebPoTokens || isPrivatelyOwnedTrack) && gvsToken != null
                         Timber.tag(TAG).d("PoToken decision:")
                         Timber.tag(TAG).d("  needsPoToken: $needsPoToken")
-                        Timber.tag(TAG).d("  hasStreamingDataPoToken: ${poToken?.streamingDataPoToken != null}")
+                        Timber.tag(TAG).d("  hasStreamingDataPoToken: ${gvsToken != null}")
 
                         if (needsPoToken) {
                             Timber.tag(TAG).d("Appending pot= parameter to stream URL")
-                            val separator = if ("?" in streamUrl) "&" else "?"
-                            streamUrl = "${streamUrl}${separator}pot=${Uri.encode(poToken.streamingDataPoToken)}"
-                            Timber.tag(TAG).d("  Final URL length (with pot): ${streamUrl.length}")
+                            val nonNullUrl = streamUrl ?: ""
+                            if (nonNullUrl.isNotEmpty() && !nonNullUrl.contains("pot=")) {
+                                val separator = if ("?" in nonNullUrl) "&" else "?"
+                                streamUrl = "${nonNullUrl}${separator}pot=${Uri.encode(gvsToken)}"
+                            }
+                            Timber.tag(TAG).d("  Final URL length (with pot): ${streamUrl?.length ?: 0}")
                         }
                     } catch (e: Exception) {
                         Timber.tag(TAG).e(e, "N-transform or pot append failed: ${e.message}")
@@ -568,7 +616,7 @@ object YTPlayerUtils {
                 requestBuilder.addHeader("Cookie", cookie)
             }
 
-            val response = probeHttpClient.newCall(requestBuilder.build()).execute()
+            val response = probeHttpClient().newCall(requestBuilder.build()).execute()
             response.close()
             
             val code = response.code

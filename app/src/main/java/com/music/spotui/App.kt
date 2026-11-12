@@ -66,24 +66,24 @@ fun App() {
     val cornerRadius = remember(uiRevision) { com.music.spotui.data.preferences.getCornerRadiusDp(context).dp }
 
     LaunchedEffect(navController) {
-        // Process any cold-start deep link intent that launched the app
-        com.music.spotui.util.DeepLinkHandler.consumePendingUri()?.let { uri ->
-            com.music.spotui.util.DeepLinkHandler.processUri(
-                uri,
+        // Process any cold-start deep link, voice search, share, or local audio intent
+        com.music.spotui.util.DeepLinkHandler.consumePendingAction()?.let { action ->
+            com.music.spotui.util.DeepLinkHandler.processAction(
+                action,
                 context,
                 navController,
                 playerViewModel,
-                scope
+                scope,
             )
         }
-        // Process any new deep link intent while the app is active
-        com.music.spotui.util.DeepLinkHandler.deepLinkFlow.collect { uri ->
-            com.music.spotui.util.DeepLinkHandler.processUri(
-                uri,
+        // Process any new incoming intent while the app is active
+        com.music.spotui.util.DeepLinkHandler.incomingActionFlow.collect { action ->
+            com.music.spotui.util.DeepLinkHandler.processAction(
+                action,
                 context,
                 navController,
                 playerViewModel,
-                scope
+                scope,
             )
         }
     }

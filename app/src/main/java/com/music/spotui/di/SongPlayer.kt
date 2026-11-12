@@ -600,6 +600,14 @@ object SongPlayer {
     // prefetch resolving the NEXT track via YouTube was flipping the badge to
     // "YouTube" while the current track streamed from Spotify).
     internal suspend fun resolveStreamUrl(song: String, appContext: Context, forPlayback: Boolean = false): String? {
+        if (song.startsWith("content://", ignoreCase = true) || song.startsWith("file://", ignoreCase = true)) {
+            if (forPlayback) {
+                currentSource = "Local Audio"
+                currentQuality = song.substringAfterLast('.', "").uppercase().takeIf { it.length in 2..5 } ?: "LOCAL"
+                updateResolveStatus(false)
+            }
+            return song
+        }
         if (forPlayback) {
             updateResolveStatus(true, "Checking cache...")
         }
@@ -896,7 +904,13 @@ object SongPlayer {
         val tuning = context?.let { MrbeanNetworkSettings.snapshot(it) }
         val connectMs = if (tuning != null && tuning.enabled) tuning.connectTimeoutMs else 15_000
         val readMs = if (tuning != null && tuning.enabled) tuning.readTimeoutMs else 30_000
-        return (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
+        val activeProxy = com.metrolist.innertube.network.AuthSessionStore.streamOkHttpProxy()
+        val conn = if (activeProxy != null && activeProxy != java.net.Proxy.NO_PROXY) {
+            java.net.URL(url).openConnection(activeProxy)
+        } else {
+            java.net.URL(url).openConnection()
+        }
+        return (conn as java.net.HttpURLConnection).apply {
             connectTimeout = connectMs
             readTimeout = readMs
             instanceFollowRedirects = true
@@ -1790,7 +1804,13 @@ object SongPlayer {
             .setAudioAttributes(buildAudioAttributes(), handleAudioFocus)
             .setHandleAudioBecomingNoisy(handleAudioFocus)
             .build()
-            .also { it.setWakeMode(androidx.media3.common.C.WAKE_MODE_NETWORK) }
+            .also {
+                it.setWakeMode(androidx.media3.common.C.WAKE_MODE_NETWORK)
+                val speed = com.music.spotui.data.preferences.getPlaybackSpeedPref(context)
+                val pitch = com.music.spotui.data.preferences.getPlaybackPitchPref(context)
+                it.playbackParameters = androidx.media3.common.PlaybackParameters(speed, pitch)
+                it.skipSilenceEnabled = com.music.spotui.data.preferences.isSkipSilenceEnabled(context)
+            }
         return PlayerPipeline(p, filter, spatial)
     }
 
@@ -2284,5 +2304,21 @@ object SongPlayer {
 
     fun getPlaybackSpeed(): Float {
         return player?.playbackParameters?.speed ?: 1.0f
+    }
+
+    fun refreshPlaybackTuning(context: Context) {
+        val speed = com.music.spotui.data.preferences.getPlaybackSpeedPref(context)
+        val pitch = com.music.spotui.data.preferences.getPlaybackPitchPref(context)
+        val skipSilence = com.music.spotui.data.preferences.isSkipSilenceEnabled(context)
+        scope.launch(Dispatchers.Main) {
+            player?.let { p ->
+                p.playbackParameters = androidx.media3.common.PlaybackParameters(speed, pitch)
+                p.skipSilenceEnabled = skipSilence
+            }
+            secondaryPlayer?.let { s ->
+                s.playbackParameters = androidx.media3.common.PlaybackParameters(speed, pitch)
+                s.skipSilenceEnabled = skipSilence
+            }
+        }
     }
 }

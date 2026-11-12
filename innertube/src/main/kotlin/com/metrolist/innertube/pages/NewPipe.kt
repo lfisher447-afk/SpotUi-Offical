@@ -2,6 +2,7 @@ package com.metrolist.innertube
 
 import com.metrolist.innertube.models.YouTubeClient
 import com.metrolist.innertube.models.response.PlayerResponse
+import com.metrolist.innertube.network.AuthSessionStore
 import io.ktor.http.URLBuilder
 import io.ktor.http.parseQueryString
 import okhttp3.OkHttpClient
@@ -15,12 +16,33 @@ import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.services.youtube.YoutubeJavaScriptPlayerManager
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import java.io.IOException
-import java.net.Proxy
 
-private class NewPipeDownloaderImpl(
-    proxy: Proxy?,
-    proxyAuth: String?,
-) : Downloader() {
+private class NewPipeDownloaderImpl : Downloader() {
+    private val clientLock = Any()
+
+    @Volatile
+    private var cachedFingerprint: String = ""
+
+    @Volatile
+    private var cachedClient: OkHttpClient = buildClient()
+
+    private fun buildClient(): OkHttpClient =
+        AuthSessionStore.applyOkHttpSettings(OkHttpClient.Builder(), forStream = false).build()
+
+    private fun resolveClient(): OkHttpClient {
+        val fingerprint = AuthSessionStore.currentNetworkFingerprint()
+        if (fingerprint == cachedFingerprint) {
+            return cachedClient
+        }
+        return synchronized(clientLock) {
+            if (fingerprint != cachedFingerprint) {
+                cachedClient = buildClient()
+                cachedFingerprint = fingerprint
+            }
+            cachedClient
+        }
+    }
+
     private fun normalizeResponseBody(
         url: String,
         body: String?,
@@ -36,19 +58,6 @@ private class NewPipeDownloaderImpl(
 
         return "{\"likes\":0,\"dislikes\":0,\"viewCount\":0}"
     }
-
-    private val client =
-        OkHttpClient
-            .Builder()
-            .proxy(proxy)
-            .proxyAuthenticator { _, response ->
-                proxyAuth?.let { auth ->
-                    response.request
-                        .newBuilder()
-                        .header("Proxy-Authorization", auth)
-                        .build()
-                } ?: response.request
-            }.build()
 
     @Throws(IOException::class, ReCaptchaException::class)
     override fun execute(request: Request): Response {
@@ -75,11 +84,11 @@ private class NewPipeDownloaderImpl(
             }
         }
 
-        val response = client.newCall(requestBuilder.build()).execute()
+        val response = resolveClient().newCall(requestBuilder.build()).execute()
 
         if (response.code == 429) {
             response.close()
-
+            AuthSessionStore.onProxyRequestFailed()
             throw ReCaptchaException("reCaptcha Challenge requested", url)
         }
 
@@ -97,7 +106,7 @@ private class NewPipeDownloaderImpl(
 
 object NewPipeUtils {
     init {
-        NewPipe.init(NewPipeDownloaderImpl(YouTube.proxy, YouTube.proxyAuth))
+        NewPipe.init(NewPipeDownloaderImpl())
     }
 
     fun getSignatureTimestamp(videoId: String): Result<Int> = runCatching {
@@ -136,7 +145,7 @@ object NewPipeUtils {
 object NewPipeExtractor {
     fun init() {
         try {
-            NewPipe.init(NewPipeDownloaderImpl(YouTube.proxy, YouTube.proxyAuth))
+            NewPipe.init(NewPipeDownloaderImpl())
         } catch (_: Exception) {
         }
     }

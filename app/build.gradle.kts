@@ -152,6 +152,7 @@ dependencies {
 
     //okhttp + timber (used by the ported YouTube streaming flow)
     implementation(libs.okhttp)
+    implementation(libs.okhttp.dnsoverhttps)
     implementation(libs.timber)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.ktor.client.core)

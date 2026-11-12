@@ -145,8 +145,12 @@ fun setPreloadEnabled(c: Context, v: Boolean) = prefs(c).edit().putBoolean(KEY_P
  */
 private const val KEY_YT_COOKIE = "youtube_cookie"
 fun getYoutubeCookie(c: Context): String = prefs(c).getString(KEY_YT_COOKIE, "").orEmpty()
-fun setYoutubeCookie(c: Context, v: String) = prefs(c).edit().putString(KEY_YT_COOKIE, v).apply()
-fun isYoutubeLoggedIn(c: Context): Boolean = getYoutubeCookie(c).contains("SAPISID")
+fun setYoutubeCookie(c: Context, v: String) {
+    prefs(c).edit().putString(KEY_YT_COOKIE, v).apply()
+    com.metrolist.innertube.network.AuthSessionStore.updateFromWebViewCookies(v.ifBlank { null })
+}
+fun isYoutubeLoggedIn(c: Context): Boolean =
+    com.metrolist.innertube.utils.hasYouTubeLoginCookie(getYoutubeCookie(c))
 
 /** Optional user-authorized YouTube Music web companion. Login occurs in the user-facing web view; no account secret is stored by this preference. */
 fun isYoutubeMusicWebEnabled(c: Context): Boolean = prefs(c).getBoolean(KEY_YT_MUSIC_WEB_ENABLED, false)
@@ -339,5 +343,93 @@ fun setGeminiFreeMode(c: Context, enabled: Boolean) = prefs(c).edit().putBoolean
 
 fun getGeminiModel(c: Context): String = prefs(c).getString(KEY_GEMINI_MODEL, "gemini-2.5-flash").orEmpty().ifBlank { "gemini-2.5-flash" }
 fun setGeminiModel(c: Context, model: String) = prefs(c).edit().putString(KEY_GEMINI_MODEL, model).apply()
+
+private const val KEY_DOH_PRESET = "network_doh_preset"
+private const val KEY_WEB_CLIENT_POTOKEN = "innertube_web_client_potoken"
+private const val KEY_PROXY_URLS = "network_proxy_urls"
+private const val KEY_IP_ROTATION = "network_ip_rotation_enabled"
+private const val KEY_STREAM_BYPASS_PROXY = "network_stream_bypass_proxy"
+
+fun getDnsPreset(c: Context): com.metrolist.innertube.network.DnsOverHttpsPreset =
+    com.metrolist.innertube.network.DnsOverHttpsPreset.fromName(prefs(c).getString(KEY_DOH_PRESET, null))
+
+fun setDnsPreset(c: Context, preset: com.metrolist.innertube.network.DnsOverHttpsPreset) {
+    prefs(c).edit().putString(KEY_DOH_PRESET, preset.name).apply()
+    com.metrolist.innertube.network.AuthSessionStore.dnsPreset = preset
+}
+
+fun isWebClientPoTokenEnabled(c: Context): Boolean =
+    prefs(c).getBoolean(KEY_WEB_CLIENT_POTOKEN, true)
+
+fun setWebClientPoTokenEnabled(c: Context, enabled: Boolean) {
+    prefs(c).edit().putBoolean(KEY_WEB_CLIENT_POTOKEN, enabled).apply()
+    com.metrolist.innertube.network.AuthSessionStore.webClientPoTokenEnabled = enabled
+}
+
+fun getProxyUrls(c: Context): String =
+    prefs(c).getString(KEY_PROXY_URLS, "").orEmpty()
+
+fun setProxyUrls(c: Context, urls: String) {
+    prefs(c).edit().putString(KEY_PROXY_URLS, urls.trim()).apply()
+    com.metrolist.innertube.network.AuthSessionStore.applyProxyConfiguration(urls)
+}
+
+fun isIpRotationEnabled(c: Context): Boolean =
+    prefs(c).getBoolean(KEY_IP_ROTATION, false)
+
+fun setIpRotationEnabled(c: Context, enabled: Boolean) {
+    prefs(c).edit().putBoolean(KEY_IP_ROTATION, enabled).apply()
+    com.metrolist.innertube.network.AuthSessionStore.ipRotationEnabled = enabled
+}
+
+fun isStreamBypassProxyEnabled(c: Context): Boolean =
+    prefs(c).getBoolean(KEY_STREAM_BYPASS_PROXY, false)
+
+fun setStreamBypassProxyEnabled(c: Context, enabled: Boolean) {
+    prefs(c).edit().putBoolean(KEY_STREAM_BYPASS_PROXY, enabled).apply()
+    com.metrolist.innertube.network.AuthSessionStore.streamBypassProxy = enabled
+}
+
+fun applyNetworkAndAuthSettings(c: Context) {
+    com.metrolist.innertube.network.AuthSessionStore.dnsPreset = getDnsPreset(c)
+    com.metrolist.innertube.network.AuthSessionStore.webClientPoTokenEnabled = isWebClientPoTokenEnabled(c)
+    com.metrolist.innertube.network.AuthSessionStore.ipRotationEnabled = isIpRotationEnabled(c)
+    com.metrolist.innertube.network.AuthSessionStore.streamBypassProxy = isStreamBypassProxyEnabled(c)
+    com.metrolist.innertube.network.AuthSessionStore.applyProxyConfiguration(getProxyUrls(c))
+    val savedCookie = getYoutubeCookie(c).trim()
+    if (savedCookie.isNotEmpty() && com.metrolist.innertube.utils.hasYouTubeLoginCookie(savedCookie)) {
+        com.metrolist.innertube.network.AuthSessionStore.updateFromWebViewCookies(savedCookie)
+    } else {
+        com.metrolist.innertube.network.AuthSessionStore.cookie = null
+    }
+}
+
+private const val KEY_PLAYBACK_SPEED = "audio_playback_speed"
+private const val KEY_PLAYBACK_PITCH = "audio_playback_pitch"
+private const val KEY_SKIP_SILENCE = "audio_skip_silence"
+
+fun getPlaybackSpeedPref(c: Context): Float = prefs(c).getFloat(KEY_PLAYBACK_SPEED, 1.0f).coerceIn(0.5f, 2.0f)
+fun setPlaybackSpeedPref(c: Context, speed: Float) =
+    prefs(c).edit().putFloat(KEY_PLAYBACK_SPEED, speed.coerceIn(0.5f, 2.0f)).apply()
+
+fun getPlaybackPitchPref(c: Context): Float = prefs(c).getFloat(KEY_PLAYBACK_PITCH, 1.0f).coerceIn(0.75f, 1.25f)
+fun setPlaybackPitchPref(c: Context, pitch: Float) =
+    prefs(c).edit().putFloat(KEY_PLAYBACK_PITCH, pitch.coerceIn(0.75f, 1.25f)).apply()
+
+fun isSkipSilenceEnabled(c: Context): Boolean = prefs(c).getBoolean(KEY_SKIP_SILENCE, false)
+fun setSkipSilenceEnabled(c: Context, enabled: Boolean) =
+    prefs(c).edit().putBoolean(KEY_SKIP_SILENCE, enabled).apply()
+
+private const val KEY_DEEZER_ARL = "lossless_deezer_arl"
+
+fun getDeezerArl(c: Context): String = prefs(c).getString(KEY_DEEZER_ARL, "").orEmpty()
+fun setDeezerArl(c: Context, arl: String) {
+    val clean = arl.trim()
+    prefs(c).edit().putString(KEY_DEEZER_ARL, clean).apply()
+    com.metrolist.spotify.SpotiFlac.deezerArl = clean.ifBlank { null }
+}
+
+
+
 
 

@@ -1,0 +1,86 @@
+name: Build & Publish Release APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag name for GitHub Releases tab (e.g. v2.1.7)'
+        required: false
+        default: 'v2.1.7'
+      prerelease:
+        description: 'Mark release as pre-release'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-release-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Prepare release signing keystore
+        run: |
+          if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          fi
+
+      - name: Run unit tests across all modules
+        run: |
+          chmod +x gradlew
+          ./gradlew :spotify:test :innertube:testDebugUnitTest :app:testDebugUnitTest --no-daemon --max-workers=2
+
+      - name: Assemble Release APK
+        run: ./gradlew :app:assembleRelease --no-daemon --max-workers=2
+
+      - name: Package APK & SHA-256 checksum
+        id: package
+        run: |
+          VERSION=$(grep -E 'versionName\s*=' app/build.gradle.kts | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')
+          TAG_NAME="${{ github.ref_name }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.release_tag }}" ]; then
+            TAG_NAME="${{ inputs.release_tag }}"
+          fi
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk "dist/SpotUI-v${VERSION}-release.apk"
+          (cd dist && sha256sum "SpotUI-v${VERSION}-release.apk" > "SpotUI-v${VERSION}-release.apk.sha256")
+          echo "apk_path=dist/SpotUI-v${VERSION}-release.apk" >> "$GITHUB_OUTPUT"
+          echo "sha_path=dist/SpotUI-v${VERSION}-release.apk.sha256" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+          ls -lh dist/
+
+      - name: Upload APK build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpotUI-release-apk
+          path: |
+            dist/*.apk
+            dist/*.sha256
+
+      - name: Publish to GitHub Releases
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.package.outputs.release_tag }}
+          name: SpotUI ${{ steps.package.outputs.release_tag }}
+          prerelease: ${{ inputs.prerelease || false }}
+          generate_release_notes: true
+          files: |
+            ${{ steps.package.outputs.apk_path }}
+            ${{ steps.package.outputs.sha_path }}
