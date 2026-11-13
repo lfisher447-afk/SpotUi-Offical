@@ -39,12 +39,14 @@ jobs:
         run: |
           KEYSTORE_PATH="${{ github.workspace }}/debug.keystore"
           BASE64_PATH="${{ github.workspace }}/debug.keystore.base64"
-          if [ ! -f "$KEYSTORE_PATH" ] && [ -f "$BASE64_PATH" ]; then
-            base64 -d "$BASE64_PATH" > "$KEYSTORE_PATH"
+          if [ ! -f "$KEYSTORE_PATH" ]; then
+            if [ -f "$BASE64_PATH" ]; then
+              base64 -d "$BASE64_PATH" > "$KEYSTORE_PATH" || true
+            fi
           fi
           if [ ! -f "$KEYSTORE_PATH" ]; then
-            echo "Error: debug.keystore could not be generated!" >&2
-            exit 1
+            echo "Generating fresh debug keystore via keytool..."
+            keytool -genkey -v -keystore "$KEYSTORE_PATH" -alias androiddebugkey -keypass android -storepass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
           ls -lh "$KEYSTORE_PATH"
 
