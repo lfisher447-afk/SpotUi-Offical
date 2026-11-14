@@ -35,6 +35,9 @@ class WebMediaPlayer(
         val metadataBuilder = MediaMetadata.Builder()
             .setTitle(title)
             .setArtist(artist)
+            .setAlbumTitle(currentSongState.album.value)
+            .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+            .setIsPlayable(true)
         com.music.spotui.MyApplication.instanceOrNull?.let { ctx ->
             com.music.spotui.util.ArtworkHelper.attachArtwork(
                 metadataBuilder,
@@ -62,9 +65,12 @@ class WebMediaPlayer(
         val commands = Player.Commands.Builder()
             .addAll(
                 Player.COMMAND_PLAY_PAUSE,
+                Player.COMMAND_PREPARE,
+                Player.COMMAND_STOP,
                 Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
                 Player.COMMAND_GET_METADATA,
                 Player.COMMAND_GET_TIMELINE,
+                Player.COMMAND_SEEK_TO_DEFAULT_POSITION,
                 Player.COMMAND_SEEK_TO_NEXT,
                 Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
                 Player.COMMAND_SEEK_TO_PREVIOUS,
@@ -72,20 +78,33 @@ class WebMediaPlayer(
                 Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
                 Player.COMMAND_SEEK_BACK,
                 Player.COMMAND_SEEK_FORWARD,
+                Player.COMMAND_SET_REPEAT_MODE,
+                Player.COMMAND_SET_SHUFFLE_MODE,
             )
             .build()
 
+        val isStarting = !SpotifyWebPlayer.isPlaying && currentSongState.playingState.value
+        val playbackState = if (isStarting) Player.STATE_BUFFERING else Player.STATE_READY
+        val playWhenReady = SpotifyWebPlayer.isPlaying || isStarting
+
         return State.Builder()
             .setAvailableCommands(commands)
-            .setPlaybackState(Player.STATE_READY)
+            .setPlaybackState(playbackState)
             .setPlayWhenReady(
-                SpotifyWebPlayer.isPlaying,
+                playWhenReady,
                 Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST,
             )
             .setPlaylist(listOf(itemData))
             .setCurrentMediaItemIndex(0)
             .setContentPositionMs(posMs)
             .build()
+    }
+
+    override fun handlePrepare(): ListenableFuture<*> = Futures.immediateVoidFuture()
+
+    override fun handleStop(): ListenableFuture<*> {
+        SongPlayer.pause()
+        return Futures.immediateVoidFuture()
     }
 
     override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {

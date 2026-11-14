@@ -257,6 +257,29 @@ object SongPlayer {
     @Volatile private var metaAlbum: String = ""
     @Volatile private var metaDurationMs: Long = 0L
 
+    data class NowPlayingMetaSnapshot(
+        val title: String,
+        val artist: String,
+        val coverUri: String,
+        val album: String,
+        val durationMs: Long,
+    )
+
+    fun nowPlayingMetaSnapshot(): NowPlayingMetaSnapshot =
+        NowPlayingMetaSnapshot(
+            title = metaTitle,
+            artist = metaArtist,
+            coverUri = metaCover,
+            album = metaAlbum,
+            durationMs = metaDurationMs,
+        )
+
+    @androidx.annotation.VisibleForTesting
+    internal fun setResolvingStateForTest(resolving: Boolean, shouldPlay: Boolean = true) {
+        isResolvingTrack = resolving
+        playWhenResolved = shouldPlay
+    }
+
     fun setNowPlayingMeta(
         title: String,
         artist: String,
@@ -420,6 +443,7 @@ object SongPlayer {
             currentSource = "Spotify"
             currentQuality = ""
             SpotifyWebPlayer.playEpisode(song.removePrefix("episode:"))
+            com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(appContext)
             return
         }
 
@@ -436,14 +460,17 @@ object SongPlayer {
         ) {
             val spotifyId = trackIdRegistry[song] ?: spotifyTrackIdForPlayback(song)
             if (spotifyId != null) {
+                isResolvingTrack = false
                 runCatching { player?.pause() }
                 currentSource = "Spotify"
                 currentQuality = ""
                 updateResolveStatus(true, "Loading Spotify track...")
                 SpotifyWebPlayer.play(spotifyId)
+                com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(appContext)
                 scope.launch {
                     delay(1500)
                     updateResolveStatus(false)
+                    com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(appContext)
                 }
                 return
             }
@@ -2244,11 +2271,16 @@ object SongPlayer {
 
     fun play() {
         appCtx?.let { com.music.spotui.ui.notification.PlaybackService.ensureStarted(it) }
-        if (webPlaybackActive()) { SpotifyWebPlayer.resume(); return }
+        if (webPlaybackActive()) {
+            SpotifyWebPlayer.resume()
+            appCtx?.let { com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(it) }
+            return
+        }
         playWhenResolved = true
         if (currentRequest.isNotBlank() && currentRequest != loadedQuery) {
             // We are currently resolving a new track in the background.
             // Do not play the old track (loadedQuery).
+            appCtx?.let { com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(it) }
             return
         }
         // Fresh launch: nothing loaded yet — resume the restored session track.
@@ -2258,12 +2290,17 @@ object SongPlayer {
             if (q != null && ctx != null) { playSong(q, ctx); return }
         }
         player?.play()
+        appCtx?.let { com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(it) }
     }
 
     fun pause() {
         cancelCrossfade()
         playWhenResolved = false
-        if (webPlaybackActive()) { SpotifyWebPlayer.pause(); return }
+        if (webPlaybackActive()) {
+            SpotifyWebPlayer.pause()
+            appCtx?.let { com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(it) }
+            return
+        }
         player?.let {
             it.playWhenReady = false
             // Remember where we stopped so a relaunch can resume mid-track.
@@ -2272,13 +2309,16 @@ object SongPlayer {
                 if (pos > 0) com.music.spotui.data.preferences.saveLastPosition(ctx, pos)
             }
         }
+        appCtx?.let { com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(it) }
     }
 
     fun stop() {
         cancelCrossfade()
+        isResolvingTrack = false
         player?.stop()
         loadedQuery = null
         currentRequest = ""
+        appCtx?.let { com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(it) }
     }
 
     fun togglePlay() {

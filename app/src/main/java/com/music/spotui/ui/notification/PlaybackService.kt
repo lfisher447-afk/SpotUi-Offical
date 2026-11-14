@@ -5,17 +5,16 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.view.KeyEvent
 import androidx.compose.runtime.snapshotFlow
-import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
-import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -25,7 +24,6 @@ import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaStyleNotificationHelper
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import com.google.common.collect.ImmutableList
@@ -97,6 +95,7 @@ class PlaybackService : MediaLibraryService() {
     private val queueByTrackId = java.util.concurrent.ConcurrentHashMap<String, List<SongsModel>>()
     private val searchCache = java.util.concurrent.ConcurrentHashMap<String, List<SongsModel>>()
     private var webPlayer: WebMediaPlayer? = null
+    private var sessionPlayer: PlaybackSessionPlayer? = null
     private var showingWeb = false
     // Retry a transient stream/player failure once before skipping. The cap prevents an
     // unrecoverable source from looping forever while preserving playback on short URL/network hiccups.
@@ -385,12 +384,16 @@ class PlaybackService : MediaLibraryService() {
             )
 
             webPlayer = WebMediaPlayer(mainLooper, currentSongState) { forward -> advance(forward) }
+            val wrapped = createSessionPlayer(base).also { sessionPlayer = it }
 
-            val session = MediaLibrarySession.Builder(this, wrap(base), LibraryCallback())
+            val session = MediaLibrarySession.Builder(this, wrapped, LibraryCallback())
                 .setSessionActivity(sessionActivity)
                 .build()
             mediaSession = session
+            activeInstance = this
             addSession(session)
+            syncSessionPlayer()
+            wrapped.syncState()
             PlaybackSessionBus.onServiceCreated()
 
             // Sync current song metadata to the MediaSession when track or metadata changes
@@ -414,7 +417,12 @@ class PlaybackService : MediaLibraryService() {
             // When a crossfade promotes a new ExoPlayer instance, re-bind the session to it
             // (runs on the main thread; setPlayer is the supported way to swap a session's player).
             SongPlayer.onPlayerSwapped = { newPlayer ->
-                if (!showingWeb) mediaSession?.player = wrap(newPlayer)
+                sessionPlayer?.releaseTracker()
+                val nextWrapped = createSessionPlayer(newPlayer).also { sessionPlayer = it }
+                if (!showingWeb) {
+                    mediaSession?.player = nextWrapped
+                    nextWrapped.syncState()
+                }
                 newPlayer.addListener(playerListener)
             }
 
@@ -567,49 +575,21 @@ class PlaybackService : MediaLibraryService() {
                 player.replaceMediaItem(idx, currentItem.buildUpon().setMediaMetadata(meta).build())
             }
         }
-        runCatching { triggerNotificationUpdate() }
+        syncSessionStateFromApp()
         android.util.Log.d(
             "PlaybackService",
             "Updated MediaMetadata: title='$title', artist='$artist', album='$album', durationMs=$durationMs"
         )
     }
 
-    override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
-        val awaitingResolvedItem = session.player.currentTimeline.isEmpty &&
-            (SongPlayer.isResolvingTrack || SongPlayer.isPlaying() || SpotifyWebPlayer.isPlaying)
-        if (awaitingResolvedItem) {
-            promoteToForegroundWithMediaStyle(session)
-            return
+    private fun syncSessionStateFromApp() {
+        syncSessionPlayer()
+        if (showingWeb) {
+            webPlayer?.refresh()
+        } else {
+            sessionPlayer?.syncState()
         }
-        super.onUpdateNotification(session, startInForegroundRequired)
-    }
-
-    private fun promoteToForegroundWithMediaStyle(session: MediaSession) {
-        com.music.spotui.engine.MediaNotificationAdapter.ensureChannel(this)
-        val title = currentSongState.title.value.ifBlank { getString(R.string.app_name) }
-        val artist = currentSongState.singer.value
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_spotui_notification)
-            .setContentTitle(title)
-            .setContentText(artist)
-            .setContentIntent(session.sessionActivity)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setOnlyAlertOnce(true)
-            .setOngoing(true)
-            .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
-            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .setStyle(MediaStyleNotificationHelper.MediaStyle(session))
-            .build()
-        runCatching {
-            val fgsType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-            } else {
-                0
-            }
-            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, fgsType)
-        }.onFailure {
-            AppDiagnostics.warning("PlaybackService", "Foreground promotion skipped/deferred", it)
-        }
+        runCatching { triggerNotificationUpdate() }
     }
 
     /** Point the media session at whichever engine is currently producing audio. */
@@ -618,11 +598,17 @@ class PlaybackService : MediaLibraryService() {
         if (wantWeb == showingWeb) return
         showingWeb = wantWeb
         val session = mediaSession ?: return
-        session.player = if (wantWeb) {
-            webPlayer ?: return
+        if (wantWeb) {
+            val wp = webPlayer ?: return
+            session.player = wp
+            wp.refresh()
         } else {
-            wrap(SongPlayer.exoPlayer ?: return)
+            val exo = SongPlayer.exoPlayer ?: return
+            val wrapped = sessionPlayer ?: createSessionPlayer(exo).also { sessionPlayer = it }
+            session.player = wrapped
+            wrapped.syncState()
         }
+        runCatching { triggerNotificationUpdate() }
     }
 
     /**
@@ -677,112 +663,17 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    private var activeForwardingPlayer: ForwardingPlayer? = null
-
-    private fun wrap(base: Player): ForwardingPlayer {
-        return object : ForwardingPlayer(base) {
-            override fun getAvailableCommands(): Player.Commands =
-                super.getAvailableCommands().buildUpon()
-                    .add(COMMAND_PLAY_PAUSE)
-                    .add(COMMAND_PREPARE)
-                    .add(COMMAND_STOP)
-                    .add(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
-                    .add(COMMAND_SEEK_TO_DEFAULT_POSITION)
-                    .add(COMMAND_SEEK_TO_NEXT)
-                    .add(COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-                    .add(COMMAND_SEEK_TO_PREVIOUS)
-                    .add(COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-                    .add(COMMAND_SET_REPEAT_MODE)
-                    .add(COMMAND_SET_SHUFFLE_MODE)
-                    .add(COMMAND_GET_CURRENT_MEDIA_ITEM)
-                    .add(COMMAND_GET_TIMELINE)
-                    .add(COMMAND_GET_METADATA)
-                    .build()
-
-            override fun isCommandAvailable(command: Int): Boolean = when (command) {
-                COMMAND_PLAY_PAUSE,
-                COMMAND_PREPARE,
-                COMMAND_STOP,
-                COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
-                COMMAND_SEEK_TO_DEFAULT_POSITION,
-                COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
-                COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
-                COMMAND_SET_REPEAT_MODE,
-                COMMAND_SET_SHUFFLE_MODE,
-                COMMAND_GET_CURRENT_MEDIA_ITEM,
-                COMMAND_GET_TIMELINE,
-                COMMAND_GET_METADATA -> true
-
-                else -> super.isCommandAvailable(command)
-            }
-
-            // Samsung S24 One UI Now Bar fix: never report a transient pause/idle during async stream resolution.
-            override fun getPlaybackState(): Int =
-                if (SongPlayer.isResolvingTrack) STATE_BUFFERING else super.getPlaybackState()
-
-            override fun getPlayWhenReady(): Boolean =
-                if (SongPlayer.isResolvingTrack) SongPlayer.shouldPlayWhenResolved() else super.getPlayWhenReady()
-
-            override fun isPlaying(): Boolean =
-                super.isPlaying() || (SongPlayer.isResolvingTrack && SongPlayer.shouldPlayWhenResolved())
-
-            override fun getMediaMetadata(): MediaMetadata =
-                latestServiceMetadata ?: super.getMediaMetadata()
-
-            override fun play() {
-                SongPlayer.play()
-                currentSongState.setPlaying(true)
-            }
-
-            override fun pause() {
-                SongPlayer.pause()
-                currentSongState.setPlaying(false)
-            }
-
-            override fun setPlayWhenReady(playWhenReady: Boolean) {
-                if (playWhenReady) play() else pause()
-            }
-
-            override fun stop() {
-                SongPlayer.stop()
-                currentSongState.setPlaying(false)
-            }
-
-            override fun getRepeatMode(): Int = when (currentSongState.repeat.value) {
-                RepeatMode.OFF -> Player.REPEAT_MODE_OFF
-                RepeatMode.ONE -> Player.REPEAT_MODE_ONE
-                RepeatMode.ALL -> Player.REPEAT_MODE_ALL
-            }
-
-            override fun setRepeatMode(repeatMode: Int) {
-                val mapped = when (repeatMode) {
-                    Player.REPEAT_MODE_ONE -> RepeatMode.ONE
-                    Player.REPEAT_MODE_ALL -> RepeatMode.ALL
-                    else -> RepeatMode.OFF
-                }
-                currentSongState.updateRepeatState(mapped)
-            }
-
-            override fun getShuffleModeEnabled(): Boolean = currentSongState.shuffle.value
-
-            override fun setShuffleModeEnabled(shuffleModeEnabled: Boolean) {
-                currentSongState.updateShuffleState(shuffleModeEnabled)
-                mediaSession?.setCustomLayout(
-                    buildCustomLayout(
-                        isLiked = isCurrentSongLiked(currentSongState.songId.value),
-                        isShuffled = shuffleModeEnabled,
-                    )
-                )
-            }
-
-            override fun hasNextMediaItem() = currentSongState.queue.value.isNotEmpty()
-            override fun hasPreviousMediaItem() = currentSongState.queue.value.isNotEmpty()
-            override fun seekToNext() = advance(forward = true)
-            override fun seekToNextMediaItem() = advance(forward = true)
-            override fun seekToPrevious() = advance(forward = false)
-            override fun seekToPreviousMediaItem() = advance(forward = false)
-        }.also { activeForwardingPlayer = it }
-    }
+    private fun createSessionPlayer(base: Player): PlaybackSessionPlayer =
+        PlaybackSessionPlayer(
+            base = base,
+            currentSongState = currentSongState,
+            metadataProvider = { latestServiceMetadata },
+            isLikedProvider = { songId -> isCurrentSongLiked(songId) },
+            customLayoutUpdater = { liked, shuffled ->
+                mediaSession?.setCustomLayout(buildCustomLayout(liked, shuffled))
+            },
+            onAdvance = { forward -> advance(forward) },
+        )
 
     /** Advance the in-app queue one step in the given direction and start it. */
     private fun advance(forward: Boolean) {
@@ -799,7 +690,6 @@ class PlaybackService : MediaLibraryService() {
         const val CHANNEL_ID = com.music.spotui.engine.MediaNotificationAdapter.CHANNEL_ID
         const val ACTION_ENSURE_FOREGROUND = "com.music.spotui.action.ENSURE_FOREGROUND"
         const val ACTION_REFRESH_NOTIFICATION = "com.music.spotui.action.REFRESH_NOTIFICATION"
-        private const val EXTRA_STARTED_IN_FOREGROUND = "com.music.spotui.extra.STARTED_IN_FOREGROUND"
 
         private const val ROOT = "root"
         private const val NODE_LIKED = "liked"
@@ -812,11 +702,22 @@ class PlaybackService : MediaLibraryService() {
         private const val ACTION_CLOSE = "ACTION_CLOSE"
         private const val IDLE_STOP_TIMEOUT_MS = 5 * 60_000L
 
+        @Volatile
+        private var activeInstance: PlaybackService? = null
+
+        private val mainHandler = Handler(Looper.getMainLooper())
+
         fun ensureStarted(context: Context) {
             val appContext = context.applicationContext
+            activeInstance?.let { service ->
+                if (Looper.myLooper() == Looper.getMainLooper()) {
+                    service.syncSessionStateFromApp()
+                } else {
+                    mainHandler.post { service.syncSessionStateFromApp() }
+                }
+            }
             val intent = Intent(appContext, PlaybackService::class.java).apply {
                 action = ACTION_ENSURE_FOREGROUND
-                putExtra(EXTRA_STARTED_IN_FOREGROUND, true)
             }
             runCatching {
                 ContextCompat.startForegroundService(appContext, intent)
@@ -825,25 +726,23 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
-        fun refreshNotification(context: Context) {
-            val appContext = context.applicationContext
-            if (!PlaybackSessionBus.sessionAlive.value && !SongPlayer.isPlaying() && !SongPlayer.isResolvingTrack) {
+        fun notifyPlaybackStateChanged(context: Context) {
+            val service = activeInstance
+            if (service != null) {
+                if (Looper.myLooper() == Looper.getMainLooper()) {
+                    service.syncSessionStateFromApp()
+                } else {
+                    mainHandler.post { service.syncSessionStateFromApp() }
+                }
                 return
             }
-            val useForegroundStart = SongPlayer.isPlaying() || SongPlayer.isResolvingTrack
-            val intent = Intent(appContext, PlaybackService::class.java).apply {
-                action = ACTION_REFRESH_NOTIFICATION
-                putExtra(EXTRA_STARTED_IN_FOREGROUND, useForegroundStart)
+            if (SongPlayer.isPlaying() || SongPlayer.isResolvingTrack) {
+                ensureStarted(context)
             }
-            runCatching {
-                if (useForegroundStart) {
-                    ContextCompat.startForegroundService(appContext, intent)
-                } else {
-                    appContext.startService(intent)
-                }
-            }.onFailure {
-                runCatching { appContext.startService(intent) }
-            }
+        }
+
+        fun refreshNotification(context: Context) {
+            notifyPlaybackStateChanged(context)
         }
     }
 
@@ -1330,10 +1229,6 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
-        val forceForegroundExtra = intent?.getBooleanExtra(EXTRA_STARTED_IN_FOREGROUND, false) == true
-        val requiresForegroundSafety = action == ACTION_ENSURE_FOREGROUND ||
-            action == Intent.ACTION_MEDIA_BUTTON ||
-            forceForegroundExtra
 
         if (action == Intent.ACTION_MEDIA_BUTTON) {
             if (WidgetMediaIntents.isSkipFirst(intent)) {
@@ -1376,16 +1271,7 @@ class PlaybackService : MediaLibraryService() {
             scheduleIdleStopCheck()
         }
 
-        // Always satisfy startForegroundService()'s 5s contract even while stream URLs
-        // are still resolving (Timeline.isEmpty() suppresses Media3's internal notification).
-        mediaSession?.let { session ->
-            if (requiresForegroundSafety && session.player.currentTimeline.isEmpty) {
-                promoteToForegroundWithMediaStyle(session)
-            } else {
-                runCatching { triggerNotificationUpdate() }
-            }
-        }
-
+        syncSessionStateFromApp()
         super.onStartCommand(intent, flags, startId)
         return START_STICKY
     }
@@ -1408,6 +1294,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
+        if (activeInstance === this) activeInstance = null
         idleStopJob?.cancel()
         idleStopJob = null
         MediaCommandDispatcher.stop()
@@ -1424,6 +1311,8 @@ class PlaybackService : MediaLibraryService() {
         runCatching { SongPlayer.exoPlayer?.removeListener(playerListener) }
         SongPlayer.onPlayerSwapped = null
         SpotifyWebPlayer.onStateChanged = null
+        runCatching { sessionPlayer?.releaseTracker() }
+        sessionPlayer = null
         runCatching { webPlayer?.release() }
         webPlayer = null
         // The player belongs to this MediaLibraryService, not the UI activity. Release it only

@@ -269,6 +269,7 @@ object SpotifyWebPlayer {
     private fun playUri(uri: String, path: String) {
         val wv = webView ?: run { Log.w(TAG, "play() before attach"); return }
         Log.d(TAG, "playUri($uri) activated=$activated commandReady=$commandReady")
+        onStateChanged?.invoke()
         wv.post {
             if (activated && commandReady) {
                 sendCommand(uri, path)
@@ -302,8 +303,17 @@ object SpotifyWebPlayer {
         }
     }
 
-    fun resume() = eval(clickPlayJs())
-    fun pause() = eval(pauseJs())
+    fun resume() {
+        eval(clickPlayJs())
+        onStateChanged?.invoke()
+    }
+
+    fun pause() {
+        isPlaying = false
+        eval(pauseJs())
+        onStateChanged?.invoke()
+    }
+
     fun next() = eval(clickJs("control-button-skip-forward"))
     fun previous() = eval(clickJs("control-button-skip-back"))
 

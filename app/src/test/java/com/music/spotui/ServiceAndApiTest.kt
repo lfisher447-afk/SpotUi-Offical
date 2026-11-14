@@ -58,6 +58,50 @@ class ServiceAndApiTest {
     }
 
     @Test
+    fun playbackService_sessionPlayerProvidesPlaceholderTimelineAndCommandsDuringResolution() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val controller = Robolectric.buildService(PlaybackService::class.java)
+        val service = controller.create().get()
+        val session = service.sessions.first()
+        val sessionPlayer = session.player
+
+        // Verify required transport and metadata commands are always exposed for One UI / System UI.
+        val cmds = sessionPlayer.availableCommands
+        assertTrue(cmds.contains(androidx.media3.common.Player.COMMAND_PLAY_PAUSE))
+        assertTrue(cmds.contains(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT))
+        assertTrue(cmds.contains(androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS))
+        assertTrue(cmds.contains(androidx.media3.common.Player.COMMAND_GET_CURRENT_MEDIA_ITEM))
+        assertTrue(cmds.contains(androidx.media3.common.Player.COMMAND_GET_TIMELINE))
+
+        // Simulate track resolution before ExoPlayer has a stream URL loaded.
+        com.music.spotui.di.SongPlayer.setNowPlayingMeta(
+            title = "Blinding Lights",
+            artist = "The Weeknd",
+            coverUri = "",
+            album = "After Hours",
+            durationMs = 200_000L,
+        )
+        com.music.spotui.di.SongPlayer.setResolvingStateForTest(true)
+        PlaybackService.notifyPlaybackStateChanged(context)
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
+
+        assertFalse(sessionPlayer.currentTimeline.isEmpty)
+        assertEquals(1, sessionPlayer.mediaItemCount)
+        assertNotNull(sessionPlayer.currentMediaItem)
+        assertEquals("Blinding Lights", sessionPlayer.mediaMetadata.title?.toString())
+        assertEquals(androidx.media3.common.Player.STATE_BUFFERING, sessionPlayer.playbackState)
+        assertTrue(sessionPlayer.playWhenReady)
+
+        // Clearing resolution returns idle state safely when no stream is loaded.
+        com.music.spotui.di.SongPlayer.setResolvingStateForTest(false)
+        PlaybackService.notifyPlaybackStateChanged(context)
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
+
+        assertEquals(androidx.media3.common.Player.STATE_IDLE, sessionPlayer.playbackState)
+        controller.destroy()
+    }
+
+    @Test
     fun api_unauthenticatedCalls_emitGracefulErrorsWithoutThrowing() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val api = Api(context)
