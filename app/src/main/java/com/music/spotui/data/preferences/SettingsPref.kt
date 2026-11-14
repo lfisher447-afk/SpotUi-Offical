@@ -31,12 +31,26 @@ enum class LosslessTimeout(
     LONG("Long wait", "Patient (8s) cutoff", 8_000L),
 }
 
-/** Spatial processing profiles. Each profile is rendered through the device audio session. */
+/** Spatial processing profiles. Each profile is rendered through the device audio session & PCM DSP. */
 enum class SpatialProfile(val label: String, val detail: String) {
     STUDIO("Studio", "Subtle width with a focused center image"),
     WIDE("Wide", "Expanded stereo presentation"),
     IMMERSIVE("Immersive", "Maximum supported surround processing"),
     CINEMA("Cinema", "Large-room depth for albums and live sets"),
+    CONCERT_HALL("Concert Hall", "Natural acoustic reflections with warm stage width"),
+    BINAURAL_HEADPHONES("Headphone 3D", "HRTF crossfeed & ear-delay imaging for headphones"),
+}
+
+enum class BufferProfile(val label: String, val detail: String, val minMs: Int, val maxMs: Int, val playbackMs: Int, val rebufferMs: Int) {
+    LOW_LATENCY("Low Latency", "Instant start & fast seeking", 1500, 12000, 750, 1500),
+    BALANCED("Balanced", "Smooth streaming with smart memory use", 4000, 30000, 1500, 3000),
+    HIGH_STABILITY("High Stability", "Extra anti-stutter buffer for background & weak networks", 8000, 60000, 2500, 5000),
+}
+
+enum class AudioFocusMode(val label: String, val detail: String) {
+    PAUSE_AND_DUCK("Standard (Pause & Duck)", "Pause for calls, duck briefly for notifications"),
+    STRICT_EXCLUSIVE("Strict Focus", "Always pause when another app requests audio"),
+    MIX_IGNORE_FOCUS("Mix / Ignore Focus", "Keep playing over notifications & navigation prompts"),
 }
 
 /** Primary navigation placement for the application shell. */
@@ -421,13 +435,20 @@ fun setSkipSilenceEnabled(c: Context, enabled: Boolean) =
     prefs(c).edit().putBoolean(KEY_SKIP_SILENCE, enabled).apply()
 
 private const val KEY_DEEZER_ARL = "lossless_deezer_arl"
+private const val KEY_DEEZER_TIER = "lossless_deezer_tier"
 
 fun getDeezerArl(c: Context): String = prefs(c).getString(KEY_DEEZER_ARL, "").orEmpty()
 fun setDeezerArl(c: Context, arl: String) {
     val clean = arl.trim()
     prefs(c).edit().putString(KEY_DEEZER_ARL, clean).apply()
     com.metrolist.spotify.SpotiFlac.deezerArl = clean.ifBlank { null }
+    com.music.spotui.deezer.DeezerSession.setArl(clean)
+    if (clean.isBlank()) setDeezerTier(c, "")
 }
+
+fun getDeezerTier(c: Context): String = prefs(c).getString(KEY_DEEZER_TIER, "").orEmpty()
+fun setDeezerTier(c: Context, tier: String) =
+    prefs(c).edit().putString(KEY_DEEZER_TIER, tier.trim()).apply()
 
 private const val KEY_CUSTOM_LOSSLESS_MIRROR = "lossless_custom_mirror_url"
 fun getCustomLosslessMirrorUrl(c: Context): String = prefs(c).getString(KEY_CUSTOM_LOSSLESS_MIRROR, "").orEmpty()
@@ -442,8 +463,109 @@ fun isStableUpdatesOnly(c: Context): Boolean = prefs(c).getBoolean(KEY_STABLE_UP
 fun setStableUpdatesOnly(c: Context, value: Boolean) =
     prefs(c).edit().putBoolean(KEY_STABLE_UPDATES_ONLY, value).apply()
 
+// ── Extended Equalizer, Preamp, Limiter & Spatial DSP Preferences ──
+private const val KEY_EQ_ENABLED = "audio_eq_enabled"
+private const val KEY_EQ_SUB_BASS = "audio_eq_sub_bass"
+private const val KEY_EQ_BRILLIANCE = "audio_eq_brilliance"
+private const val KEY_EQ_PREAMP_DB = "audio_eq_preamp_db"
+private const val KEY_BASS_BOOST_STRENGTH = "audio_bass_boost_strength"
+private const val KEY_LIMITER_ENABLED = "audio_soft_limiter_enabled"
+private const val KEY_HEADPHONE_CROSSFEED = "audio_headphone_crossfeed"
+private const val KEY_SPATIAL_ROOM_DELAY_MS = "audio_spatial_room_delay_ms"
+private const val KEY_NORMALIZER_TARGET_LUFS = "audio_normalizer_target_lufs"
 
+fun isEqEnabled(c: Context): Boolean = prefs(c).getBoolean(KEY_EQ_ENABLED, true)
+fun setEqEnabled(c: Context, v: Boolean) = prefs(c).edit().putBoolean(KEY_EQ_ENABLED, v).apply()
 
+fun getEqSubBass(c: Context): Float = prefs(c).getFloat(KEY_EQ_SUB_BASS, 50f).coerceIn(0f, 100f)
+fun setEqSubBass(c: Context, v: Float) = prefs(c).edit().putFloat(KEY_EQ_SUB_BASS, v.coerceIn(0f, 100f)).apply()
 
+fun getEqBrilliance(c: Context): Float = prefs(c).getFloat(KEY_EQ_BRILLIANCE, 50f).coerceIn(0f, 100f)
+fun setEqBrilliance(c: Context, v: Float) = prefs(c).edit().putFloat(KEY_EQ_BRILLIANCE, v.coerceIn(0f, 100f)).apply()
 
+fun getEqPreampDb(c: Context): Float = prefs(c).getFloat(KEY_EQ_PREAMP_DB, 0f).coerceIn(-12f, 6f)
+fun setEqPreampDb(c: Context, db: Float) = prefs(c).edit().putFloat(KEY_EQ_PREAMP_DB, db.coerceIn(-12f, 6f)).apply()
 
+fun getBassBoostStrength(c: Context): Int = prefs(c).getInt(KEY_BASS_BOOST_STRENGTH, 0).coerceIn(0, 1000)
+fun setBassBoostStrength(c: Context, v: Int) = prefs(c).edit().putInt(KEY_BASS_BOOST_STRENGTH, v.coerceIn(0, 1000)).apply()
+
+fun isLimiterEnabled(c: Context): Boolean = prefs(c).getBoolean(KEY_LIMITER_ENABLED, true)
+fun setLimiterEnabled(c: Context, v: Boolean) = prefs(c).edit().putBoolean(KEY_LIMITER_ENABLED, v).apply()
+
+fun isHeadphoneCrossfeedEnabled(c: Context): Boolean = prefs(c).getBoolean(KEY_HEADPHONE_CROSSFEED, false)
+fun setHeadphoneCrossfeedEnabled(c: Context, v: Boolean) = prefs(c).edit().putBoolean(KEY_HEADPHONE_CROSSFEED, v).apply()
+
+fun getSpatialRoomDelayMs(c: Context): Float = prefs(c).getFloat(KEY_SPATIAL_ROOM_DELAY_MS, 12f).coerceIn(2f, 28f)
+fun setSpatialRoomDelayMs(c: Context, ms: Float) = prefs(c).edit().putFloat(KEY_SPATIAL_ROOM_DELAY_MS, ms.coerceIn(2f, 28f)).apply()
+
+fun getAudioNormalizerTargetLufs(c: Context): Float = prefs(c).getFloat(KEY_NORMALIZER_TARGET_LUFS, -14f).coerceIn(-24f, -8f)
+fun setAudioNormalizerTargetLufs(c: Context, lufs: Float) = prefs(c).edit().putFloat(KEY_NORMALIZER_TARGET_LUFS, lufs.coerceIn(-24f, -8f)).apply()
+
+// ── Playback Engine, Focus, Buffer & Search Preferences ──
+private const val KEY_AUTOPLAY_RADIO = "playback_autoplay_radio"
+private const val KEY_AUTO_RESUME_BT = "playback_auto_resume_bt"
+private const val KEY_PAUSE_ON_UNPLUG = "playback_pause_on_unplug"
+private const val KEY_PAUSE_ON_ZERO_VOL = "playback_pause_zero_volume"
+private const val KEY_AUTO_SKIP_UNAVAILABLE = "playback_auto_skip_unavailable"
+private const val KEY_FADE_IN_ON_PLAY = "playback_fade_in_on_play"
+private const val KEY_FLOAT_AUDIO_OUTPUT = "playback_float_audio_output"
+private const val KEY_SEEK_STEP_SEC = "playback_seek_step_sec"
+private const val KEY_BUFFER_PROFILE = "playback_buffer_profile"
+private const val KEY_AUDIO_FOCUS_MODE = "playback_audio_focus_mode"
+private const val KEY_SPECTRUM_VISUALIZER = "ui_spectrum_visualizer"
+private const val KEY_MINI_PLAYER_PROGRESS = "ui_mini_player_progress"
+private const val KEY_SEARCH_EXPLICIT_FILTER = "search_explicit_filter_only"
+
+fun isAutoplayRadioEnabled(c: Context): Boolean = prefs(c).getBoolean(KEY_AUTOPLAY_RADIO, true)
+fun setAutoplayRadioEnabled(c: Context, v: Boolean) = prefs(c).edit().putBoolean(KEY_AUTOPLAY_RADIO, v).apply()
+
+fun isAutoResumeOnBluetooth(c: Context): Boolean = prefs(c).getBoolean(KEY_AUTO_RESUME_BT, true)
+fun setAutoResumeOnBluetooth(c: Context, v: Boolean) = prefs(c).edit().putBoolean(KEY_AUTO_RESUME_BT, v).apply()
+
+fun isPauseOnUnplugEnabled(c: Context): Boolean = prefs(c).getBoolean(KEY_PAUSE_ON_UNPLUG, true)
+fun setPauseOnUnplugEnabled(c: Context, v: Boolean) = prefs(c).edit().putBoolean(KEY_PAUSE_ON_UNPLUG, v).apply()
+
+fun isPauseOnZeroVolume(c: Context): Boolean = prefs(c).getBoolean(KEY_PAUSE_ON_ZERO_VOL, false)
+fun setPauseOnZeroVolume(c: Context, v: Boolean) = prefs(c).edit().putBoolean(KEY_PAUSE_ON_ZERO_VOL, v).apply()
+
+fun isAutoSkipUnavailable(c: Context): Boolean = prefs(c).getBoolean(KEY_AUTO_SKIP_UNAVAILABLE, true)
+fun setAutoSkipUnavailable(c: Context, v: Boolean) = prefs(c).edit().putBoolean(KEY_AUTO_SKIP_UNAVAILABLE, v).apply()
+
+fun isFadeInOnPlay(c: Context): Boolean = prefs(c).getBoolean(KEY_FADE_IN_ON_PLAY, true)
+fun setFadeInOnPlay(c: Context, v: Boolean) = prefs(c).edit().putBoolean(KEY_FADE_IN_ON_PLAY, v).apply()
+
+fun isFloatAudioOutput(c: Context): Boolean = prefs(c).getBoolean(KEY_FLOAT_AUDIO_OUTPUT, true)
+fun setFloatAudioOutput(c: Context, v: Boolean) = prefs(c).edit().putBoolean(KEY_FLOAT_AUDIO_OUTPUT, v).apply()
+
+fun getSeekStepSeconds(c: Context): Int = prefs(c).getInt(KEY_SEEK_STEP_SEC, 10).coerceIn(5, 60)
+fun setSeekStepSeconds(c: Context, sec: Int) = prefs(c).edit().putInt(KEY_SEEK_STEP_SEC, sec.coerceIn(5, 60)).apply()
+
+fun getBufferProfile(c: Context): BufferProfile {
+    val raw = prefs(c).getString(KEY_BUFFER_PROFILE, BufferProfile.BALANCED.name)
+    return raw?.let { runCatching { BufferProfile.valueOf(it) }.getOrNull() } ?: BufferProfile.BALANCED
+}
+fun setBufferProfile(c: Context, profile: BufferProfile) =
+    prefs(c).edit().putString(KEY_BUFFER_PROFILE, profile.name).apply()
+
+fun getAudioFocusMode(c: Context): AudioFocusMode {
+    val raw = prefs(c).getString(KEY_AUDIO_FOCUS_MODE, AudioFocusMode.PAUSE_AND_DUCK.name)
+    return raw?.let { runCatching { AudioFocusMode.valueOf(it) }.getOrNull() } ?: AudioFocusMode.PAUSE_AND_DUCK
+}
+fun setAudioFocusMode(c: Context, mode: AudioFocusMode) =
+    prefs(c).edit().putString(KEY_AUDIO_FOCUS_MODE, mode.name).apply()
+
+fun isSpectrumVisualizerEnabled(c: Context): Boolean = prefs(c).getBoolean(KEY_SPECTRUM_VISUALIZER, true)
+fun setSpectrumVisualizerEnabled(c: Context, v: Boolean) {
+    prefs(c).edit().putBoolean(KEY_SPECTRUM_VISUALIZER, v).apply()
+    notifyUiSettingsChanged()
+}
+
+fun isMiniPlayerProgressVisible(c: Context): Boolean = prefs(c).getBoolean(KEY_MINI_PLAYER_PROGRESS, true)
+fun setMiniPlayerProgressVisible(c: Context, v: Boolean) {
+    prefs(c).edit().putBoolean(KEY_MINI_PLAYER_PROGRESS, v).apply()
+    notifyUiSettingsChanged()
+}
+
+fun isSearchExplicitFilter(c: Context): Boolean = prefs(c).getBoolean(KEY_SEARCH_EXPLICIT_FILTER, false)
+fun setSearchExplicitFilter(c: Context, v: Boolean) =
+    prefs(c).edit().putBoolean(KEY_SEARCH_EXPLICIT_FILTER, v).apply()

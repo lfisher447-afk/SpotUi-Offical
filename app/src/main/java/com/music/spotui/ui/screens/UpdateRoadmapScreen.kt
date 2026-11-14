@@ -90,6 +90,7 @@ private val releaseHistory = listOf(
     ReleaseEntry("2.1.5", "NovaAc v8 & Expressive M3 Controls", "Added NovaAc v8 Header-Bound AEAD encryption, MrBean NovaAc Controller v8, LRCLIB millisecond lyric sync, and dynamic M3 corner scaling."),
     ReleaseEntry("2.1.6", "Dual-mode Spotify login & Web player", "Added Chrome desktop user-agent WebView login, direct sp_dc cookie authentication with clipboard paste, external browser handoff, and guest mode."),
     ReleaseEntry("2.1.7", "Thanksgiving Edition — Auth, DoH/Proxy & Full Controls", "Thanksgiving Harvest Gold icon & expressive theme preset, ArchiveTune/YumaPlayer PlaybackAuthState, AuthSessionStore, DoH presets, rotating proxy & PoToken controls, YouTube account & channel verification, persisted speed/pitch/skip-silence tuning in Player & Settings, manual update checker, one-tap batch runtime permissions, full intent handling (Search/Send/Local Audio), and PlaybackService stability fixes."),
+    ReleaseEntry("2.2.0", "Playback Resurrection, Studio 7-Band DSP, Lossless Controller & 18-Point Health Scanner", "Eliminated Samsung S24 One UI Now Bar 'Resume playback' desync and background song-advance drops via non-destructive metadata updates, STATE_BUFFERING forwarding, WakeLock/WifiLock protection, and autoplay radio continuation; rebuilt 7-band Biquad EQ + Preamp + Bass Boost + Soft Limiter + RMS Normalizer + 3D Binaural Spatializer preserving state across transitions; fixed Lossless Provider Priority ordering with Solo Primary mode, direct Deezer ARL Blowfish decryption, custom mirror ping, and live quality restart at timestamp; upgraded Search filters, Player telemetry, A-B Loop, Sleep Timer, Quick Queue tools, and 18-point active Health Scanner."),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -127,7 +128,7 @@ fun UpdateRoadmapScreen(navController: NavController) {
                 Text("Sequential release integration", color = AppPalette, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "Every release entry from 1.5.1 to 2.1.7 is recorded below. Entries were updated on $ROADMAP_INTEGRATION_DATE.",
+                    "Every release entry from 1.5.1 to 2.2.0 is recorded below. Entries were updated on $ROADMAP_INTEGRATION_DATE.",
                     color = Color(0xFFCACAD2),
                     fontSize = 13.sp,
                     lineHeight = 18.sp,

@@ -157,6 +157,57 @@ class CurrentSongState @Inject constructor(
         com.music.spotui.data.preferences.saveRepeatMode(context, newRepeatState)
     }
 
+    /** Removes duplicate tracks while keeping the currently playing item and preserving its index. */
+    fun deduplicateQueue(): Int {
+        val q = _queue.value
+        if (q.size <= 1) return 0
+        val currentId = _songId.value
+        val seenKeys = LinkedHashSet<String>(q.size)
+        val deduped = ArrayList<SongsModel>(q.size)
+        for (item in q) {
+            val key = item.spotifyTrackId.ifBlank { item.url.ifBlank { item.id.toString() } }
+            if (seenKeys.add(key) || item.id == currentId) {
+                deduped.add(item)
+            }
+        }
+        val removed = (q.size - deduped.size).coerceAtLeast(0)
+        if (removed > 0) {
+            updateQueue(deduped)
+            val newIdx = deduped.indexOfFirst { it.id == currentId }
+            if (newIdx >= 0) _songIndex.value = newIdx
+        }
+        return removed
+    }
+
+    /** Shuffles only the upcoming tracks after the current index without interrupting the active song. */
+    fun shuffleUpcoming(): Int {
+        val q = _queue.value
+        if (q.size <= 2) return 0
+        val curIdx = q.indexOfFirst { it.id == _songId.value }
+            .let { if (it >= 0) it else _songIndex.value }
+            .coerceIn(0, q.lastIndex)
+        if (curIdx >= q.lastIndex - 1) return 0
+        val head = q.subList(0, curIdx + 1)
+        val tail = q.subList(curIdx + 1, q.size).shuffled()
+        updateQueue(head + tail)
+        _songIndex.value = curIdx
+        return tail.size
+    }
+
+    /** Drops already-played items preceding the currently active track. */
+    fun trimPlayedHistory(): Int {
+        val q = _queue.value
+        if (q.isEmpty()) return 0
+        val curIdx = q.indexOfFirst { it.id == _songId.value }
+            .let { if (it >= 0) it else _songIndex.value }
+            .coerceIn(0, q.lastIndex)
+        if (curIdx <= 0) return 0
+        val trimmed = q.subList(curIdx, q.size)
+        updateQueue(trimmed)
+        _songIndex.value = 0
+        return curIdx
+    }
+
     private val _isResolving: MutableState<Boolean> = mutableStateOf(false)
     val isResolving: State<Boolean> get() = _isResolving
 

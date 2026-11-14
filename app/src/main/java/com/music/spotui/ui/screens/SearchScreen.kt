@@ -7,6 +7,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,20 +17,26 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -41,6 +48,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -148,11 +156,29 @@ fun SumUpSearchScreen(
         com.music.spotui.data.preferences.addRecentItem(context, item)
         recents = com.music.spotui.data.preferences.getRecentItems(context)
     }
+
+    var selectedCategory by remember { mutableStateOf(SearchCategoryFilter.ALL) }
+    var explicitOnly by remember { mutableStateOf(com.music.spotui.data.preferences.isSearchExplicitFilter(context)) }
+
     // Live Spotify search results for the current query.
-    val searchedList = results.songs
-    // One relevance-mixed list (songs, artists, albums interleaved) instead of
-    // separate type sections — matches how most music apps present search.
-    val mixed = remember(results) { mixSearchResults(results) }
+    val searchedList = remember(results.songs, explicitOnly) {
+        if (explicitOnly) results.songs.filter { it.explicit } else results.songs
+    }
+    // Relevance-mixed or category-filtered list.
+    val mixed = remember(results, selectedCategory, explicitOnly) {
+        val base = when (selectedCategory) {
+            SearchCategoryFilter.ALL -> mixSearchResults(results)
+            SearchCategoryFilter.SONGS -> results.songs.map { SearchRow.Song(it) }
+            SearchCategoryFilter.ARTISTS -> results.artists.map { SearchRow.Artist(it) }
+            SearchCategoryFilter.ALBUMS -> results.albums.map { SearchRow.Album(it) }
+            SearchCategoryFilter.PODCASTS -> emptyList()
+        }
+        if (explicitOnly) {
+            base.filter { row -> row !is SearchRow.Song || row.song.explicit }
+        } else {
+            base
+        }
+    }
 
     // Warm the stream cache for the top search hits so tapping a result plays
     // (near-)instantly instead of resolving YouTube on the tap.
@@ -250,9 +276,7 @@ fun SumUpSearchScreen(
 
         if (text.isBlank()) {
             if ((isTextFieldFocused || searchActive) && recents.isNotEmpty()) {
-                // ── Recent searches: the items the user opened (Spotify-style),
-                // shown only once the search bar is focused ──
-                item {
+                item(key = "recent_header") {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -271,17 +295,22 @@ fun SumUpSearchScreen(
                             color = Color(0xFFB3B3B3),
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                            ) {
-                                com.music.spotui.data.preferences.clearRecentItems(context)
-                                recents = emptyList()
-                            },
+                            modifier = Modifier
+                                .testTag("search_clear_recents_button")
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                ) {
+                                    com.music.spotui.data.preferences.clearRecentItems(context)
+                                    recents = emptyList()
+                                },
                         )
                     }
                 }
-                items(recents.size) { i ->
+                items(
+                    count = recents.size,
+                    key = { i -> "recent_${recents[i].type}_${recents[i].key}_$i" },
+                ) { i ->
                     val item = recents[i]
                     RecentItemRow(
                         item = item,
@@ -323,17 +352,107 @@ fun SumUpSearchScreen(
                     )
                 }
             } else {
-                // ── Spotify-style "Browse all" category grid ──
-                item {
-                    // Real Spotify opens a genre *catalogue* (a page of curated
-                    // playlists) rather than running a keyword song search.
+                item(key = "browse_all_section") {
                     BrowseAllSection { genre, title ->
                         navController.navigate(categoryRoute(genre, title))
                     }
                 }
             }
         } else {
-            items(mixed.size) { i ->
+            item(key = "search_filter_chips") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    SearchCategoryFilter.entries.forEach { cat ->
+                        val selected = selectedCategory == cat
+                        Box(
+                            modifier = Modifier
+                                .heightIn(min = 40.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(if (selected) AppPalette else Color(0xFF1F2029))
+                                .clickable { selectedCategory = cat }
+                                .testTag("search_filter_${cat.name.lowercase()}")
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                cat.label,
+                                color = if (selected) Color.Black else Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .heightIn(min = 40.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (explicitOnly) Color(0xFFE57373) else Color(0xFF1F2029))
+                            .clickable {
+                                explicitOnly = !explicitOnly
+                                com.music.spotui.data.preferences.setSearchExplicitFilter(context, explicitOnly)
+                            }
+                            .testTag("search_filter_explicit_only")
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            if (explicitOnly) "Explicit Only ✓" else "Explicit Only",
+                            color = if (explicitOnly) Color.Black else Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+            }
+
+            if (mixed.isEmpty() && results.shows.isEmpty() && results.episodes.isEmpty()) {
+                item(key = "search_empty_state") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 48.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SearchOff,
+                            contentDescription = null,
+                            tint = Color(0xFF6B7080),
+                            modifier = Modifier.size(44.dp),
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            text = if (explicitOnly) "No matching explicit tracks for \"$text\"" else "Searching or no matches for \"$text\"",
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "Try adjusting filters above or tap Gemini AI card to ask about this query.",
+                            color = Color(0xFF8C92A4),
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+            }
+
+            items(
+                count = mixed.size,
+                key = { i ->
+                    when (val r = mixed[i]) {
+                        is SearchRow.Song -> "song_${r.song.id}_${r.song.spotifyTrackId}_$i"
+                        is SearchRow.Artist -> "artist_${r.artist.id}_${r.artist.name}_$i"
+                        is SearchRow.Album -> "album_${r.album.name}_${r.album.artists}_$i"
+                    }
+                },
+            ) { i ->
                 when (val row = mixed[i]) {
                     is SearchRow.Song -> SearchSongRow(row.song, searchedList, searchViewModel, onPlayed = {
                         recordRecent(row.song.toRecentItem())
@@ -360,9 +479,12 @@ fun SumUpSearchScreen(
                 }
             }
             // ── Podcasts: shows (→ detail) then individual episodes (→ play) ──
-            if (results.shows.isNotEmpty()) {
-                item { SearchSectionHeader("Podcasts") }
-                items(results.shows.size) { i ->
+            if ((selectedCategory == SearchCategoryFilter.ALL || selectedCategory == SearchCategoryFilter.PODCASTS) && results.shows.isNotEmpty()) {
+                item(key = "podcasts_header") { SearchSectionHeader("Podcasts") }
+                items(
+                    count = results.shows.size,
+                    key = { i -> "show_${results.shows[i].id}_$i" },
+                ) { i ->
                     val show = results.shows[i]
                     SearchShowRow(show) {
                         recordRecent(com.music.spotui.data.preferences.RecentItem(
@@ -376,9 +498,12 @@ fun SumUpSearchScreen(
                     }
                 }
             }
-            if (results.episodes.isNotEmpty()) {
-                item { SearchSectionHeader("Episodes") }
-                items(results.episodes.size) { i ->
+            if ((selectedCategory == SearchCategoryFilter.ALL || selectedCategory == SearchCategoryFilter.PODCASTS) && results.episodes.isNotEmpty()) {
+                item(key = "episodes_header") { SearchSectionHeader("Episodes") }
+                items(
+                    count = results.episodes.size,
+                    key = { i -> "episode_${results.episodes[i].id}_${results.episodes[i].spotifyTrackId}_$i" },
+                ) { i ->
                     val ep = results.episodes[i]
                     SearchSongRow(ep, results.episodes, searchViewModel, onPlayed = {
                         recordRecent(ep.toRecentItem())
@@ -387,11 +512,19 @@ fun SumUpSearchScreen(
             }
         }
 
-        item{
+        item(key = "search_bottom_spacer") {
             Spacer(modifier = Modifier.height(160.dp))
         }
 
     }
+}
+
+enum class SearchCategoryFilter(val label: String) {
+    ALL("All"),
+    SONGS("Songs"),
+    ARTISTS("Artists"),
+    ALBUMS("Albums"),
+    PODCASTS("Podcasts"),
 }
 
 /** A single row in the search results: a track, an artist, or an album. */
@@ -556,7 +689,7 @@ fun SearchSongRow(
             Row(
                 horizontalArrangement = Arrangement.Start,
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.width(280.dp),
+                modifier = Modifier.weight(1f),
             ) {
                 GlideImage(
                     modifier = Modifier
@@ -567,9 +700,9 @@ fun SearchSongRow(
                     contentScale = ContentScale.Crop,
                     failure = placeholder(R.drawable.placeholder),
                     loading = placeholder(R.drawable.placeholder),
-                    contentDescription = "",
+                    contentDescription = song.title,
                 )
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (song.explicit) {
                             com.music.spotui.ui.components.ExplicitBadge()
@@ -577,28 +710,67 @@ fun SearchSongRow(
                         }
                         Text(text = song.title, color = currentPlayingIndicatorColor, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1)
                     }
-                    Text(text = "Song • ${song.singer}", color = Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                    val durText = if (song.durationMs > 0) {
+                        val totalSec = song.durationMs / 1000
+                        " • %d:%02d".format(totalSec / 60, totalSec % 60)
+                    } else ""
+                    Text(
+                        text = "Song • ${song.singer}$durText",
+                        color = Color.Gray,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                    )
                 }
             }
 
-            Icon(
-                modifier = Modifier
-                    .size(20.dp)
-                    .combinedClickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = {
-                            if (isLiked) removeLikedSongId(context, song.id.toString())
-                            else addLikedSongId(context, song.id.toString())
-                            isLiked = isSongLiked(context, song.id.toString())
-                            searchViewModel.updateLikeState(!searchViewModel.likeState.value)
-                        },
-                        onLongClick = { showSavedIn = true },
-                    ),
-                painter = if (isLiked) painterResource(id = R.drawable.added) else painterResource(id = R.drawable.ic_add),
-                tint = if (isLiked) Color.White else Color.Gray,
-                contentDescription = "",
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = {
+                        playerViewModel.playNext(song)
+                        android.widget.Toast.makeText(
+                            context,
+                            "${song.title} will play next",
+                            android.widget.Toast.LENGTH_SHORT,
+                        ).show()
+                    },
+                    modifier = Modifier.testTag("search_play_next_${song.id}"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.QueueMusic,
+                        contentDescription = "Play Next",
+                        tint = Color(0xFFB3B3B3),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                IconButton(
+                    onClick = { showSavedIn = true },
+                    modifier = Modifier.testTag("search_save_in_${song.id}"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlaylistAdd,
+                        contentDescription = "Save to playlist",
+                        tint = Color(0xFFB3B3B3),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        if (isLiked) removeLikedSongId(context, song.id.toString())
+                        else addLikedSongId(context, song.id.toString())
+                        isLiked = isSongLiked(context, song.id.toString())
+                        searchViewModel.updateLikeState(!searchViewModel.likeState.value)
+                    },
+                    modifier = Modifier.testTag("search_like_${song.id}"),
+                ) {
+                    Icon(
+                        painter = if (isLiked) painterResource(id = R.drawable.added) else painterResource(id = R.drawable.ic_add),
+                        tint = if (isLiked) AppPalette else Color.Gray,
+                        contentDescription = if (isLiked) "Liked" else "Like song",
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
         }
     }
 }

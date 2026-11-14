@@ -28,7 +28,14 @@ object StreamSanitizer {
         if (rawUrl.isNullOrBlank()) return ""
         try {
             var url = rawUrl.trim()
-            
+            if (url.startsWith("deezer://", ignoreCase = true) ||
+                url.startsWith("file://", ignoreCase = true) ||
+                url.startsWith("content://", ignoreCase = true) ||
+                url.startsWith("data:", ignoreCase = true)
+            ) {
+                return url
+            }
+
             // Fix missing scheme or HTTP downgrades
             if (url.startsWith("http://")) {
                 url = url.replaceFirst("http://", "https://")
@@ -50,7 +57,7 @@ object StreamSanitizer {
             // Strip tracking query parameters while preserving audio range / token params
             val builder = uri.buildUpon().clearQuery()
             var sanitizedParamCount = 0
-            
+
             for (paramName in uri.queryParameterNames) {
                 if (paramName.lowercase() !in TRACKING_PARAMS) {
                     val values = uri.getQueryParameters(paramName)
@@ -110,7 +117,7 @@ object StreamSanitizer {
             .replace("&#39;", "'")
             .replace("&lt;", "<")
             .replace("&gt;", ">")
-        
+
         // Remove trailing audio quality bloat like (Official Audio) or [HD]
         clean = clean.replace(Regex("(?i)\\s*[\\[(](official video|official audio|lyric video|audio|hd|4k)[\\])]"), "")
         return clean.trim().ifEmpty { "Unknown Track" }
@@ -130,9 +137,11 @@ object StreamSanitizer {
      */
     fun validateAudioStream(url: String?, mimeType: String? = null): Boolean {
         if (url.isNullOrBlank()) return false
-        if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("content://") && !url.startsWith("file://")) {
-            return false
-        }
-        return true
+        return url.startsWith("http://") ||
+            url.startsWith("https://") ||
+            url.startsWith("content://") ||
+            url.startsWith("file://") ||
+            url.startsWith("deezer://") ||
+            url.startsWith("data:")
     }
 }

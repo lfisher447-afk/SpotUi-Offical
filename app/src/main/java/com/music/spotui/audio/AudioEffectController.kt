@@ -2,36 +2,46 @@ package com.music.spotui.audio
 
 import android.content.Context
 import android.media.audiofx.AudioEffect
+import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.PresetReverb
+import android.media.audiofx.Virtualizer
 import com.music.spotui.data.preferences.SpatialProfile
 import com.music.spotui.data.preferences.getAudioNormalizerGainMb
+import com.music.spotui.data.preferences.getBassBoostStrength
 import com.music.spotui.data.preferences.getEqBass
+import com.music.spotui.data.preferences.getEqBrilliance
 import com.music.spotui.data.preferences.getEqHighMid
 import com.music.spotui.data.preferences.getEqLowMid
+import com.music.spotui.data.preferences.getEqPreampDb
+import com.music.spotui.data.preferences.getEqSubBass
 import com.music.spotui.data.preferences.getEqTreble
 import com.music.spotui.data.preferences.getEqVocal
 import com.music.spotui.data.preferences.getSpatialProfile
+import com.music.spotui.data.preferences.getSpatialRoomDelayMs
 import com.music.spotui.data.preferences.getSpatialStrength
 import com.music.spotui.data.preferences.isAudioNormalizerEnabled
+import com.music.spotui.data.preferences.isEqEnabled
 import com.music.spotui.data.preferences.isEqSpatialEnabled
+import com.music.spotui.data.preferences.isHeadphoneCrossfeedEnabled
+import com.music.spotui.data.preferences.isLimiterEnabled
+import com.music.spotui.ui.theme.ThemePreferences
 import com.music.spotui.util.AppDiagnostics
 import kotlin.math.ln
 import kotlin.math.roundToInt
 
 /**
- * Owns and orchestrates Android framework audio effects for the current Media3 audio session.
+ * Unified Hardware + Software Audio Effects Orchestrator for the active Media3 audio session.
  *
- * Designed for low-latency, zero-jank audio processing:
- * - Queries hardware capabilities once on session attachment to eliminate Binder IPC roundtrips.
- * - Utilizes logarithmic frequency interpolation across any arbitrary device band layout.
- * - Employs value-diffing to avoid audio buffer flushes and popping on vendor audio HALs.
+ * Syncs Android hardware effects (`Equalizer`, `Virtualizer`, `BassBoost`, `PresetReverb`,
+ * `LoudnessEnhancer`) AND ExoPlayer's in-process software PCM DSP (`SpotuiDspAudioProcessor` +
+ * `SpatialWideningAudioProcessor`) so EQ, Bass Boost, 3D Spatial, and Normalization always work
+ * deterministically on speakers, wired headphones, USB DACs, and Bluetooth outputs.
  */
 object AudioEffectController {
     private const val TAG = "AudioEffects"
 
-    // Parametric frequency anchor points (Hz) matching standard studio EQ curves
     private const val ANCHOR_BASS_HZ = 60.0
     private const val ANCHOR_LOW_MID_HZ = 250.0
     private const val ANCHOR_VOCAL_HZ = 1000.0
@@ -41,24 +51,35 @@ object AudioEffectController {
     private val lock = Any()
     private var activeSessionId = 0
 
-    // Cached hardware wrappers and state tracking
     private var cachedEqualizer: CachedEqualizer? = null
+    private var virtualizer: Virtualizer? = null
+    private var virtualizerStrengthSupported = false
+    private var bassBoost: BassBoost? = null
+    private var bassBoostStrengthSupported = false
     private var presetReverb: PresetReverb? = null
     private var loudnessEnhancer: LoudnessEnhancer? = null
 
-    // Effect state tracking to prevent redundant IPC writes
     private var lastReverbPreset: Short = -1
     private var lastReverbEnabled: Boolean? = null
     private var lastLoudnessGainMb: Int = -1
     private var lastLoudnessEnabled: Boolean? = null
+    private var lastVirtualizerStrength: Short = -1
+    private var lastVirtualizerEnabled: Boolean? = null
+    private var lastBassStrength: Short = -1
+    private var lastBassEnabled: Boolean? = null
+
+    @Volatile private var softwareDspRef: SpotuiDspAudioProcessor? = null
+    @Volatile private var softwareSpatialRef: SpatialWideningAudioProcessor? = null
 
     data class CapabilityReport(
         val sessionId: Int,
         val equalizerAvailable: Boolean,
         val hardwareSpatialAvailable: Boolean,
         val spatialStrengthSupported: Boolean,
+        val bassBoostAvailable: Boolean = false,
         val roomAvailable: Boolean,
         val loudnessAvailable: Boolean,
+        val softwareDspAttached: Boolean = false,
         val equalizerBands: Int = 0,
         val minLevelMb: Int = 0,
         val maxLevelMb: Int = 0,
@@ -70,80 +91,134 @@ object AudioEffectController {
         equalizerAvailable = false,
         hardwareSpatialAvailable = false,
         spatialStrengthSupported = false,
+        bassBoostAvailable = false,
         roomAvailable = false,
         loudnessAvailable = false,
     )
 
     fun capabilityReport(): CapabilityReport = latestCapabilities
 
-    /**
-     * Checks if effects are currently attached to an active audio session.
-     */
     fun isAttached(): Boolean = synchronized(lock) { isAttachedLocked() }
 
-    /**
-     * Returns the currently active audio session ID, or 0 if unattached.
-     */
     fun getActiveSessionId(): Int = synchronized(lock) { activeSessionId }
 
-    /**
-     * Retrieves the device equalizer center frequencies in Hz, or empty if unsupported.
-     */
     fun getBandFrequenciesHz(): IntArray = synchronized(lock) {
         cachedEqualizer?.centerFreqsHz?.clone() ?: intArrayOf()
     }
 
-    /**
-     * Attaches audio effects to the specified [audioSessionId].
-     * If the session is unchanged and already attached, existing preferences are reapplied.
-     */
+    /** Registers active software PCM processors so every settings change applies immediately in-process. */
+    fun bindSoftwareProcessors(
+        context: Context,
+        dsp: SpotuiDspAudioProcessor?,
+        spatial: SpatialWideningAudioProcessor?,
+    ) {
+        softwareDspRef = dsp
+        softwareSpatialRef = spatial
+        syncSoftwareProcessors(context.applicationContext)
+    }
+
+    fun syncSoftwareProcessors(context: Context) {
+        val appCtx = context.applicationContext
+        softwareDspRef?.let { dsp ->
+            dsp.eqEnabled = isEqEnabled(appCtx)
+            dsp.setFromNormalizedSliders(
+                subBass = getEqSubBass(appCtx),
+                bass = getEqBass(appCtx),
+                lowMid = getEqLowMid(appCtx),
+                vocal = getEqVocal(appCtx),
+                highMid = getEqHighMid(appCtx),
+                treble = getEqTreble(appCtx),
+                brilliance = getEqBrilliance(appCtx),
+            )
+            dsp.preampDb = getEqPreampDb(appCtx)
+            // Software bass boost shelf supplements or covers when hardware BassBoost is absent
+            val bbStrength = getBassBoostStrength(appCtx)
+            val hwBassPresent = bassBoost != null && bassBoostStrengthSupported
+            dsp.bassBoostDb = if (hwBassPresent) (bbStrength / 1000f) * 3.5f else (bbStrength / 1000f) * 8.0f
+            dsp.limiterEnabled = isLimiterEnabled(appCtx)
+            val normOn = isAudioNormalizerEnabled(appCtx)
+            dsp.normalizerEnabled = normOn
+            dsp.normalizerBoostDb = (getAudioNormalizerGainMb(appCtx) / 100f).coerceIn(0f, 6f)
+        }
+        softwareSpatialRef?.let { sp ->
+            sp.enabled = isEqSpatialEnabled(appCtx)
+            sp.width = (getSpatialStrength(appCtx) / 1000f).coerceIn(0f, 1f)
+            sp.profile = getSpatialProfile(appCtx)
+            sp.monoMix = ThemePreferences.monoAudio(appCtx)
+            sp.balance = ThemePreferences.audioBalance(appCtx)
+            sp.headphoneCrossfeed = isHeadphoneCrossfeedEnabled(appCtx)
+            sp.roomDelayMs = getSpatialRoomDelayMs(appCtx)
+        }
+        latestCapabilities = latestCapabilities.copy(
+            softwareDspAttached = softwareDspRef != null || softwareSpatialRef != null,
+        )
+    }
+
     fun attach(context: Context, audioSessionId: Int) {
+        val appCtx = context.applicationContext
+        syncSoftwareProcessors(appCtx)
+
         if (audioSessionId <= 0) {
-            AppDiagnostics.warning(TAG, "Ignoring attach with invalid audioSessionId: $audioSessionId")
+            AppDiagnostics.warning(TAG, "Deferring hardware attach (sessionId=$audioSessionId); software DSP active")
             return
         }
 
         synchronized(lock) {
             if (activeSessionId == audioSessionId && isAttachedLocked()) {
-                applyPreferencesLocked(context)
+                applyPreferencesLocked(appCtx)
                 return
             }
 
-            releaseLocked()
+            releaseHardwareLocked()
             activeSessionId = audioSessionId
 
-            // 1. Equalizer setup with hardware capability caching
             cachedEqualizer = runCatching {
-                val eq = Equalizer(0, audioSessionId)
-                CachedEqualizer(eq)
+                CachedEqualizer(Equalizer(0, audioSessionId))
             }.onFailure {
-                AppDiagnostics.warning(TAG, "Equalizer unavailable for audio session $audioSessionId", it)
+                AppDiagnostics.info(TAG, "Hardware Equalizer unavailable for session $audioSessionId (software EQ handles playback)")
             }.getOrNull()
 
-            // 2. Preset Reverb (Room / Spatial Acoustics)
+            virtualizer = runCatching {
+                @Suppress("DEPRECATION")
+                Virtualizer(0, audioSessionId).also {
+                    virtualizerStrengthSupported = runCatching { it.strengthSupported }.getOrDefault(false)
+                }
+            }.onFailure {
+                AppDiagnostics.info(TAG, "Hardware Virtualizer unavailable; using software 3D spatializer")
+            }.getOrNull()
+
+            bassBoost = runCatching {
+                BassBoost(0, audioSessionId).also {
+                    bassBoostStrengthSupported = runCatching { it.strengthSupported }.getOrDefault(false)
+                }
+            }.onFailure {
+                AppDiagnostics.info(TAG, "Hardware BassBoost unavailable; using software low-shelf boost")
+            }.getOrNull()
+
             presetReverb = runCatching {
                 PresetReverb(0, audioSessionId)
             }.onFailure {
-                AppDiagnostics.info(TAG, "Spatial room effect is unavailable on this device")
+                AppDiagnostics.info(TAG, "PresetReverb unavailable on this device")
             }.getOrNull()
 
-            // 3. Loudness Enhancer (Normalizer / Gain control)
             loudnessEnhancer = runCatching {
                 LoudnessEnhancer(audioSessionId)
             }.onFailure {
-                AppDiagnostics.info(TAG, "Loudness effect is unavailable on this device")
+                AppDiagnostics.info(TAG, "Hardware LoudnessEnhancer unavailable; software normalizer active")
             }.getOrNull()
 
-            applyPreferencesLocked(context)
+            applyPreferencesLocked(appCtx)
 
             val eqHolder = cachedEqualizer
             latestCapabilities = CapabilityReport(
                 sessionId = audioSessionId,
                 equalizerAvailable = eqHolder != null,
-                hardwareSpatialAvailable = false,
-                spatialStrengthSupported = false,
+                hardwareSpatialAvailable = virtualizer != null,
+                spatialStrengthSupported = virtualizerStrengthSupported,
+                bassBoostAvailable = bassBoost != null,
                 roomAvailable = presetReverb != null,
                 loudnessAvailable = loudnessEnhancer != null,
+                softwareDspAttached = softwareDspRef != null || softwareSpatialRef != null,
                 equalizerBands = eqHolder?.numBands?.toInt() ?: 0,
                 minLevelMb = eqHolder?.minLevel?.toInt() ?: 0,
                 maxLevelMb = eqHolder?.maxLevel?.toInt() ?: 0,
@@ -151,83 +226,114 @@ object AudioEffectController {
 
             AppDiagnostics.info(
                 TAG,
-                "Attached effects to session $audioSessionId (EQ Bands=${latestCapabilities.equalizerBands}, Range=[${latestCapabilities.minLevelMb}..${latestCapabilities.maxLevelMb}] mB, Reverb=${latestCapabilities.roomAvailable}, Normalizer=${latestCapabilities.loudnessAvailable})",
+                "Attached session $audioSessionId (HW EQ=${latestCapabilities.equalizerBands} bands, Virtualizer=${latestCapabilities.hardwareSpatialAvailable}, BassBoost=${latestCapabilities.bassBoostAvailable}, SoftwareDSP=${latestCapabilities.softwareDspAttached})",
             )
         }
     }
 
-    /**
-     * Re-applies all preferences to the active hardware effects.
-     */
     fun applyPreferences(context: Context) {
+        val appCtx = context.applicationContext
+        syncSoftwareProcessors(appCtx)
         synchronized(lock) {
             if (!isAttachedLocked()) return
-            applyPreferencesLocked(context)
+            applyPreferencesLocked(appCtx)
         }
     }
 
-    /**
-     * Safely releases all native audio effect handles and resets capability reports.
-     */
     fun release() {
         synchronized(lock) {
-            releaseLocked()
+            releaseHardwareLocked()
         }
     }
 
     private fun isAttachedLocked(): Boolean =
-        activeSessionId != 0 && (cachedEqualizer != null || presetReverb != null || loudnessEnhancer != null)
+        activeSessionId != 0 && (cachedEqualizer != null || virtualizer != null || bassBoost != null || presetReverb != null || loudnessEnhancer != null)
 
     private fun applyPreferencesLocked(context: Context) {
-        // --- 1. Equalizer Tuning ---
+        // Software DSP runs full Parametric EQ & BassBoost; apply hardware EQ gently only when HW is used
+        // or skip double-boosting by letting software DSP be the primary precision engine when attached.
+        val softwareDspActive = softwareDspRef != null
+        val eqEnabled = isEqEnabled(context)
+
         cachedEqualizer?.let { eqHolder ->
             runCatching {
-                val bass = normalized(getEqBass(context))
-                val lowMid = normalized(getEqLowMid(context))
-                val vocal = normalized(getEqVocal(context))
-                val highMid = normalized(getEqHighMid(context))
-                val treble = normalized(getEqTreble(context))
+                if (softwareDspActive || !eqEnabled) {
+                    if (eqHolder.eq.enabled) eqHolder.eq.enabled = false
+                } else {
+                    val bass = normalized(getEqBass(context))
+                    val lowMid = normalized(getEqLowMid(context))
+                    val vocal = normalized(getEqVocal(context))
+                    val highMid = normalized(getEqHighMid(context))
+                    val treble = normalized(getEqTreble(context))
 
-                val min = eqHolder.minLevel.toInt()
-                val max = eqHolder.maxLevel.toInt()
-                val numBands = eqHolder.numBands.toInt()
+                    val min = eqHolder.minLevel.toInt()
+                    val max = eqHolder.maxLevel.toInt()
+                    val numBands = eqHolder.numBands.toInt()
 
-                for (band in 0 until numBands) {
-                    val freqHz = eqHolder.centerFreqsHz[band]
-                    val targetGainNormalized = calculateTargetGain(
-                        freqHz = freqHz,
-                        bass = bass,
-                        lowMid = lowMid,
-                        vocal = vocal,
-                        highMid = highMid,
-                        treble = treble,
-                    )
-                    val targetLevelMb = levelFor(targetGainNormalized, min, max)
-
-                    // Dirty-check: only invoke IPC if the level actually changed
-                    if (eqHolder.appliedLevels[band] != targetLevelMb) {
-                        eqHolder.eq.setBandLevel(band.toShort(), targetLevelMb)
-                        eqHolder.appliedLevels[band] = targetLevelMb
+                    for (band in 0 until numBands) {
+                        val freqHz = eqHolder.centerFreqsHz[band]
+                        val targetGainNormalized = calculateTargetGain(freqHz, bass, lowMid, vocal, highMid, treble)
+                        val targetLevelMb = levelFor(targetGainNormalized, min, max)
+                        if (eqHolder.appliedLevels[band] != targetLevelMb) {
+                            eqHolder.eq.setBandLevel(band.toShort(), targetLevelMb)
+                            eqHolder.appliedLevels[band] = targetLevelMb
+                        }
                     }
+                    if (!eqHolder.eq.enabled) eqHolder.eq.enabled = true
                 }
-
-                // Prevent resetting DSP biquads if already enabled
-                if (!eqHolder.eq.enabled) {
-                    eqHolder.eq.enabled = true
-                }
-            }.onFailure {
-                AppDiagnostics.warning(TAG, "Could not apply equalizer bands", it)
-            }
+            }.onFailure { AppDiagnostics.warning(TAG, "Hardware EQ update failed", it) }
         }
 
-        // --- 2. Spatial Room Profile (Preset Reverb) ---
+        // Hardware Virtualizer (paired cleanly with software spatializer)
+        virtualizer?.let { virt ->
+            runCatching {
+                val spatialOn = isEqSpatialEnabled(context)
+                if (spatialOn) {
+                    val target = ((getSpatialStrength(context) * 0.7f).roundToInt().coerceIn(0, 1000)).toShort()
+                    if (virtualizerStrengthSupported && lastVirtualizerStrength != target) {
+                        @Suppress("DEPRECATION")
+                        virt.setStrength(target)
+                        lastVirtualizerStrength = target
+                    }
+                    if (lastVirtualizerEnabled != true) {
+                        virt.enabled = true
+                        lastVirtualizerEnabled = true
+                    }
+                } else if (lastVirtualizerEnabled != false) {
+                    virt.enabled = false
+                    lastVirtualizerEnabled = false
+                }
+            }.onFailure { AppDiagnostics.warning(TAG, "Virtualizer update failed", it) }
+        }
+
+        // Hardware BassBoost
+        bassBoost?.let { bb ->
+            runCatching {
+                val strength = getBassBoostStrength(context)
+                if (strength > 0) {
+                    val target = strength.coerceIn(0, 1000).toShort()
+                    if (bassBoostStrengthSupported && lastBassStrength != target) {
+                        bb.setStrength(target)
+                        lastBassStrength = target
+                    }
+                    if (lastBassEnabled != true) {
+                        bb.enabled = true
+                        lastBassEnabled = true
+                    }
+                } else if (lastBassEnabled != false) {
+                    bb.enabled = false
+                    lastBassEnabled = false
+                }
+            }.onFailure { AppDiagnostics.warning(TAG, "BassBoost update failed", it) }
+        }
+
+        // PresetReverb — subtle acoustic room only for hall/cinema/immersive profiles
         presetReverb?.let { effect ->
             runCatching {
                 val spatialEnabled = isEqSpatialEnabled(context)
                 val spatialProfile = getSpatialProfile(context)
-
-                if (spatialEnabled) {
-                    val targetPreset = reverbPresetFor(spatialProfile)
+                val targetPreset = reverbPresetFor(spatialProfile)
+                if (spatialEnabled && targetPreset != PresetReverb.PRESET_NONE) {
                     if (lastReverbPreset != targetPreset) {
                         effect.preset = targetPreset
                         lastReverbPreset = targetPreset
@@ -236,24 +342,19 @@ object AudioEffectController {
                         effect.enabled = true
                         lastReverbEnabled = true
                     }
-                } else {
-                    if (lastReverbEnabled != false) {
-                        effect.enabled = false
-                        lastReverbEnabled = false
-                    }
+                } else if (lastReverbEnabled != false) {
+                    effect.enabled = false
+                    lastReverbEnabled = false
                 }
-            }.onFailure {
-                AppDiagnostics.warning(TAG, "Could not apply spatial room profile", it)
-            }
+            }.onFailure { AppDiagnostics.warning(TAG, "PresetReverb update failed", it) }
         }
 
-        // --- 3. Audio Normalizer (Loudness Enhancer) ---
+        // Loudness Enhancer — hardware makeup disabled if software normalizer handles it (prevents double gain)
         loudnessEnhancer?.let { effect ->
             runCatching {
                 val normalizerEnabled = isAudioNormalizerEnabled(context)
                 val targetGainMb = getAudioNormalizerGainMb(context).coerceAtLeast(0)
-
-                if (normalizerEnabled) {
+                if (normalizerEnabled && !softwareDspActive) {
                     if (lastLoudnessGainMb != targetGainMb) {
                         effect.setTargetGain(targetGainMb)
                         lastLoudnessGainMb = targetGainMb
@@ -262,24 +363,26 @@ object AudioEffectController {
                         effect.enabled = true
                         lastLoudnessEnabled = true
                     }
-                } else {
-                    if (lastLoudnessEnabled != false) {
-                        effect.enabled = false
-                        lastLoudnessEnabled = false
-                    }
+                } else if (lastLoudnessEnabled != false) {
+                    effect.enabled = false
+                    lastLoudnessEnabled = false
                 }
-            }.onFailure {
-                AppDiagnostics.warning(TAG, "Could not apply loudness setting", it)
-            }
+            }.onFailure { AppDiagnostics.warning(TAG, "LoudnessEnhancer update failed", it) }
         }
     }
 
-    private fun releaseLocked() {
+    private fun releaseHardwareLocked() {
         releaseEffectSafely(cachedEqualizer?.eq, "Equalizer")
+        releaseEffectSafely(virtualizer, "Virtualizer")
+        releaseEffectSafely(bassBoost, "BassBoost")
         releaseEffectSafely(presetReverb, "PresetReverb")
         releaseEffectSafely(loudnessEnhancer, "LoudnessEnhancer")
 
         cachedEqualizer = null
+        virtualizer = null
+        virtualizerStrengthSupported = false
+        bassBoost = null
+        bassBoostStrengthSupported = false
         presetReverb = null
         loudnessEnhancer = null
         activeSessionId = 0
@@ -288,41 +391,41 @@ object AudioEffectController {
         lastReverbEnabled = null
         lastLoudnessGainMb = -1
         lastLoudnessEnabled = null
+        lastVirtualizerStrength = -1
+        lastVirtualizerEnabled = null
+        lastBassStrength = -1
+        lastBassEnabled = null
 
-        latestCapabilities = CapabilityReport(0, false, false, false, false, false)
+        latestCapabilities = CapabilityReport(
+            sessionId = 0,
+            equalizerAvailable = false,
+            hardwareSpatialAvailable = false,
+            spatialStrengthSupported = false,
+            bassBoostAvailable = false,
+            roomAvailable = false,
+            loudnessAvailable = false,
+            softwareDspAttached = softwareDspRef != null || softwareSpatialRef != null,
+        )
     }
 
     private fun releaseEffectSafely(effect: AudioEffect?, name: String) {
         if (effect == null) return
-        runCatching {
-            if (effect.hasControl()) {
-                effect.enabled = false
-            }
-        }.onFailure { AppDiagnostics.warning(TAG, "Failed to disable $name during release", it) }
-
-        runCatching {
-            effect.release()
-        }.onFailure { AppDiagnostics.warning(TAG, "Failed to release $name handle", it) }
+        runCatching { if (effect.hasControl()) effect.enabled = false }
+        runCatching { effect.release() }
+            .onFailure { AppDiagnostics.warning(TAG, "Failed to release $name", it) }
     }
 
-    /**
-     * Maps user spatial profiles to Android framework reverb presets.
-     */
     private fun reverbPresetFor(profile: SpatialProfile): Short = when (profile) {
-        SpatialProfile.STUDIO -> PresetReverb.PRESET_SMALLROOM
-        SpatialProfile.WIDE -> PresetReverb.PRESET_MEDIUMHALL
-        SpatialProfile.IMMERSIVE -> PresetReverb.PRESET_LARGEHALL
+        SpatialProfile.STUDIO -> PresetReverb.PRESET_NONE
+        SpatialProfile.WIDE -> PresetReverb.PRESET_SMALLROOM
+        SpatialProfile.IMMERSIVE -> PresetReverb.PRESET_MEDIUMHALL
         SpatialProfile.CINEMA -> PresetReverb.PRESET_LARGEROOM
+        SpatialProfile.CONCERT_HALL -> PresetReverb.PRESET_LARGEHALL
+        SpatialProfile.BINAURAL_HEADPHONES -> PresetReverb.PRESET_NONE
     }
 
-    /**
-     * Converts a 0..100 UI preference value into a normalized -1.0..+1.0 float range.
-     */
     private fun normalized(value: Float): Float = ((value.coerceIn(0f, 100f) - 50f) / 50f)
 
-    /**
-     * Converts a normalized -1.0..+1.0 gain into absolute millibels bounded by [min] and [max].
-     */
     private fun levelFor(normalized: Float, min: Int, max: Int): Short {
         val clamped = normalized.coerceIn(-1f, 1f)
         val level = when {
@@ -333,10 +436,6 @@ object AudioEffectController {
         return level.coerceIn(min, max).toShort()
     }
 
-    /**
-     * Calculates the target gain using continuous log-linear interpolation across 5 frequency anchors.
-     * Guarantees smooth parametric curves across any hardware EQ layout (3 to 31 bands).
-     */
     private fun calculateTargetGain(
         freqHz: Int,
         bass: Float,
@@ -368,9 +467,6 @@ object AudioEffectController {
         return (gainStart + t * (gainEnd - gainStart)).toFloat()
     }
 
-    /**
-     * Holds hardware capabilities and applied states for an attached [Equalizer] instance.
-     */
     private class CachedEqualizer(val eq: Equalizer) {
         val numBands: Short = eq.numberOfBands
         val minLevel: Short

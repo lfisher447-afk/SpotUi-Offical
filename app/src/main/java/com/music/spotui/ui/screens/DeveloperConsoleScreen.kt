@@ -7,37 +7,110 @@ import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Healing
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.Player
 import androidx.navigation.NavController
+import com.music.spotui.di.SongPlayer
 import com.music.spotui.ui.theme.AppBackground
 import com.music.spotui.ui.theme.AppPalette
+import com.music.spotui.util.CheckSeverity
 import com.music.spotui.util.CrashHandler
 import com.music.spotui.util.DevConsoleManager
+import com.music.spotui.util.HealthCheckResult
+import com.music.spotui.util.HealthScanReport
+import com.music.spotui.util.SystemHealthChecker
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeveloperConsoleScreen(navController: NavController) {
     val context = LocalContext.current
-    val logs by DevConsoleManager.logs.collectAsState()
-    val diagnostics by DevConsoleManager.diagnostics.collectAsState()
+    val scope = rememberCoroutineScope()
+    val logs by DevConsoleManager.logs.collectAsStateWithLifecycle()
+    val diagnostics by DevConsoleManager.diagnostics.collectAsStateWithLifecycle()
 
+    var selectedTab by remember { mutableIntStateOf(0) }
+
+    // Tab 1: 18-Point System Health Scanner State
+    var healthReport by remember { mutableStateOf<HealthScanReport?>(null) }
+    var isScanning by remember { mutableStateOf(false) }
+    var fixingId by remember { mutableStateOf<String?>(null) }
+
+    // Tab 2: Logger State
+    var selectedFilter by remember { mutableStateOf<DevConsoleManager.LogLevel?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedLogForDialog by remember { mutableStateOf<DevConsoleManager.LogEntry?>(null) }
+
+    // Tab 3: Telemetry & Developer Switches State
+    var telemetry by remember { mutableStateOf(SongPlayer.telemetrySnapshot(context)) }
     var forceFlac by remember { mutableStateOf(DevConsoleManager.forceLosslessFlac.value) }
     var forceYt by remember { mutableStateOf(DevConsoleManager.forceYoutubeEngine.value) }
     var strictSanitize by remember { mutableStateOf(DevConsoleManager.strictSanitization.value) }
@@ -45,18 +118,39 @@ fun DeveloperConsoleScreen(navController: NavController) {
     var highPerfBuf by remember { mutableStateOf(DevConsoleManager.highPerformanceBuffer.value) }
     var watchdogOn by remember { mutableStateOf(DevConsoleManager.watchdogEnabled.value) }
 
-    var selectedFilter by remember { mutableStateOf<DevConsoleManager.LogLevel?>(null) }
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedLogForDialog by remember { mutableStateOf<DevConsoleManager.LogEntry?>(null) }
     var showCrashDialog by remember { mutableStateOf(false) }
     var latestCrashText by remember { mutableStateOf<String?>(null) }
+    var hasCrashReports by remember { mutableStateOf(CrashHandler.hasCrashReport(context)) }
 
-    val hasCrashReports = remember { CrashHandler.hasCrashReport(context) }
+    fun triggerScan() {
+        if (isScanning) return
+        isScanning = true
+        scope.launch {
+            healthReport = SystemHealthChecker.runFullScan(context)
+            telemetry = SongPlayer.telemetrySnapshot(context)
+            isScanning = false
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        triggerScan()
+    }
+
+    // Periodic live telemetry refresh while on Telemetry tab
+    LaunchedEffect(selectedTab) {
+        while (selectedTab == 2) {
+            telemetry = SongPlayer.telemetrySnapshot(context)
+            hasCrashReports = CrashHandler.hasCrashReport(context)
+            delay(1_000L)
+        }
+    }
 
     val filteredLogs = remember(logs, selectedFilter, searchQuery) {
         logs.filter { entry ->
             (selectedFilter == null || entry.level == selectedFilter) &&
-            (searchQuery.isBlank() || entry.tag.contains(searchQuery, ignoreCase = true) || entry.message.contains(searchQuery, ignoreCase = true))
+                (searchQuery.isBlank() ||
+                    entry.tag.contains(searchQuery, ignoreCase = true) ||
+                    entry.message.contains(searchQuery, ignoreCase = true))
         }.reversed()
     }
 
@@ -65,228 +159,143 @@ fun DeveloperConsoleScreen(navController: NavController) {
             TopAppBar(
                 title = {
                     Text(
-                        "Developer Console & Telemetry",
+                        "Diagnostics, Health & Logger",
                         color = Color.White,
                         fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
+                    IconButton(
+                        onClick = { navController.popBackStack() },
+                        modifier = Modifier.testTag("dev_console_back_button"),
+                    ) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
-                            tint = Color.White
+                            tint = Color.White,
                         )
                     }
                 },
                 actions = {
-                    IconButton(onClick = { DevConsoleManager.clearLogs() }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Clear Logs", tint = Color.Red)
+                    IconButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            val summary = buildString {
+                                appendLine("=== SPOTUI DIAGNOSTIC REPORT ===")
+                                healthReport?.checks?.forEach { c ->
+                                    appendLine("[${c.severity}] ${c.title}: ${c.summary} | ${c.detail}")
+                                }
+                                appendLine("\n=== RECENT LOGS (${filteredLogs.size}) ===")
+                                filteredLogs.take(80).forEach { l ->
+                                    appendLine("${l.timestamp} [${l.level}] ${l.tag}: ${l.message}")
+                                }
+                            }
+                            clipboard.setPrimaryClip(ClipData.newPlainText("SpotUIDiagnostics", summary))
+                            Toast.makeText(context, "Diagnostic report copied", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.testTag("dev_console_copy_all_button"),
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy Full Report", tint = AppPalette)
+                    }
+                    IconButton(
+                        onClick = { DevConsoleManager.clearLogs() },
+                        modifier = Modifier.testTag("dev_console_clear_logs_button"),
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = "Clear Logs", tint = Color(0xFFFF6B6B))
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF17171F))
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF17171F)),
             )
         },
-        containerColor = AppBackground
+        containerColor = AppBackground,
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp)
+                .padding(padding),
         ) {
-            // Diagnostics Summary Dashboard
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF22222B)),
-                shape = RoundedCornerShape(12.dp)
+            TabRow(
+                selectedTabIndex = selectedTab,
+                containerColor = Color(0xFF17171F),
+                contentColor = AppPalette,
             ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Text(
-                        "REAL-TIME DIAGNOSTICS & WATCHDOG",
-                        color = Color(0xFF81C784),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        DiagnosticBadge("Engine", diagnostics.activeSource)
-                        DiagnosticBadge("Quality", diagnostics.currentQuality.ifEmpty { "Adaptive" })
-                        DiagnosticBadge("Collisions", "${diagnostics.totalCollisionsDetected}")
-                        DiagnosticBadge("Sanitized", "${diagnostics.sanitizationCount}")
-                    }
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = { Text("Health (18)", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                    modifier = Modifier.testTag("dev_tab_health"),
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = { Text("Logger (${filteredLogs.size})", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                    modifier = Modifier.testTag("dev_tab_logger"),
+                )
+                Tab(
+                    selected = selectedTab == 2,
+                    onClick = { selectedTab = 2 },
+                    text = { Text("Telemetry", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                    modifier = Modifier.testTag("dev_tab_telemetry"),
+                )
+            }
 
-                    if (hasCrashReports) {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = {
-                                latestCrashText = CrashHandler.getLatestCrashReport(context)
-                                showCrashDialog = true
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth().height(38.dp)
-                        ) {
-                            Icon(Icons.Default.Warning, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("VIEW LATEST CRASH LOG DUMP", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            when (selectedTab) {
+                0 -> HealthScannerTab(
+                    report = healthReport,
+                    isScanning = isScanning,
+                    fixingId = fixingId,
+                    onRescan = { triggerScan() },
+                    onFix = { check ->
+                        val fix = check.autoFix ?: return@HealthScannerTab
+                        fixingId = check.id
+                        scope.launch {
+                            val msg = runCatching { fix(context) }.getOrElse { "Fix error: ${it.message}" }
+                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            fixingId = null
+                            triggerScan()
                         }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Developer Toggles Section
-            Text(
-                "DEVELOPER CONFIGURATIONS",
-                color = Color(0xFFB3B3B3),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFF22222B), RoundedCornerShape(12.dp))
-                    .padding(12.dp)
-            ) {
-                DevToggleRow("Force Lossless FLAC", forceFlac) {
-                    forceFlac = it
-                    DevConsoleManager.forceLosslessFlac.value = it
-                }
-                DevToggleRow("Force YouTube Fallback Engine", forceYt) {
-                    forceYt = it
-                    DevConsoleManager.forceYoutubeEngine.value = it
-                }
-                DevToggleRow("Strict Stream Sanitization", strictSanitize) {
-                    strictSanitize = it
-                    DevConsoleManager.strictSanitization.value = it
-                }
-                DevToggleRow("OneUI & Universal Background Optimizations", oneUiOpt) {
-                    oneUiOpt = it
-                    DevConsoleManager.oneUiOptimizations.value = it
-                }
-                DevToggleRow("High-Performance Audio Buffering", highPerfBuf) {
-                    highPerfBuf = it
-                    DevConsoleManager.highPerformanceBuffer.value = it
-                }
-                DevToggleRow("Video & Playback Watchdog", watchdogOn) {
-                    watchdogOn = it
-                    DevConsoleManager.watchdogEnabled.value = it
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Log Console Section Header
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "LOG CAT & STREAM WATCHDOG (${filteredLogs.size})",
-                    color = Color(0xFFB3B3B3),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
+                    },
                 )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Search Bar & Filter Chips
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = { Text("Filter logs...", color = Color.Gray, fontSize = 13.sp) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color.Gray) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp),
-                shape = RoundedCornerShape(8.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color(0xFF81C784),
-                    unfocusedBorderColor = Color.DarkGray,
-                    focusedContainerColor = Color(0xFF22222B),
-                    unfocusedContainerColor = Color(0xFF22222B),
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White
+                1 -> LiveLoggerTab(
+                    filteredLogs = filteredLogs,
+                    selectedFilter = selectedFilter,
+                    searchQuery = searchQuery,
+                    onFilterChange = { selectedFilter = it },
+                    onSearchChange = { searchQuery = it },
+                    onSelectLog = { selectedLogForDialog = it },
                 )
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Log Filter Buttons
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                FilterChip(
-                    selected = selectedFilter == null,
-                    onClick = { selectedFilter = null },
-                    label = { Text("ALL", fontSize = 10.sp) }
+                2 -> TelemetryAndCrashesTab(
+                    telemetry = telemetry,
+                    diagnostics = diagnostics,
+                    hasCrashReports = hasCrashReports,
+                    forceFlac = forceFlac,
+                    forceYt = forceYt,
+                    strictSanitize = strictSanitize,
+                    oneUiOpt = oneUiOpt,
+                    highPerfBuf = highPerfBuf,
+                    watchdogOn = watchdogOn,
+                    onForceFlac = { forceFlac = it; DevConsoleManager.forceLosslessFlac.value = it },
+                    onForceYt = { forceYt = it; DevConsoleManager.forceYoutubeEngine.value = it },
+                    onStrictSanitize = { strictSanitize = it; DevConsoleManager.strictSanitization.value = it },
+                    onOneUiOpt = { oneUiOpt = it; DevConsoleManager.oneUiOptimizations.value = it },
+                    onHighPerfBuf = { highPerfBuf = it; DevConsoleManager.highPerformanceBuffer.value = it },
+                    onWatchdogOn = { watchdogOn = it; DevConsoleManager.watchdogEnabled.value = it },
+                    onOpenCrashDump = {
+                        latestCrashText = CrashHandler.getLatestCrashReport(context)
+                        showCrashDialog = true
+                    },
                 )
-                FilterChip(
-                    selected = selectedFilter == DevConsoleManager.LogLevel.ERROR,
-                    onClick = { selectedFilter = DevConsoleManager.LogLevel.ERROR },
-                    label = { Text("ERROR", fontSize = 10.sp) }
-                )
-                FilterChip(
-                    selected = selectedFilter == DevConsoleManager.LogLevel.COLLISION,
-                    onClick = { selectedFilter = DevConsoleManager.LogLevel.COLLISION },
-                    label = { Text("COLLISION", fontSize = 10.sp) }
-                )
-                FilterChip(
-                    selected = selectedFilter == DevConsoleManager.LogLevel.SANITIZATION,
-                    onClick = { selectedFilter = DevConsoleManager.LogLevel.SANITIZATION },
-                    label = { Text("SANITIZER", fontSize = 10.sp) }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Log List Display
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .background(Color.Black, RoundedCornerShape(8.dp))
-                    .border(1.dp, Color.DarkGray, RoundedCornerShape(8.dp))
-                    .padding(8.dp)
-            ) {
-                if (filteredLogs.isEmpty()) {
-                    Text(
-                        "No log entries recorded.",
-                        color = Color.Gray,
-                        fontSize = 12.sp,
-                        modifier = Modifier.align(Alignment.Center)
-                    )
-                } else {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(filteredLogs) { log ->
-                            LogItemRow(log) {
-                                selectedLogForDialog = log
-                            }
-                        }
-                    }
-                }
             }
         }
     }
 
-    // Detail Modal for Log / Stack Trace
     selectedLogForDialog?.let { log ->
         AlertDialog(
             onDismissRequest = { selectedLogForDialog = null },
             title = { Text("[${log.level}] ${log.tag}", color = Color.White, fontSize = 16.sp) },
             text = {
-                Column {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     Text("Time: ${log.timestamp}", color = Color.Gray, fontSize = 12.sp)
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(log.message, color = Color.White, fontSize = 13.sp)
@@ -295,8 +304,8 @@ fun DeveloperConsoleScreen(navController: NavController) {
                         Text(
                             stack,
                             color = Color(0xFFFF6B6B),
-                            fontFamily = FontFamily.SansSerif,
-                            fontSize = 11.sp
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
                         )
                     }
                 }
@@ -304,11 +313,14 @@ fun DeveloperConsoleScreen(navController: NavController) {
             confirmButton = {
                 TextButton(onClick = {
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    val clip = ClipData.newPlainText("LogEntry", "${log.timestamp} [${log.level}] ${log.tag}: ${log.message}\n${log.exceptionDetails ?: ""}")
+                    val clip = ClipData.newPlainText(
+                        "LogEntry",
+                        "${log.timestamp} [${log.level}] ${log.tag}: ${log.message}\n${log.exceptionDetails ?: ""}",
+                    )
                     clipboard.setPrimaryClip(clip)
                     Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
                 }) {
-                    Text("Copy", color = Color(0xFF81C784))
+                    Text("Copy", color = AppPalette)
                 }
             },
             dismissButton = {
@@ -316,11 +328,10 @@ fun DeveloperConsoleScreen(navController: NavController) {
                     Text("Close", color = Color.Gray)
                 }
             },
-            containerColor = Color(0xFF17171F)
+            containerColor = Color(0xFF17171F),
         )
     }
 
-    // Modal for Full Crash Log Dump
     if (showCrashDialog) {
         val crashReport = latestCrashText ?: "No crash dump available."
         AlertDialog(
@@ -338,15 +349,15 @@ fun DeveloperConsoleScreen(navController: NavController) {
                         .fillMaxWidth()
                         .heightIn(max = 400.dp)
                         .background(Color.Black, RoundedCornerShape(8.dp))
-                        .padding(8.dp)
+                        .padding(8.dp),
                 ) {
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        item {
+                        item(key = "crash_dump_body") {
                             Text(
                                 text = crashReport,
                                 color = Color(0xFFFFCDD2),
                                 fontFamily = FontFamily.Monospace,
-                                fontSize = 11.sp
+                                fontSize = 11.sp,
                             )
                         }
                     }
@@ -355,17 +366,17 @@ fun DeveloperConsoleScreen(navController: NavController) {
             confirmButton = {
                 TextButton(onClick = {
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    val clip = ClipData.newPlainText("SpotUICrashDump", crashReport)
-                    clipboard.setPrimaryClip(clip)
+                    clipboard.setPrimaryClip(ClipData.newPlainText("SpotUICrashDump", crashReport))
                     Toast.makeText(context, "Crash dump copied to clipboard", Toast.LENGTH_SHORT).show()
                 }) {
-                    Text("Copy Full Dump", color = Color(0xFF81C784))
+                    Text("Copy Full Dump", color = AppPalette)
                 }
             },
             dismissButton = {
                 Row {
                     TextButton(onClick = {
                         CrashHandler.clearAllCrashReports(context)
+                        hasCrashReports = false
                         showCrashDialog = false
                         Toast.makeText(context, "Crash logs cleared", Toast.LENGTH_SHORT).show()
                     }) {
@@ -376,8 +387,319 @@ fun DeveloperConsoleScreen(navController: NavController) {
                     }
                 }
             },
-            containerColor = Color(0xFF17171F)
+            containerColor = Color(0xFF17171F),
         )
+    }
+}
+
+@Composable
+private fun HealthScannerTab(
+    report: HealthScanReport?,
+    isScanning: Boolean,
+    fixingId: String?,
+    onRescan: () -> Unit,
+    onFix: (HealthCheckResult) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        // Summary Banner + Rescan Button
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color(0xFF1E2029))
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("System Health Diagnostics", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                if (report != null) {
+                    Text(
+                        "${report.okCount} OK · ${report.warnCount} Warnings · ${report.failCount} Issues (${report.durationMs}ms)",
+                        color = if (report.failCount > 0) Color(0xFFFF8B94) else Color(0xFF81C784),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                } else {
+                    Text("Scanning playback, DSP, network, accounts & cache…", color = Color(0xFFB3B3B3), fontSize = 12.sp)
+                }
+            }
+            Button(
+                enabled = !isScanning,
+                onClick = onRescan,
+                colors = ButtonDefaults.buttonColors(containerColor = AppPalette, contentColor = Color.Black),
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("health_rescan_button"),
+            ) {
+                if (isScanning) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.Black)
+                } else {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                }
+                Spacer(Modifier.width(6.dp))
+                Text(if (isScanning) "Scanning" else "Scan All", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        val checks = report?.checks.orEmpty()
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            itemsIndexed(
+                items = checks,
+                key = { _, item -> item.id },
+            ) { _, item ->
+                HealthCheckRow(
+                    item = item,
+                    isFixing = fixingId == item.id,
+                    onFix = { onFix(item) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HealthCheckRow(
+    item: HealthCheckResult,
+    isFixing: Boolean,
+    onFix: () -> Unit,
+) {
+    val (icon, tint, bgBadge) = when (item.severity) {
+        CheckSeverity.OK -> Triple(Icons.Default.CheckCircle, Color(0xFF81C784), Color(0x2281C784))
+        CheckSeverity.WARNING -> Triple(Icons.Default.Warning, Color(0xFFFFB74D), Color(0x22FFB74D))
+        CheckSeverity.FAIL -> Triple(Icons.Default.Error, Color(0xFFFF5252), Color(0x22FF5252))
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFF1A1B23))
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(bgBadge),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, contentDescription = item.severity.name, tint = tint, modifier = Modifier.size(18.dp))
+        }
+
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(item.title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text(item.category.uppercase(), color = Color(0xFF8C92A4), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            }
+            Text(item.summary, color = tint, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text(item.detail, color = Color(0xFFA5AAB8), fontSize = 11.sp, lineHeight = 14.sp)
+        }
+
+        if (item.autoFix != null && item.fixLabel != null) {
+            TextButton(
+                enabled = !isFixing,
+                onClick = onFix,
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("health_fix_${item.id}"),
+            ) {
+                Icon(Icons.Default.Healing, contentDescription = null, tint = AppPalette, modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(if (isFixing) "…" else item.fixLabel, color = AppPalette, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveLoggerTab(
+    filteredLogs: List<DevConsoleManager.LogEntry>,
+    selectedFilter: DevConsoleManager.LogLevel?,
+    searchQuery: String,
+    onFilterChange: (DevConsoleManager.LogLevel?) -> Unit,
+    onSearchChange: (String) -> Unit,
+    onSelectLog: (DevConsoleManager.LogEntry) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = onSearchChange,
+            placeholder = { Text("Filter by tag or message…", color = Color.Gray, fontSize = 13.sp) },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color.Gray) },
+            singleLine = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("logger_search_input"),
+            shape = RoundedCornerShape(10.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = AppPalette,
+                unfocusedBorderColor = Color(0xFF34343F),
+                focusedContainerColor = Color(0xFF1D1E26),
+                unfocusedContainerColor = Color(0xFF1D1E26),
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+            ),
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            FilterChip(
+                selected = selectedFilter == null,
+                onClick = { onFilterChange(null) },
+                label = { Text("ALL", fontSize = 11.sp) },
+                modifier = Modifier.testTag("log_filter_all"),
+            )
+            DevConsoleManager.LogLevel.entries.forEach { lvl ->
+                FilterChip(
+                    selected = selectedFilter == lvl,
+                    onClick = { onFilterChange(if (selectedFilter == lvl) null else lvl) },
+                    label = { Text(lvl.name, fontSize = 11.sp) },
+                    modifier = Modifier.testTag("log_filter_${lvl.name.lowercase()}"),
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .background(Color(0xFF0B0C10), RoundedCornerShape(10.dp))
+                .border(1.dp, Color(0xFF2B2D3A), RoundedCornerShape(10.dp))
+                .padding(8.dp),
+        ) {
+            if (filteredLogs.isEmpty()) {
+                Text(
+                    "No matching log entries recorded.",
+                    color = Color.Gray,
+                    fontSize = 12.sp,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    itemsIndexed(
+                        items = filteredLogs,
+                        key = { idx, entry -> "${entry.timestamp}_${entry.tag}_$idx" },
+                    ) { _, log ->
+                        LogItemRow(log) { onSelectLog(log) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TelemetryAndCrashesTab(
+    telemetry: SongPlayer.PlayerTelemetry,
+    diagnostics: DevConsoleManager.PlaybackDiagnostics,
+    hasCrashReports: Boolean,
+    forceFlac: Boolean,
+    forceYt: Boolean,
+    strictSanitize: Boolean,
+    oneUiOpt: Boolean,
+    highPerfBuf: Boolean,
+    watchdogOn: Boolean,
+    onForceFlac: (Boolean) -> Unit,
+    onForceYt: (Boolean) -> Unit,
+    onStrictSanitize: (Boolean) -> Unit,
+    onOneUiOpt: (Boolean) -> Unit,
+    onHighPerfBuf: (Boolean) -> Unit,
+    onWatchdogOn: (Boolean) -> Unit,
+    onOpenCrashDump: () -> Unit,
+) {
+    val stateName = when (telemetry.playbackState) {
+        Player.STATE_IDLE -> "IDLE"
+        Player.STATE_BUFFERING -> "BUFFERING"
+        Player.STATE_READY -> "READY"
+        Player.STATE_ENDED -> "ENDED"
+        else -> telemetry.playbackState.toString()
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        // Live Telemetry Panel
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFF1E2029))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("LIVE AUDIO & MEDIA3 TELEMETRY", color = AppPalette, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                DiagnosticBadge("Session", "#${telemetry.sessionId}")
+                DiagnosticBadge("State", stateName)
+                DiagnosticBadge("Source", telemetry.activeSource)
+                DiagnosticBadge("Buffer", "${telemetry.bufferedPercentage}%")
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                DiagnosticBadge("Quality", telemetry.currentQuality.ifBlank { "Adaptive" })
+                DiagnosticBadge("SW DSP", if (telemetry.softwareDspActive) "Active" else "Standby")
+                DiagnosticBadge("HW FX", if (telemetry.hardwareEqActive) "Active" else "Bypass")
+                DiagnosticBadge("Collisions", "${diagnostics.totalCollisionsDetected}")
+            }
+            if (!telemetry.lastError.isNullOrBlank()) {
+                Text("Last Error: ${telemetry.lastError}", color = Color(0xFFFF8B94), fontSize = 11.sp)
+            }
+            if (hasCrashReports) {
+                Button(
+                    onClick = onOpenCrashDump,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("view_latest_crash_dump_button"),
+                ) {
+                    Icon(Icons.Default.BugReport, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("VIEW LATEST CRASH DUMP", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        // Dev Flags
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFF1E2029))
+                .padding(14.dp),
+        ) {
+            Text("RUNTIME ENGINE FLAGS", color = Color(0xFFB3B3B3), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(6.dp))
+            DevToggleRow("Force Lossless FLAC", forceFlac, onForceFlac)
+            DevToggleRow("Force YouTube Fallback Engine", forceYt, onForceYt)
+            DevToggleRow("Strict Stream Sanitization", strictSanitize, onStrictSanitize)
+            DevToggleRow("Samsung One UI / Background Optimizations", oneUiOpt, onOneUiOpt)
+            DevToggleRow("High-Performance Audio Buffering", highPerfBuf, onHighPerfBuf)
+            DevToggleRow("Stream & Focus Watchdog", watchdogOn, onWatchdogOn)
+        }
     }
 }
 
@@ -394,20 +716,21 @@ fun DevToggleRow(label: String, state: Boolean, onToggle: (Boolean) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .heightIn(min = 48.dp)
+            .padding(vertical = 2.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, color = Color.White, fontSize = 13.sp)
+        Text(label, color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
         Switch(
             checked = state,
             onCheckedChange = onToggle,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color.Black,
-                checkedTrackColor = Color(0xFF81C784),
+                checkedTrackColor = AppPalette,
                 uncheckedThumbColor = Color.Gray,
-                uncheckedTrackColor = Color.DarkGray
-            )
+                uncheckedTrackColor = Color.DarkGray,
+            ),
         )
     }
 }
@@ -427,29 +750,28 @@ fun LogItemRow(log: DevConsoleManager.LogEntry, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(vertical = 3.dp),
-        verticalAlignment = Alignment.Top
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.Top,
     ) {
         Text(
             log.timestamp,
             color = Color.Gray,
             fontSize = 10.sp,
-            fontFamily = FontFamily.SansSerif,
-            modifier = Modifier.width(70.dp)
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.width(72.dp),
         )
         Text(
             "[${log.level.name.take(4)}]",
             color = levelColor,
             fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.width(50.dp)
+            modifier = Modifier.width(50.dp),
         )
         Text(
             "${log.tag}: ${log.message}",
             color = Color.White,
             fontSize = 11.sp,
-            fontFamily = FontFamily.SansSerif,
-            maxLines = 2
+            maxLines = 2,
         )
     }
 }

@@ -147,6 +147,9 @@ import com.music.spotui.ui.theme.AppPalette
 import com.music.spotui.data.cache.CacheStorageManager
 import com.music.spotui.data.export.NovaAcExportManager
 import com.music.spotui.di.SongPlayer
+import com.music.spotui.ui.screens.settings.AudioDspSection
+import com.music.spotui.ui.screens.settings.LosslessProviderSection
+import com.music.spotui.ui.screens.settings.PlaybackAndToolsSection
 import com.music.spotui.util.AppDiagnostics
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -182,18 +185,6 @@ fun SettingsScreen(navController: NavController) {
     var isRestoring by remember { mutableStateOf(false) }
     var isBackingUp by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-
-    var eqPreset by remember { mutableStateOf(com.music.spotui.data.preferences.getEqPreset(context)) }
-    var eqBass by remember { mutableStateOf(com.music.spotui.data.preferences.getEqBass(context)) }
-    var eqVocal by remember { mutableStateOf(com.music.spotui.data.preferences.getEqVocal(context)) }
-    var eqTreble by remember { mutableStateOf(com.music.spotui.data.preferences.getEqTreble(context)) }
-    var eqLowMid by remember { mutableStateOf(com.music.spotui.data.preferences.getEqLowMid(context)) }
-    var eqHighMid by remember { mutableStateOf(com.music.spotui.data.preferences.getEqHighMid(context)) }
-    var eqSpatial by remember { mutableStateOf(com.music.spotui.data.preferences.isEqSpatialEnabled(context)) }
-    var audioNormalizer by remember { mutableStateOf(com.music.spotui.data.preferences.isAudioNormalizerEnabled(context)) }
-    var spatialProfile by remember { mutableStateOf(com.music.spotui.data.preferences.getSpatialProfile(context)) }
-    var spatialStrength by remember { mutableStateOf(com.music.spotui.data.preferences.getSpatialStrength(context).toFloat()) }
-    var normalizerGainMb by remember { mutableStateOf(com.music.spotui.data.preferences.getAudioNormalizerGainMb(context).toFloat()) }
 
     var cacheSizeStr by remember { mutableStateOf("Calculating…") }
     var cacheDetailStr by remember { mutableStateOf("") }
@@ -280,9 +271,6 @@ fun SettingsScreen(navController: NavController) {
     }
 
     LaunchedEffect(Unit) { refreshCacheSummary() }
-    LaunchedEffect(eqBass, eqLowMid, eqVocal, eqHighMid, eqTreble, eqSpatial, audioNormalizer, spatialProfile, spatialStrength, normalizerGainMb) {
-        SongPlayer.refreshAudioEffects(context)
-    }
 
     val dirPickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -846,305 +834,12 @@ fun SettingsScreen(navController: NavController) {
             Spacer(Modifier.height(16.dp))
 
             CollapsibleSettingsSection(
-                title = "Audio FX & Equalizer",
-                subtitle = "Device equalizer, spatial audio, and loudness controls",
+                title = "Studio Audio FX, 7-Band EQ & 3D Spatial",
+                subtitle = "Parametric Biquad EQ, Preamp, Limiter, Normalizer, and Binaural Soundstage",
                 expanded = audioSectionExpanded,
                 onExpandedChange = { audioSectionExpanded = it },
             ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF1A1A20))
-                    .padding(14.dp)
-            ) {
-                // Volume Normalizer Switch
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Volume Normalization", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        Text("Balance audio levels for consistent volume", color = Color.Gray, fontSize = 12.sp)
-                    }
-                    Switch(
-                        checked = audioNormalizer,
-                        onCheckedChange = { checked ->
-                            audioNormalizer = checked
-                            com.music.spotui.data.preferences.setAudioNormalizerEnabled(context, checked)
-                        },
-                        colors = SwitchDefaults.colors(checkedThumbColor = AppPalette)
-                    )
-                }
-                if (audioNormalizer) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("Normalizer intensity: ${normalizerGainMb.toInt()} mB", color = AppPalette, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    Slider(
-                        value = normalizerGainMb,
-                        onValueChange = { normalizerGainMb = it },
-                        onValueChangeFinished = {
-                            com.music.spotui.data.preferences.setAudioNormalizerGainMb(context, normalizerGainMb.toInt())
-                        },
-                        valueRange = 0f..600f,
-                        colors = SliderDefaults.colors(activeTrackColor = AppPalette, thumbColor = AppPalette),
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // 3D Spatial Audio Switch
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("3D Spatial Audio Surround", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        Text("Immersive dimensional surround soundstage", color = Color.Gray, fontSize = 12.sp)
-                    }
-                    Switch(
-                        checked = eqSpatial,
-                        onCheckedChange = { checked ->
-                            eqSpatial = checked
-                            com.music.spotui.data.preferences.setEqSpatialEnabled(context, checked)
-                            com.music.spotui.di.SongPlayer.refreshAudioEffects(context)
-                        },
-                        colors = SwitchDefaults.colors(checkedThumbColor = AppPalette)
-                    )
-                }
-                if (eqSpatial) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text("Spatial profile", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        com.music.spotui.data.preferences.SpatialProfile.entries.forEach { profile ->
-                            val selected = spatialProfile == profile
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .background(if (selected) AppPalette else Color.White.copy(alpha = 0.08f))
-                                    .clickable {
-                                        spatialProfile = profile
-                                        com.music.spotui.data.preferences.setSpatialProfile(context, profile)
-                                        com.music.spotui.di.SongPlayer.refreshAudioEffects(context)
-                                    }
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                            ) {
-                                Text(profile.label, color = if (selected) Color.Black else Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Spatial depth", color = Color.White, fontSize = 13.sp)
-                        Text("${spatialStrength.toInt() / 10}%", color = AppPalette, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Slider(
-                        value = spatialStrength,
-                        onValueChange = { spatialStrength = it },
-                        onValueChangeFinished = {
-                            com.music.spotui.data.preferences.setSpatialStrength(context, spatialStrength.toInt())
-                            com.music.spotui.di.SongPlayer.refreshAudioEffects(context)
-                        },
-                        valueRange = 0f..1000f,
-                        colors = SliderDefaults.colors(activeTrackColor = AppPalette, thumbColor = AppPalette),
-                    )
-                    Text(spatialProfile.detail, color = Color(0xFFB3B3B3), fontSize = 11.sp)
-                    val spatialCapabilities = remember(eqSpatial, spatialStrength, spatialProfile) {
-                        com.music.spotui.audio.AudioEffectController.capabilityReport()
-                    }
-                    Text(
-                        when {
-                            spatialCapabilities.sessionId <= 0 -> "Start a track to attach the live spatial processor."
-                            spatialCapabilities.hardwareSpatialAvailable && spatialCapabilities.spatialStrengthSupported -> "Active: software stereo width + Android hardware spatial effect."
-                            spatialCapabilities.hardwareSpatialAvailable -> "Active: software stereo width + Android virtualizer preset."
-                            else -> "Active: software stereo-width processing (hardware virtualizer unavailable on this output)."
-                        },
-                        color = AppPalette,
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(top = 6.dp),
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(18.dp))
-
-                Text("Equalizer Presets", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Horizontal scrollable presets row
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val presets = listOf("Flat", "Bass Boost", "Vocal Boost", "Electronic", "Classical", "Pop", "Rock")
-                    presets.forEach { presetName ->
-                        val isSelected = eqPreset == presetName
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(if (isSelected) AppPalette else Color.White.copy(alpha = 0.08f))
-                                .clickable {
-                                    eqPreset = presetName
-                                    com.music.spotui.data.preferences.setEqPreset(context, presetName)
-                                    // Update sliders based on preset
-                                    when (presetName) {
-                                        "Flat" -> {
-                                            eqBass = 50f; eqVocal = 50f; eqTreble = 50f
-                                        }
-                                        "Bass Boost" -> {
-                                            eqBass = 90f; eqVocal = 45f; eqTreble = 40f
-                                        }
-                                        "Vocal Boost" -> {
-                                            eqBass = 40f; eqVocal = 90f; eqTreble = 45f
-                                        }
-                                        "Electronic" -> {
-                                            eqBass = 75f; eqVocal = 50f; eqTreble = 80f
-                                        }
-                                        "Classical" -> {
-                                            eqBass = 45f; eqVocal = 75f; eqTreble = 65f
-                                        }
-                                        "Pop" -> {
-                                            eqBass = 60f; eqVocal = 65f; eqTreble = 70f
-                                        }
-                                        "Rock" -> {
-                                            eqBass = 80f; eqVocal = 55f; eqTreble = 75f
-                                        }
-                                    }
-                                    eqLowMid = 50f; eqHighMid = 50f
-                                    com.music.spotui.data.preferences.setEqBass(context, eqBass)
-                                    com.music.spotui.data.preferences.setEqLowMid(context, eqLowMid)
-                                    com.music.spotui.data.preferences.setEqVocal(context, eqVocal)
-                                    com.music.spotui.data.preferences.setEqHighMid(context, eqHighMid)
-                                    com.music.spotui.data.preferences.setEqTreble(context, eqTreble)
-                                }
-                                .padding(horizontal = 14.dp, vertical = 8.dp)
-                        ) {
-                            Text(
-                                text = presetName,
-                                color = if (isSelected) Color.Black else Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(18.dp))
-
-                // Slider: Bass
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Bass Boost", color = Color.White, fontSize = 13.sp)
-                        Text("${eqBass.toInt()}%", color = AppPalette, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Slider(
-                        value = eqBass,
-                        onValueChange = {
-                            eqBass = it
-                            eqPreset = "Custom"
-                        },
-                        onValueChangeFinished = {
-                            com.music.spotui.data.preferences.setEqBass(context, eqBass)
-                            com.music.spotui.data.preferences.setEqPreset(context, "Custom")
-                        },
-                        valueRange = 0f..100f,
-                        colors = SliderDefaults.colors(
-                            activeTrackColor = AppPalette,
-                            inactiveTrackColor = Color.White.copy(alpha = 0.2f),
-                            thumbColor = AppPalette
-                        )
-                    )
-                }
-
-                // Slider: Vocal
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Vocal Enhancer", color = Color.White, fontSize = 13.sp)
-                        Text("${eqVocal.toInt()}%", color = AppPalette, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Slider(
-                        value = eqVocal,
-                        onValueChange = {
-                            eqVocal = it
-                            eqPreset = "Custom"
-                        },
-                        onValueChangeFinished = {
-                            com.music.spotui.data.preferences.setEqVocal(context, eqVocal)
-                            com.music.spotui.data.preferences.setEqPreset(context, "Custom")
-                        },
-                        valueRange = 0f..100f,
-                        colors = SliderDefaults.colors(
-                            activeTrackColor = AppPalette,
-                            inactiveTrackColor = Color.White.copy(alpha = 0.2f),
-                            thumbColor = AppPalette
-                        )
-                    )
-                }
-
-                // Slider: Low mids
-                Column {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Low-mid body", color = Color.White, fontSize = 13.sp)
-                        Text("${eqLowMid.toInt()}%", color = AppPalette, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Slider(value = eqLowMid, onValueChange = { eqLowMid = it; eqPreset = "Custom" }, onValueChangeFinished = {
-                        com.music.spotui.data.preferences.setEqLowMid(context, eqLowMid)
-                        com.music.spotui.data.preferences.setEqPreset(context, "Custom")
-                    }, valueRange = 0f..100f, colors = SliderDefaults.colors(activeTrackColor = AppPalette, inactiveTrackColor = Color.White.copy(alpha = 0.2f), thumbColor = AppPalette))
-                }
-
-                // Slider: High mids
-                Column {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Presence", color = Color.White, fontSize = 13.sp)
-                        Text("${eqHighMid.toInt()}%", color = AppPalette, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Slider(value = eqHighMid, onValueChange = { eqHighMid = it; eqPreset = "Custom" }, onValueChangeFinished = {
-                        com.music.spotui.data.preferences.setEqHighMid(context, eqHighMid)
-                        com.music.spotui.data.preferences.setEqPreset(context, "Custom")
-                    }, valueRange = 0f..100f, colors = SliderDefaults.colors(activeTrackColor = AppPalette, inactiveTrackColor = Color.White.copy(alpha = 0.2f), thumbColor = AppPalette))
-                }
-
-                // Slider: Treble
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Treble Detail", color = Color.White, fontSize = 13.sp)
-                        Text("${eqTreble.toInt()}%", color = AppPalette, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Slider(
-                        value = eqTreble,
-                        onValueChange = {
-                            eqTreble = it
-                            eqPreset = "Custom"
-                        },
-                        onValueChangeFinished = {
-                            com.music.spotui.data.preferences.setEqTreble(context, eqTreble)
-                            com.music.spotui.data.preferences.setEqPreset(context, "Custom")
-                        },
-                        valueRange = 0f..100f,
-                        colors = SliderDefaults.colors(
-                            activeTrackColor = AppPalette,
-                            inactiveTrackColor = Color.White.copy(alpha = 0.2f),
-                            thumbColor = AppPalette
-                        )
-                    )
-                }
-            }
+                AudioDspSection()
             }
 
             Spacer(Modifier.height(16.dp))
@@ -2270,7 +1965,18 @@ fun SettingsScreen(navController: NavController) {
                 showFlacWarning = wifiQ == StreamQuality.LOSSLESS,
                 losslessTimeout = wifiLosslessTimeout,
                 onSelectTimeout = { wifiLosslessTimeout = it; setWifiLosslessTimeout(context, it) },
-            ) { wifiQ = it; setWifiQuality(context, it) }
+            ) { selected ->
+                val changed = wifiQ != selected
+                wifiQ = selected
+                setWifiQuality(context, selected)
+                if (changed && SongPlayer.restartCurrentTrackForQualityChange(context)) {
+                    android.widget.Toast.makeText(
+                        context,
+                        "Restarting current track in ${selected.label}…",
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
 
             QualityPicker(
                 title = "Streaming over cellular",
@@ -2278,7 +1984,18 @@ fun SettingsScreen(navController: NavController) {
                 showFlacWarning = cellQ == StreamQuality.LOSSLESS,
                 losslessTimeout = cellLosslessTimeout,
                 onSelectTimeout = { cellLosslessTimeout = it; setCellularLosslessTimeout(context, it) },
-            ) { cellQ = it; setCellularQuality(context, it) }
+            ) { selected ->
+                val changed = cellQ != selected
+                cellQ = selected
+                setCellularQuality(context, selected)
+                if (changed && SongPlayer.restartCurrentTrackForQualityChange(context)) {
+                    android.widget.Toast.makeText(
+                        context,
+                        "Restarting current track in ${selected.label}…",
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
 
             QualityPicker(
                 title = "Download quality",
@@ -2287,89 +2004,17 @@ fun SettingsScreen(navController: NavController) {
                 onSelectTimeout = { dlLosslessTimeout = it; setDownloadLosslessTimeout(context, it) },
             ) { dlQ = it; setDownloadQuality(context, it) }
 
-            var losslessStatusSummary by remember { mutableStateOf("Checking lossless mirrors…") }
-            var losslessProviderOrder by remember { mutableStateOf(com.music.spotui.data.preferences.ProviderRoutingPreferences.losslessOrder(context)) }
-            var strictFullLengthLossless by remember { mutableStateOf(com.music.spotui.data.preferences.ProviderRoutingPreferences.preferFullLength(context)) }
-            LaunchedEffect(Unit) {
-                providerStatuses = com.metrolist.spotify.SpotiFlac.getProviderStatuses()
-                val upCount = providerStatuses.count { it.isUp && !it.isCooldown }
-                losslessStatusSummary = "$upCount/5 online • Tap to inspect providers"
-            }
-
-            Spacer(Modifier.height(6.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .clickable {
-                        scope.launch {
-                            isRefreshingStatuses = true
-                            providerStatuses = com.metrolist.spotify.SpotiFlac.getProviderStatuses()
-                            isRefreshingStatuses = false
-                            showProviderStatusDialog = true
-                        }
+            Spacer(Modifier.height(8.dp))
+            LosslessProviderSection(
+                onOpenProviderStatusDialog = {
+                    scope.launch {
+                        isRefreshingStatuses = true
+                        providerStatuses = com.metrolist.spotify.SpotiFlac.getProviderStatuses()
+                        isRefreshingStatuses = false
+                        showProviderStatusDialog = true
                     }
-                    .background(Color(0xFF1E1E24))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Lossless Provider Status", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    Text(losslessStatusSummary, color = Color(0xFFB3B3B3), fontSize = 12.sp)
-                }
-                Icon(
-                    imageVector = Icons.Filled.Refresh,
-                    contentDescription = "Inspect Status",
-                    tint = AppPalette,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-
-            Spacer(Modifier.height(10.dp))
-            Text("Lossless route priority", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Text("The resolver launches eligible providers in this sequence; unavailable or cooldown sources are skipped.", color = Color(0xFFB3B3B3), fontSize = 11.sp)
-            com.music.spotui.data.preferences.LosslessProviderRoute.entries.forEachIndexed { index, route ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("${index + 1}", color = AppPalette, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(20.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(route.label, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text(route.detail, color = Color(0xFF9FA9BC), fontSize = 10.sp)
-                    }
-                    TextButton(
-                        enabled = index > 0,
-                        onClick = {
-                            val reordered = losslessProviderOrder.toMutableList().also { list ->
-                                val current = list.indexOf(route.id)
-                                if (current > 0) java.util.Collections.swap(list, current, current - 1)
-                            }
-                            losslessProviderOrder = reordered
-                            com.music.spotui.data.preferences.ProviderRoutingPreferences.setLosslessOrder(context, reordered)
-                        },
-                    ) { Text("Up", color = if (index > 0) AppPalette else Color.Gray, fontSize = 11.sp) }
-                    TextButton(
-                        enabled = index < losslessProviderOrder.lastIndex,
-                        onClick = {
-                            val reordered = losslessProviderOrder.toMutableList().also { list ->
-                                val current = list.indexOf(route.id)
-                                if (current >= 0 && current < list.lastIndex) java.util.Collections.swap(list, current, current + 1)
-                            }
-                            losslessProviderOrder = reordered
-                            com.music.spotui.data.preferences.ProviderRoutingPreferences.setLosslessOrder(context, reordered)
-                        },
-                    ) { Text("Down", color = if (index < losslessProviderOrder.lastIndex) AppPalette else Color.Gray, fontSize = 11.sp) }
-                }
-            }
-            SettingsSwitchRow(
-                title = "Reject preview-length lossless sources",
-                subtitle = "Skips manifest results shorter than 45 seconds before fallback.",
-                checked = strictFullLengthLossless,
-            ) {
-                strictFullLengthLossless = it
-                com.music.spotui.data.preferences.ProviderRoutingPreferences.setPreferFullLength(context, it)
-            }
+                },
+            )
 
             Spacer(Modifier.height(12.dp))
             SectionTitle("Matching")
@@ -2465,6 +2110,13 @@ fun SettingsScreen(navController: NavController) {
                     Text("Reset Speed & Pitch to 1.00x", color = AppPalette, fontWeight = FontWeight.Bold)
                 }
             }
+
+            Spacer(Modifier.height(10.dp))
+            PlaybackAndToolsSection(
+                onOpenDeveloperConsole = {
+                    navController.navigate(com.music.spotui.ui.navigation.Routes.DeveloperConsole.route)
+                },
+            )
 
             Spacer(Modifier.height(12.dp))
             SectionTitle("Crossfade")
@@ -2664,7 +2316,7 @@ fun SettingsScreen(navController: NavController) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Roadmap & Update Master Plan", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
-                    Text("View complete release history and version changelogs (v1.5.1 through v2.1.7)", color = Color(0xFFB3B3B3), fontSize = 12.sp)
+                    Text("View complete release history and version changelogs (v1.5.1 through v2.2.0)", color = Color(0xFFB3B3B3), fontSize = 12.sp)
                 }
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.OpenInNew,

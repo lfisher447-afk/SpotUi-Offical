@@ -10,8 +10,10 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import com.music.spotui.audio.AudioEffectController
 import com.music.spotui.audio.CrossfadeFilterAudioProcessor
 import com.music.spotui.audio.SpatialWideningAudioProcessor
+import com.music.spotui.audio.SpotuiDspAudioProcessor
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -23,23 +25,25 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object AudioModule {
-    /** Provides an ExoPlayer configured with crossfade and spatial audio processors. */
+    /** Provides an ExoPlayer configured with DSP EQ, crossfade, and spatial audio processors. */
     @OptIn(UnstableApi::class)
     @Provides
     @Singleton
     fun provideExoPlayer(@ApplicationContext context: Context): ExoPlayer {
+        val dspProcessor = SpotuiDspAudioProcessor()
         val crossfadeProcessor = CrossfadeFilterAudioProcessor()
         val spatialProcessor = SpatialWideningAudioProcessor()
+        AudioEffectController.bindSoftwareProcessors(context, dspProcessor, spatialProcessor)
         val renderersFactory = object : DefaultRenderersFactory(context) {
             override fun buildAudioSink(
                 context: Context,
                 enableFloatOutput: Boolean,
                 enableAudioTrackPlaybackParams: Boolean,
             ): AudioSink = DefaultAudioSink.Builder(context)
-                .setEnableFloatOutput(enableFloatOutput)
+                .setEnableFloatOutput(true)
                 .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                 .setAudioProcessorChain(
-                    DefaultAudioSink.DefaultAudioProcessorChain(crossfadeProcessor, spatialProcessor),
+                    DefaultAudioSink.DefaultAudioProcessorChain(dspProcessor, crossfadeProcessor, spatialProcessor),
                 )
                 .build()
         }

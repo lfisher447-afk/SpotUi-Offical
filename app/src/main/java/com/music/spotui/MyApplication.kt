@@ -108,6 +108,15 @@ class MyApplication : Application(), Configuration.Provider {
                 )
             }
         }
+        // Hydrate lossless provider credentials & mirror config early on startup.
+        runCatching {
+            val savedArl = com.music.spotui.data.preferences.getDeezerArl(this).trim()
+            val savedMirror = com.music.spotui.data.preferences.getCustomLosslessMirrorUrl(this).trim()
+            com.metrolist.spotify.SpotiFlac.deezerArl = savedArl.ifBlank { null }
+            com.metrolist.spotify.SpotiFlac.customMirrorBaseUrl = savedMirror.ifBlank { null }
+            com.music.spotui.deezer.DeezerSession.setArl(savedArl)
+        }.onFailure { AppDiagnostics.warning("LosslessConfig", "Startup hydration failed", it) }
+
         // Apply DoH, proxy pool, WebClient PoToken flag, and optional YouTube session cookie on IO.
         appScope.launch {
             runCatching {

@@ -1,9 +1,14 @@
 package com.music.spotui.di
 
 import android.content.Context
+import android.media.AudioManager
 import android.net.ConnectivityManager
+import android.net.wifi.WifiManager
+import android.os.PowerManager
 import android.util.Log
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.SongItem
@@ -76,9 +81,100 @@ object SongPlayer {
     @Volatile var currentQuality: String = ""
         private set
 
+    @Volatile var isResolvingTrack: Boolean = false
+        private set
+
+    @Volatile var lastPlaybackError: String? = null
+        private set
+
+    @Volatile var abLoopStartMs: Long = -1L
+        private set
+
+    @Volatile var abLoopEndMs: Long = -1L
+        private set
+
+    @Volatile private var lastKnownSessionId: Int = 0
+    @Volatile private var lastKnownPlaybackState: Int = Player.STATE_IDLE
+    @Volatile private var lastKnownPlayWhenReady: Boolean = false
+    @Volatile private var lastKnownIsPlaying: Boolean = false
+    @Volatile private var lastKnownPositionMs: Long = 0L
+    @Volatile private var lastKnownDurationMs: Long = 0L
+    @Volatile private var lastKnownBufferedPct: Int = 0
+
+    fun shouldPlayWhenResolved(): Boolean = playWhenResolved
+
+    data class PlayerTelemetry(
+        val sessionId: Int,
+        val playbackState: Int,
+        val playWhenReady: Boolean,
+        val isPlaying: Boolean,
+        val isResolving: Boolean,
+        val bufferedPercentage: Int,
+        val positionMs: Long,
+        val durationMs: Long,
+        val activeSource: String,
+        val currentQuality: String,
+        val softwareDspActive: Boolean,
+        val hardwareEqActive: Boolean,
+        val hardwareSpatialActive: Boolean,
+        val abLoopStartMs: Long,
+        val abLoopEndMs: Long,
+        val lastError: String?,
+    )
+
+    fun telemetrySnapshot(context: Context): PlayerTelemetry {
+        val p = player
+        val caps = com.music.spotui.audio.AudioEffectController.capabilityReport()
+        val canReadPlayerDirectly = p != null && android.os.Looper.myLooper() == p.applicationLooper
+        val stateCode: Int
+        val sessionId: Int
+        val pwr: Boolean
+        val playingNow: Boolean
+        val pos: Long
+        val dur: Long
+        val bufPct: Int
+        if (canReadPlayerDirectly && p != null) {
+            stateCode = p.playbackState.also { lastKnownPlaybackState = it }
+            sessionId = p.audioSessionId.takeIf { it > 0 } ?: caps.sessionId
+            lastKnownSessionId = sessionId
+            pwr = p.playWhenReady.also { lastKnownPlayWhenReady = it }
+            playingNow = isPlaying().also { lastKnownIsPlaying = it }
+            pos = runCatching { p.currentPosition.coerceAtLeast(0L) }.getOrDefault(0L).also { lastKnownPositionMs = it }
+            dur = runCatching { p.duration.coerceAtLeast(0L) }.getOrDefault(0L).also { lastKnownDurationMs = it }
+            bufPct = runCatching { p.bufferedPercentage.coerceIn(0, 100) }.getOrDefault(0).also { lastKnownBufferedPct = it }
+        } else {
+            stateCode = if (p == null) Player.STATE_IDLE else lastKnownPlaybackState
+            sessionId = if (lastKnownSessionId > 0) lastKnownSessionId else caps.sessionId
+            pwr = if (p == null) playWhenResolved else lastKnownPlayWhenReady
+            playingNow = if (p == null) webPlaybackActive() && SpotifyWebPlayer.isPlaying else lastKnownIsPlaying
+            pos = lastKnownPositionMs
+            dur = lastKnownDurationMs
+            bufPct = lastKnownBufferedPct
+        }
+        return PlayerTelemetry(
+            sessionId = sessionId,
+            playbackState = stateCode,
+            playWhenReady = pwr,
+            isPlaying = playingNow,
+            isResolving = isResolvingTrack,
+            bufferedPercentage = bufPct,
+            positionMs = pos,
+            durationMs = dur,
+            activeSource = currentSource,
+            currentQuality = currentQuality,
+            softwareDspActive = caps.softwareDspAttached || currentDspProcessor != null,
+            hardwareEqActive = caps.equalizerAvailable,
+            hardwareSpatialActive = caps.hardwareSpatialAvailable,
+            abLoopStartMs = abLoopStartMs,
+            abLoopEndMs = abLoopEndMs,
+            lastError = lastPlaybackError ?: lastYtFailureReason,
+        )
+    }
+
     @Volatile private var lastYtFailureReason: String? = null
 
     private fun updateResolveStatus(isResolving: Boolean, status: String = "") {
+        isResolvingTrack = isResolving
         boundState?.updateResolveState(isResolving, status)
     }
     private val qualityCache = java.util.concurrent.ConcurrentHashMap<String, String>()
@@ -184,15 +280,6 @@ object SongPlayer {
                     val dest = java.io.File(dir, "${cleanId}_cover.jpg")
                     if (!dest.exists()) runCatching { file.copyTo(dest, overwrite = true) }
                 }
-                withContext(Dispatchers.Main) {
-                    val p = player ?: return@withContext
-                    val item = p.currentMediaItem ?: return@withContext
-                    val localUri = android.net.Uri.fromFile(file)
-                    if (item.mediaMetadata.artworkUri == localUri) return@withContext
-                    val updatedMeta = item.mediaMetadata.buildUpon().setArtworkUri(localUri).build()
-                    val updatedItem = item.buildUpon().setMediaMetadata(updatedMeta).build()
-                    p.replaceMediaItem(p.currentMediaItemIndex.coerceAtLeast(0), updatedItem)
-                }
             }
         }
     }
@@ -248,22 +335,68 @@ object SongPlayer {
 
     @Volatile private var currentMediaId: String? = null
 
+    @Suppress("DEPRECATION")
+    private fun acquireResolveWakeLocks(context: Context): Pair<PowerManager.WakeLock?, WifiManager.WifiLock?> {
+        val wakeLock = runCatching {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Spotui::TrackResolve")?.apply {
+                setReferenceCounted(false)
+                acquire(30_000L)
+            }
+        }.getOrNull()
+        val wifiLock = runCatching {
+            val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            wm?.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "Spotui::TrackResolveWifi")?.apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        }.getOrNull()
+        return wakeLock to wifiLock
+    }
+
+    private fun releaseResolveWakeLocks(wakeLock: PowerManager.WakeLock?, wifiLock: WifiManager.WifiLock?) {
+        runCatching { if (wakeLock?.isHeld == true) wakeLock.release() }
+        runCatching { if (wifiLock?.isHeld == true) wifiLock.release() }
+    }
+
+    /**
+     * Invalidates cached streams for the active track and immediately restarts it at its current
+     * timestamp so a quality change in Settings takes effect cleanly on the playing song.
+     */
+    fun restartCurrentTrackForQualityChange(context: Context): Boolean {
+        val appContext = context.applicationContext
+        appCtx = appContext
+        val state = boundState
+        val activeSongModel = state?.queue?.value?.firstOrNull { it.id == state.songId.value }
+        val activeQuery = loadedQuery
+            ?: currentRequest.takeIf { it.isNotBlank() }
+            ?: activeSongModel?.url?.takeIf { it.isNotBlank() }
+            ?: return false
+        val currentPos = getCurrentPosition().coerceAtLeast(0L)
+        invalidateResolvedStream(activeQuery)
+        setRestorePoint(activeQuery, currentPos)
+        playSong(activeQuery, appContext, activeSongModel?.let { "song/${it.id}" } ?: currentMediaId)
+        return true
+    }
+
     fun playSong(song: String, context: Context, mediaId: String? = null) {
         val appContext = context.applicationContext
         appCtx = appContext
         currentRequest = song
         currentMediaId = mediaId
         playWhenResolved = true
+        lastPlaybackError = null
+        isResolvingTrack = true
+        abLoopStartMs = -1L
+        abLoopEndMs = -1L
         // Remember the play-query so history can replay this track on tap.
         boundState?.setSongUrl(song)
         // A manual play (tap / next / prev) supersedes any in-flight crossfade.
         cancelCrossfade()
-        // Do not clear the media items while resolving the next song in the background.
-        // Keeping the player paused with the previous track active keeps the Media3
-        // foreground service and lockscreen notification alive, avoiding background start bans.
+        // Keep the existing player state undisturbed while resolving the next stream;
+        // pausing here makes One UI Now Bar flash "Resume playback" mid-transition.
         runCatching {
             ensurePlayer(appContext)
-            player?.pause()
         }
 
         // Podcast episodes are encoded as "episode:<id>" queries — play them via the
@@ -271,6 +404,7 @@ object SongPlayer {
         if (song.startsWith("episode:") && webPlayerEnabled && SpotifyWebPlayer.canPlay &&
             com.music.spotui.data.preferences.isWebPlaybackEnabled(appContext)
         ) {
+            isResolvingTrack = false
             runCatching { player?.pause() }
             currentSource = "Spotify"
             currentQuality = ""
@@ -305,10 +439,11 @@ object SongPlayer {
             Log.w(TAG, "web playback on but no Spotify id for query: $song — using fallback engine")
         }
         scope.launch {
+            val (wakeLock, wifiLock) = acquireResolveWakeLocks(appContext)
             try {
                 val rawStreamUrl = resolveStreamUrl(song, appContext, forPlayback = true) ?: run {
+                    lastPlaybackError = "No stream found"
                     com.music.spotui.util.DevConsoleManager.logError("SongPlayer", "No stream found for request: $song")
-                    // Tell the user instead of silently leaving the request on.
                     if (currentRequest == song) withContext(Dispatchers.Main) {
                         android.widget.Toast.makeText(
                             appContext, "No stream found",
@@ -336,6 +471,7 @@ object SongPlayer {
                     updateResolveStatus(false)
                     return@launch
                 }
+                val fadeIn = com.music.spotui.data.preferences.isFadeInOnPlay(appContext)
                 withContext(Dispatchers.Main) {
                     if (currentRequest != song) {
                         updateResolveStatus(false)
@@ -345,22 +481,42 @@ object SongPlayer {
                     val p = player ?: return@withContext
                     p.setMediaItem(buildMediaItem(streamUrl, streamMimeType(streamUrl)))
                     p.prepare()
+                    com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(
+                        appContext, currentDspProcessor, currentSpatialProcessor
+                    )
                     com.music.spotui.audio.AudioEffectController.attach(appContext, p.audioSessionId)
-                    // Restored session: continue from where the last run stopped.
+                    // Restored or quality-restarted session: continue from saved position.
                     if (song == restoreQuery && restorePositionMs > 0) {
                         p.seekTo(restorePositionMs)
                     }
                     restoreQuery = null
+                    p.volume = if (fadeIn && playWhenResolved) 0.15f else 1f
                     p.playWhenReady = playWhenResolved
                     loadedQuery = song
+                    isResolvingTrack = false
                     updateResolveStatus(false)
+                    if (fadeIn && playWhenResolved) {
+                        scope.launch(Dispatchers.Main) {
+                            val steps = 8
+                            for (i in 1..steps) {
+                                delay(20L)
+                                if (player === p && !isCrossfading) {
+                                    p.volume = 0.15f + (0.85f * (i.toFloat() / steps))
+                                }
+                            }
+                        }
+                    }
                 }
                 startPositionWatch()
                 preResolveAndQueueNextTrack(appContext)
             } catch (e: Exception) {
                 Log.e(TAG, "playSong failed for query: $song", e)
+                lastPlaybackError = e.message ?: "Playback failed"
                 boundState?.updateResolveError(e.message ?: "Playback failed")
                 updateResolveStatus(false)
+            } finally {
+                isResolvingTrack = false
+                releaseResolveWakeLocks(wakeLock, wifiLock)
             }
         }
     }
@@ -389,14 +545,20 @@ object SongPlayer {
             .build()
     }
 
-    /** MIME hint for a resolved stream: DASH manifest, single-file FLAC, or none. */
+    /** MIME hint for a resolved stream: DASH manifest, single-file FLAC, MP3, or none. */
     private fun streamMimeType(streamUrl: String): String? {
         val bare = streamUrl.substringBefore('?').lowercase()
         return when {
             streamUrl.startsWith("data:application/dash+xml") ||
                 bare.endsWith(".mpd") || streamUrl.contains("manifest.tidal.com") || streamUrl.contains("/manifests/") ->
                 androidx.media3.common.MimeTypes.APPLICATION_MPD
-            bare.endsWith(".flac") || currentSource.startsWith("Lossless") ->
+            streamUrl.startsWith("deezer://") ->
+                if (currentQuality.contains("FLAC", ignoreCase = true)) {
+                    androidx.media3.common.MimeTypes.AUDIO_FLAC
+                } else {
+                    androidx.media3.common.MimeTypes.AUDIO_MPEG
+                }
+            bare.endsWith(".flac") || (currentSource.startsWith("Lossless") && currentQuality.contains("FLAC", ignoreCase = true)) ->
                 androidx.media3.common.MimeTypes.AUDIO_FLAC
             else -> null
         }
@@ -404,9 +566,10 @@ object SongPlayer {
 
     /**
      * Gapless Playback: Background Queue Pre-Resolution & Native ExoPlayer Queueing.
-     * Resolves the stream URL for the next track in the queue in the background.
-     * In gapless mode (crossfade = 0), appends the pre-resolved track directly into
-     * ExoPlayer's media list so ExoPlayer seamlessly transitions with 0ms gap.
+     * Pre-resolves the next stream so transitions happen smoothly without stalling.
+     * When crossfade/gapless handoff (`transitionMs > 0`) owns the swap, we only warm
+     * the stream/intro cache instead of appending to ExoPlayer's playlist so ExoPlayer's
+     * auto-advance never races `triggerCrossfade`.
      */
     fun preResolveAndQueueNextTrack(context: Context) {
         val appContext = context.applicationContext
@@ -433,9 +596,12 @@ object SongPlayer {
                 val nextUrl = resolveStreamUrl(nextSong.url, appContext) ?: return@launch
                 val sanitizedUrl = com.music.spotui.util.StreamSanitizer.sanitizeStreamUrl(nextUrl)
                 val crossfadeMs = com.music.spotui.data.preferences.getCrossfadeMs(appContext)
+                val gaplessEnabled = com.music.spotui.data.preferences.isGaplessPlaybackEnabled(appContext)
+                val transitionOwned = crossfadeMs > 0 || gaplessEnabled
 
-                // In gapless mode (crossfade = 0), queue directly in ExoPlayer for 0ms transition
-                if (crossfadeMs <= 0) {
+                if (transitionOwned) {
+                    cacheIntro(sanitizedUrl, appContext)
+                } else {
                     withContext(Dispatchers.Main) {
                         val p = player ?: return@withContext
                         if (p.mediaItemCount <= 1) {
@@ -448,12 +614,12 @@ object SongPlayer {
                                 mediaId = "song/${nextSong.id}"
                             )
                             p.addMediaItem(nextItem)
-                            Log.d(TAG, "Gapless: Pre-resolved and queued next track in ExoPlayer (${nextSong.title})")
+                            Log.d(TAG, "Queued next track directly in ExoPlayer (${nextSong.title})")
                         }
                     }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Gapless pre-resolution failed for next track: ${nextSong.title}", e)
+                Log.w(TAG, "Pre-resolution failed for next track: ${nextSong.title}", e)
             }
         }
     }
@@ -558,18 +724,22 @@ object SongPlayer {
     }
 
     private fun cacheDataSourceFactory(context: Context): androidx.media3.datasource.DataSource.Factory {
-        // MrBean owns the concrete Media3 HTTP transport when enabled. This factory
-        // is shared by normal playback and cache preloading, so its timeout and
-        // header controls are not merely resolver-only preferences.
+        // MrBean owns the concrete Media3 HTTP transport when enabled; DeezerAwareDataSourceFactory
+        // intercepts `deezer://` Blowfish-encrypted CDN streams and bypasses SimpleCache cleanly.
         val upstream = androidx.media3.datasource.DefaultDataSource.Factory(
             context,
             org.eclipse.Mrbean.client.MrbeanMediaDataSource.upstreamFactory(context),
         )
-        val cache = mediaCache(context) ?: return upstream
-        return androidx.media3.datasource.cache.CacheDataSource.Factory()
-            .setCache(cache)
-            .setUpstreamDataSourceFactory(upstream)
-            .setFlags(androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        val cache = mediaCache(context)
+        val cachedOrUpstream = if (cache != null) {
+            androidx.media3.datasource.cache.CacheDataSource.Factory()
+                .setCache(cache)
+                .setUpstreamDataSourceFactory(upstream)
+                .setFlags(androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        } else {
+            upstream
+        }
+        return com.music.spotui.deezer.DeezerAwareDataSourceFactory(cachedOrUpstream)
     }
 
     /** Pre-cache the first [PRELOAD_BYTES] of [url] into the media cache (http(s) only). */
@@ -725,6 +895,10 @@ object SongPlayer {
             }
         }
 
+        val enabledLosslessProviders = com.music.spotui.data.preferences.ProviderRoutingPreferences.enabledProviders(appContext)
+        val soloLossless = com.music.spotui.data.preferences.ProviderRoutingPreferences.soloProvider(appContext)
+        val losslessOrderList = com.music.spotui.data.preferences.ProviderRoutingPreferences.losslessOrder(appContext)
+
         val flacDeferred = if (shouldTryFlac) {
             scope.async {
                 val timeoutMs = com.music.spotui.data.preferences.currentLosslessTimeout(appContext).timeoutMs
@@ -738,13 +912,40 @@ object SongPlayer {
                             isrcRegistry[flacSpotifyId] = it
                         }
                     }.getOrNull()
-                    com.metrolist.spotify.SpotiFlac.resolve(
+                    val spotiResult = com.metrolist.spotify.SpotiFlac.resolve(
                         flacSpotifyId,
                         isrc = isrc,
                         preferHiRes = losslessHiRes,
-                        providerOrder = com.music.spotui.data.preferences.ProviderRoutingPreferences.losslessOrder(appContext),
+                        providerOrder = losslessOrderList,
                         rejectPreviewLength = com.music.spotui.data.preferences.ProviderRoutingPreferences.preferFullLength(appContext),
+                        enabledProviders = enabledLosslessProviders,
+                        soloProvider = soloLossless,
                     )
+                    if (spotiResult is com.metrolist.spotify.SpotiFlac.Result.Success) {
+                        return@withTimeoutOrNull spotiResult
+                    }
+                    // Direct encrypted Deezer ARL fallback when enabled (handles cases where spotbye community proxy is in cooldown)
+                    val allowDeezerDirect = "deezer" in enabledLosslessProviders &&
+                        (!soloLossless || losslessOrderList.firstOrNull { it in enabledLosslessProviders } == "deezer")
+                    if (allowDeezerDirect && com.music.spotui.deezer.DeezerSource.isConfigured(appContext)) {
+                        val dz = com.music.spotui.deezer.DeezerSource.resolve(
+                            context = appContext,
+                            spotifyId = flacSpotifyId,
+                            isrc = isrc,
+                            searchQuery = searchTextForPlayback(song),
+                        )
+                        if (dz is com.music.spotui.deezer.DeezerSource.Result.Success) {
+                            return@withTimeoutOrNull com.metrolist.spotify.SpotiFlac.Result.Success(
+                                com.metrolist.spotify.SpotiFlac.LosslessTrack(
+                                    url = dz.uri,
+                                    provider = "deezer",
+                                    quality = if (dz.mimeFlac) "16" else "mp3",
+                                    container = if (dz.mimeFlac) "flac" else "mp3",
+                                )
+                            )
+                        }
+                    }
+                    spotiResult
                 }
             }
         } else null
@@ -772,17 +973,20 @@ object SongPlayer {
                 is com.metrolist.spotify.SpotiFlac.Result.Success -> {
                     Log.d(TAG, "lossless ${flacResult.track.provider} ${flacResult.track.quality}-bit for: $song")
                     val providerName = flacResult.track.provider.replaceFirstChar { it.uppercase() }
-                    val flacQuality = "FLAC ${flacResult.track.quality}-bit"
+                    val flacQuality = if (flacResult.track.container == "mp3") "MP3 320 kbps" else "FLAC ${flacResult.track.quality}-bit"
+                    val labelSource = if (flacResult.track.container == "mp3") "Deezer Direct" else "Lossless • $providerName"
                     if (forPlayback) {
-                        currentSource = "Lossless • $providerName"
+                        currentSource = labelSource
                         currentQuality = flacQuality
                         val note = "Source: $providerName • Format: $flacQuality • Container: ${flacResult.track.container.uppercase()}"
                         boundState?.updateResolveDetailNote(note)
                         updateResolveStatus(false)
                     }
-                    streamCache[song] = flacResult.track.url
-                    sourceCache[song] = "Lossless • $providerName"
-                    qualityCache[song] = flacQuality
+                    if (!flacResult.track.url.startsWith("deezer://")) {
+                        streamCache[song] = flacResult.track.url
+                        sourceCache[song] = labelSource
+                        qualityCache[song] = flacQuality
+                    }
                     ytDeferred?.cancelAndJoin()
                     return flacResult.track.url
                 }
@@ -1246,22 +1450,54 @@ object SongPlayer {
             com.metrolist.spotify.Spotify.track(song.spotifyTrackId).getOrNull()?.isrc
         }.getOrNull()
         val dlTimeoutMs = com.music.spotui.data.preferences.getDownloadLosslessTimeout(appContext).timeoutMs
+        val order = com.music.spotui.data.preferences.ProviderRoutingPreferences.losslessOrder(appContext)
+        val enabled = com.music.spotui.data.preferences.ProviderRoutingPreferences.enabledProviders(appContext)
+        val solo = com.music.spotui.data.preferences.ProviderRoutingPreferences.soloProvider(appContext)
         val flacResult = kotlinx.coroutines.withTimeoutOrNull(dlTimeoutMs) {
             com.metrolist.spotify.SpotiFlac.resolve(
                 song.spotifyTrackId,
                 isrc,
                 preferHiRes = losslessHiRes,
-                providerOrder = com.music.spotui.data.preferences.ProviderRoutingPreferences.losslessOrder(appContext),
+                providerOrder = order,
                 rejectPreviewLength = com.music.spotui.data.preferences.ProviderRoutingPreferences.preferFullLength(appContext),
+                enabledProviders = enabled,
+                soloProvider = solo,
             )
         }
         val flac = when (flacResult) {
             is com.metrolist.spotify.SpotiFlac.Result.Success -> flacResult.track
-            is com.metrolist.spotify.SpotiFlac.Result.Cooldown -> {
-                Log.w(TAG, "FLAC download on cooldown for ${song.title}: ${flacResult.message}")
+            else -> {
+                // Direct encrypted Deezer download fallback when ARL is configured & enabled
+                val allowDeezer = "deezer" in enabled && (!solo || order.firstOrNull { it in enabled } == "deezer")
+                if (allowDeezer && com.music.spotui.deezer.DeezerSource.isConfigured(appContext)) {
+                    val dz = com.music.spotui.deezer.DeezerSource.resolveRaw(
+                        context = appContext,
+                        spotifyId = song.spotifyTrackId,
+                        isrc = isrc,
+                        searchQuery = searchTextForPlayback(song.url),
+                    )
+                    if (dz != null) {
+                        val dir = java.io.File(appContext.filesDir, "downloads").apply { mkdirs() }
+                        val ext = if (dz.isFlac) "flac" else "mp3"
+                        val outFile = java.io.File(dir, "${song.id}.$ext")
+                        val tmpFile = java.io.File(dir, "${song.id}.$ext.part")
+                        val dzOk = com.music.spotui.deezer.DeezerSource.downloadDecryptedToFile(dz, tmpFile) { pct ->
+                            downloadProgress[song.url] = pct
+                            onDownloadsChanged?.invoke()
+                        }
+                        if (dzOk && tmpFile.renameTo(outFile)) {
+                            com.music.spotui.data.preferences.addDownload(appContext, song, outFile.absolutePath)
+                            downloadCoverImage(song.coverUri, java.io.File(dir, "${song.id}_cover.jpg"))
+                            return true
+                        }
+                        runCatching { tmpFile.delete() }
+                    }
+                }
+                if (flacResult is com.metrolist.spotify.SpotiFlac.Result.Cooldown) {
+                    Log.w(TAG, "FLAC download on cooldown for ${song.title}: ${flacResult.message}")
+                }
                 return false
             }
-            else -> return false
         }
 
         val dir = java.io.File(appContext.filesDir, "downloads").apply { mkdirs() }
@@ -1768,6 +2004,7 @@ object SongPlayer {
      */
     private data class PlayerPipeline(
         val player: ExoPlayer,
+        val dsp: com.music.spotui.audio.SpotuiDspAudioProcessor,
         val filter: com.music.spotui.audio.CrossfadeFilterAudioProcessor,
         val spatial: com.music.spotui.audio.SpatialWideningAudioProcessor,
     )
@@ -1777,9 +2014,25 @@ object SongPlayer {
         context: Context,
         handleAudioFocus: Boolean,
     ): PlayerPipeline {
+        val dsp = com.music.spotui.audio.SpotuiDspAudioProcessor()
         val filter = com.music.spotui.audio.CrossfadeFilterAudioProcessor()
         val spatial = com.music.spotui.audio.SpatialWideningAudioProcessor()
+        applySoftwareDsp(context, dsp)
         applySoftwareSpatial(context, spatial)
+
+        val focusMode = com.music.spotui.data.preferences.getAudioFocusMode(context)
+        val effectiveFocus = handleAudioFocus && focusMode != com.music.spotui.data.preferences.AudioFocusMode.MIX_IGNORE_FOCUS
+        val bufferProfile = com.music.spotui.data.preferences.getBufferProfile(context)
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                bufferProfile.minMs,
+                bufferProfile.maxMs,
+                bufferProfile.playbackMs,
+                bufferProfile.rebufferMs,
+            )
+            .build()
+        val wantFloatPcm = com.music.spotui.data.preferences.isFloatAudioOutput(context)
+
         val renderers = object : androidx.media3.exoplayer.DefaultRenderersFactory(context) {
             override fun buildAudioSink(
                 context: Context,
@@ -1787,21 +2040,23 @@ object SongPlayer {
                 enableAudioTrackPlaybackParams: Boolean,
             ): androidx.media3.exoplayer.audio.AudioSink =
                 androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
-                    .setEnableFloatOutput(enableFloatOutput)
+                    .setEnableFloatOutput(enableFloatOutput || wantFloatPcm)
                     .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                     .setAudioProcessorChain(
                         androidx.media3.exoplayer.audio.DefaultAudioSink.DefaultAudioProcessorChain(
+                            dsp,
                             filter,
                             spatial,
                         ),
                     ).build()
         }
         val p = ExoPlayer.Builder(context)
+            .setLoadControl(loadControl)
             .setMediaSourceFactory(
                 androidx.media3.exoplayer.source.DefaultMediaSourceFactory(cacheDataSourceFactory(context)),
             )
             .setRenderersFactory(renderers)
-            .setAudioAttributes(buildAudioAttributes(), handleAudioFocus)
+            .setAudioAttributes(buildAudioAttributes(), effectiveFocus)
             .setHandleAudioBecomingNoisy(handleAudioFocus)
             .build()
             .also {
@@ -1811,7 +2066,29 @@ object SongPlayer {
                 it.playbackParameters = androidx.media3.common.PlaybackParameters(speed, pitch)
                 it.skipSilenceEnabled = com.music.spotui.data.preferences.isSkipSilenceEnabled(context)
             }
-        return PlayerPipeline(p, filter, spatial)
+        return PlayerPipeline(p, dsp, filter, spatial)
+    }
+
+    private fun applySoftwareDsp(
+        context: Context,
+        processor: com.music.spotui.audio.SpotuiDspAudioProcessor,
+    ) {
+        processor.eqEnabled = com.music.spotui.data.preferences.isEqEnabled(context)
+        processor.setFromNormalizedSliders(
+            subBass = com.music.spotui.data.preferences.getEqSubBass(context),
+            bass = com.music.spotui.data.preferences.getEqBass(context),
+            lowMid = com.music.spotui.data.preferences.getEqLowMid(context),
+            vocal = com.music.spotui.data.preferences.getEqVocal(context),
+            highMid = com.music.spotui.data.preferences.getEqHighMid(context),
+            treble = com.music.spotui.data.preferences.getEqTreble(context),
+            brilliance = com.music.spotui.data.preferences.getEqBrilliance(context),
+        )
+        processor.preampDb = com.music.spotui.data.preferences.getEqPreampDb(context)
+        val bb = com.music.spotui.data.preferences.getBassBoostStrength(context)
+        processor.bassBoostDb = (bb / 1000f) * 6.0f
+        processor.limiterEnabled = com.music.spotui.data.preferences.isLimiterEnabled(context)
+        processor.normalizerEnabled = com.music.spotui.data.preferences.isAudioNormalizerEnabled(context)
+        processor.normalizerBoostDb = (com.music.spotui.data.preferences.getAudioNormalizerGainMb(context) / 100f).coerceIn(0f, 6f)
     }
 
     private fun applySoftwareSpatial(
@@ -1823,6 +2100,8 @@ object SongPlayer {
         processor.profile = com.music.spotui.data.preferences.getSpatialProfile(context)
         processor.monoMix = com.music.spotui.ui.theme.ThemePreferences.monoAudio(context)
         processor.balance = com.music.spotui.ui.theme.ThemePreferences.audioBalance(context)
+        processor.headphoneCrossfeed = com.music.spotui.data.preferences.isHeadphoneCrossfeedEnabled(context)
+        processor.roomDelayMs = com.music.spotui.data.preferences.getSpatialRoomDelayMs(context)
     }
 
     private fun ensurePlayer(context: Context) {
@@ -1831,14 +2110,17 @@ object SongPlayer {
             val pipeline = createPlayerWithFilter(context, handleAudioFocus = true)
             val p = pipeline.player
             player = p
+            currentDspProcessor = pipeline.dsp
             currentPlayerFilter = pipeline.filter
             currentSpatialProcessor = pipeline.spatial
             p.addListener(object : androidx.media3.common.Player.Listener {
                 override fun onAudioSessionIdChanged(audioSessionId: Int) {
                     val ctx = appCtx ?: return
+                    com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(ctx, currentDspProcessor, currentSpatialProcessor)
                     com.music.spotui.audio.AudioEffectController.attach(ctx, audioSessionId)
                 }
             })
+            com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(context, currentDspProcessor, currentSpatialProcessor)
             com.music.spotui.audio.AudioEffectController.attach(context, p.audioSessionId)
             onPlayerCreated?.invoke(p)
         }
@@ -1850,13 +2132,27 @@ object SongPlayer {
     /** Make sure the player exists (used by the media-session service). */
     fun ensureCreated(context: Context) = ensurePlayer(context.applicationContext)
 
-    /** Re-applies equalizer and spatial-audio preferences to the current audio session. */
+    /** Re-applies equalizer, preamp, normalizer, and spatial-audio preferences immediately. */
     fun refreshAudioEffects(context: Context) {
-        ensurePlayer(context.applicationContext)
-        com.music.spotui.audio.AudioEffectController.attach(context.applicationContext, player?.audioSessionId ?: 0)
-        com.music.spotui.audio.AudioEffectController.applyPreferences(context.applicationContext)
-        currentSpatialProcessor?.let { applySoftwareSpatial(context.applicationContext, it) }
-        secondarySpatialProcessor?.let { applySoftwareSpatial(context.applicationContext, it) }
+        val appContext = context.applicationContext
+        ensurePlayer(appContext)
+        currentDspProcessor?.let { applySoftwareDsp(appContext, it) }
+        secondaryDspProcessor?.let { applySoftwareDsp(appContext, it) }
+        currentSpatialProcessor?.let { applySoftwareSpatial(appContext, it) }
+        secondarySpatialProcessor?.let { applySoftwareSpatial(appContext, it) }
+        com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(appContext, currentDspProcessor, currentSpatialProcessor)
+        com.music.spotui.audio.AudioEffectController.attach(appContext, player?.audioSessionId ?: 0)
+        com.music.spotui.audio.AudioEffectController.applyPreferences(appContext)
+    }
+
+    /** Applies updated AudioFocusMode without recreating the ExoPlayer instance. */
+    fun refreshAudioFocusPolicy(context: Context) {
+        val appContext = context.applicationContext
+        val mode = com.music.spotui.data.preferences.getAudioFocusMode(appContext)
+        val effectiveFocus = mode != com.music.spotui.data.preferences.AudioFocusMode.MIX_IGNORE_FOCUS
+        scope.launch(Dispatchers.Main) {
+            player?.setAudioAttributes(buildAudioAttributes(), effectiveFocus)
+        }
     }
 
     /** Notified right after the ExoPlayer is built so the session can attach to it. */
@@ -2015,8 +2311,36 @@ object SongPlayer {
     fun seekTo(position: Long) {
         cancelCrossfade()
         if (webPlaybackActive()) { SpotifyWebPlayer.seekTo(position); return }
-        player?.seekTo(position)
+        player?.seekTo(position.coerceAtLeast(0L))
     }
+
+    fun seekRelative(deltaMs: Long) {
+        val dur = getDuration()
+        val target = (getCurrentPosition() + deltaMs).let { pos ->
+            if (dur > 0) pos.coerceIn(0L, dur) else pos.coerceAtLeast(0L)
+        }
+        seekTo(target)
+    }
+
+    fun setAbLoopStart(posMs: Long = getCurrentPosition()) {
+        abLoopStartMs = posMs.coerceAtLeast(0L)
+        if (abLoopEndMs in 0..abLoopStartMs) abLoopEndMs = -1L
+    }
+
+    fun setAbLoopEnd(posMs: Long = getCurrentPosition()) {
+        if (abLoopStartMs < 0L) abLoopStartMs = 0L
+        if (posMs > abLoopStartMs + 500L) abLoopEndMs = posMs
+    }
+
+    fun clearAbLoop() {
+        abLoopStartMs = -1L
+        abLoopEndMs = -1L
+    }
+
+    fun queueSize(): Int = boundState?.queue?.value?.size ?: 0
+    fun deduplicateQueue(): Int = boundState?.deduplicateQueue() ?: 0
+    fun shuffleUpcomingQueue(): Int = boundState?.shuffleUpcoming() ?: 0
+    fun trimPlayedQueueHistory(): Int = boundState?.trimPlayedHistory() ?: 0
 
     fun release() {
         positionWatchJob?.cancel()
@@ -2026,6 +2350,13 @@ object SongPlayer {
         player = null
         loadedQuery = null
         currentRequest = ""
+        lastKnownSessionId = 0
+        lastKnownPlaybackState = Player.STATE_IDLE
+        lastKnownPlayWhenReady = false
+        lastKnownIsPlaying = false
+        lastKnownPositionMs = 0L
+        lastKnownDurationMs = 0L
+        lastKnownBufferedPct = 0
     }
 
     fun getDuration(): Long {
@@ -2062,9 +2393,11 @@ object SongPlayer {
 
     @Volatile private var appCtx: Context? = null
     @Volatile private var boundState: CurrentSongState? = null
+    @Volatile private var currentDspProcessor: com.music.spotui.audio.SpotuiDspAudioProcessor? = null
     @Volatile private var currentPlayerFilter: com.music.spotui.audio.CrossfadeFilterAudioProcessor? = null
     @Volatile private var currentSpatialProcessor: com.music.spotui.audio.SpatialWideningAudioProcessor? = null
     @Volatile private var secondaryPlayer: ExoPlayer? = null
+    @Volatile private var secondaryDspProcessor: com.music.spotui.audio.SpotuiDspAudioProcessor? = null
     @Volatile private var secondaryPlayerFilter: com.music.spotui.audio.CrossfadeFilterAudioProcessor? = null
     @Volatile private var secondarySpatialProcessor: com.music.spotui.audio.SpatialWideningAudioProcessor? = null
     @Volatile private var isCrossfading = false
@@ -2097,6 +2430,7 @@ object SongPlayer {
         currentPlayerFilter?.enabled = false
         secondaryPlayerFilter?.enabled = false
         runCatching { secondaryPlayer?.release() }
+        secondaryDspProcessor = null
         secondaryPlayerFilter = null
         secondarySpatialProcessor = null
         secondaryPlayer = null
@@ -2104,8 +2438,8 @@ object SongPlayer {
         isCrossfading = false
     }
 
-    /** (Re)start the loop that watches playback position and fires a crossfade as the
-     *  current track approaches its end. */
+    /** (Re)start the loop that watches playback position, enforces A-B loop, zero-volume auto-pause,
+     *  and fires a crossfade/gapless handoff as the current track approaches its end. */
     private var posSaveTick = 0
 
     private fun startPositionWatch() {
@@ -2114,15 +2448,49 @@ object SongPlayer {
             while (isActive) {
                 kotlinx.coroutines.delay(250)
                 val ctx = appCtx ?: continue
-                // Persist the position every ~3s so a relaunch resumes mid-track.
-                if (++posSaveTick % 12 == 0 && !webPlaybackActive()) {
-                    player?.let { p ->
-                        val pos = withContext(Dispatchers.Main) {
-                            if (p.isPlaying) p.currentPosition else -1L
-                        }
-                        if (pos > 0) com.music.spotui.data.preferences.saveLastPosition(ctx, pos)
+                // Persist position & update DevConsole telemetry every ~2s
+                val p = player ?: continue
+                val (playing, pos, dur, bufPos) = withContext(Dispatchers.Main) {
+                    lastKnownSessionId = p.audioSessionId
+                    lastKnownPlaybackState = p.playbackState
+                    lastKnownPlayWhenReady = p.playWhenReady
+                    lastKnownIsPlaying = p.isPlaying
+                    lastKnownBufferedPct = p.bufferedPercentage
+                    if (p.isPlaying) {
+                        val cp = p.currentPosition.coerceAtLeast(0L)
+                        val d = p.duration.coerceAtLeast(0L)
+                        lastKnownPositionMs = cp
+                        lastKnownDurationMs = d
+                        listOf(true, cp, d, p.bufferedPosition)
+                    } else {
+                        listOf(false, -1L, -1L, -1L)
+                    }
+                }.let { list ->
+                    QuadState(list[0] as Boolean, list[1] as Long, list[2] as Long, list[3] as Long)
+                }
+
+                if (++posSaveTick % 8 == 0 && !webPlaybackActive() && playing && pos > 0) {
+                    com.music.spotui.data.preferences.saveLastPosition(ctx, pos)
+                    com.music.spotui.util.DevConsoleManager.updateDiagnostics {
+                        copy(currentPositionMs = pos, bufferPositionMs = bufPos.coerceAtLeast(0L))
                     }
                 }
+
+                // Pause on Zero Volume
+                if (playing && com.music.spotui.data.preferences.isPauseOnZeroVolume(ctx)) {
+                    val am = ctx.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                    if (am != null && am.getStreamVolume(AudioManager.STREAM_MUSIC) == 0) {
+                        withContext(Dispatchers.Main) { pause() }
+                        continue
+                    }
+                }
+
+                // A-B Loop enforcement
+                if (playing && abLoopStartMs >= 0L && abLoopEndMs > abLoopStartMs + 500L && pos >= abLoopEndMs) {
+                    withContext(Dispatchers.Main) { p.seekTo(abLoopStartMs) }
+                    continue
+                }
+
                 if (isCrossfading) continue
                 val crossfadeMs = com.music.spotui.data.preferences.getCrossfadeMs(ctx)
                 val gaplessEnabled = com.music.spotui.data.preferences.isGaplessPlaybackEnabled(ctx)
@@ -2134,18 +2502,20 @@ object SongPlayer {
                 if (transitionMs <= 0) continue
                 val state = boundState ?: continue
                 if (state.repeat.value == RepeatMode.ONE) continue // repeat-one loops the same track
-                val p = player ?: continue
-                val playing = withContext(Dispatchers.Main) { p.isPlaying }
-                if (!playing) continue
-                val dur = withContext(Dispatchers.Main) { p.duration }
-                val pos = withContext(Dispatchers.Main) { p.currentPosition }
-                if (dur <= 0 || pos < 0) continue
+                if (!playing || dur <= 0 || pos < 0) continue
                 if (pos >= dur - transitionMs) {
                     triggerCrossfade(ctx, transitionMs, gaplessOnly = crossfadeMs <= 0)
                 }
             }
         }
     }
+
+    private data class QuadState(
+        val playing: Boolean,
+        val pos: Long,
+        val dur: Long,
+        val bufPos: Long,
+    )
 
     /** Begin blending the current track into the next queue item. */
     private fun triggerCrossfade(ctx: Context, configuredMs: Int, gaplessOnly: Boolean = false) {
@@ -2154,14 +2524,16 @@ object SongPlayer {
         val q = state.queue.value
         if (q.isEmpty()) return
         val cur = q.indexOfFirst { it.id == state.songId.value }
-        if (cur < 0 || cur >= q.size - 1) return // last track ends normally
+        if (cur < 0 || cur >= q.size - 1) return // last track ends normally (PlaybackService handles autoplay)
         val nextSong = q[cur + 1]
         isCrossfading = true
         scope.launch {
+            val (wakeLock, wifiLock) = acquireResolveWakeLocks(ctx)
             try {
                 val nextUrl = resolveStreamUrl(nextSong.url, ctx, forPlayback = true) ?: run {
                     isCrossfading = false; return@launch
                 }
+                val sanitizedNext = com.music.spotui.util.StreamSanitizer.sanitizeStreamUrl(nextUrl)
                 // Effective duration: never longer than the real time left on the outgoing track.
                 val remaining = withContext(Dispatchers.Main) {
                     val p = player ?: return@withContext configuredMs.toLong()
@@ -2173,9 +2545,6 @@ object SongPlayer {
                 val djMode = !gaplessOnly && com.music.spotui.data.preferences.isCrossfadeDjMode(ctx)
 
                 withContext(Dispatchers.Main) {
-                    // Advance the app's now-playing state immediately so the in-app UI follows
-                    // the incoming track during the blend. Also sets the now-playing meta used
-                    // to tag the secondary player's MediaItem.
                     state.updateSongState(
                         nextSong.coverUri, nextSong.title, nextSong.singer, true,
                         nextSong.id, cur + 1, nextSong.album,
@@ -2183,9 +2552,10 @@ object SongPlayer {
                     val pipeline = createPlayerWithFilter(ctx, handleAudioFocus = false)
                     val sp = pipeline.player
                     secondaryPlayer = sp
+                    secondaryDspProcessor = pipeline.dsp
                     secondaryPlayerFilter = pipeline.filter
                     secondarySpatialProcessor = pipeline.spatial
-                    sp.setMediaItem(buildMediaItem(nextUrl, streamMimeType(nextUrl)))
+                    sp.setMediaItem(buildMediaItem(sanitizedNext, streamMimeType(sanitizedNext)))
                     sp.prepare()
                     sp.volume = 0f
                     sp.playWhenReady = true
@@ -2194,6 +2564,8 @@ object SongPlayer {
             } catch (e: Exception) {
                 Log.e(TAG, "crossfade failed", e)
                 cancelCrossfade()
+            } finally {
+                releaseResolveWakeLocks(wakeLock, wifiLock)
             }
         }
     }
@@ -2242,26 +2614,43 @@ object SongPlayer {
         withContext(Dispatchers.Main) {
             val incoming = secondaryPlayer ?: run { isCrossfading = false; return@withContext }
             val old = player
-            // Promote the incoming (secondary) player to primary.
+            // Promote the incoming (secondary) player + DSP chain to primary.
             currentPlayerFilter?.enabled = false
             secondaryPlayerFilter?.enabled = false
             player = incoming
+            currentDspProcessor = secondaryDspProcessor
             currentPlayerFilter = secondaryPlayerFilter
             currentSpatialProcessor = secondarySpatialProcessor
             secondaryPlayer = null
+            secondaryDspProcessor = null
             secondaryPlayerFilter = null
             secondarySpatialProcessor = null
             incoming.volume = 1f
-            // The promoted player now owns audio focus / becoming-noisy handling.
-            incoming.setAudioAttributes(buildAudioAttributes(), /* handleAudioFocus = */ true)
+            // The promoted player now owns audio focus / becoming-noisy handling & audio session effects.
+            val ctx = appCtx ?: com.music.spotui.MyApplication.instanceOrNull
+            val effectiveFocus = ctx == null || com.music.spotui.data.preferences.getAudioFocusMode(ctx) != com.music.spotui.data.preferences.AudioFocusMode.MIX_IGNORE_FOCUS
+            incoming.setAudioAttributes(buildAudioAttributes(), effectiveFocus)
             incoming.setHandleAudioBecomingNoisy(true)
+            incoming.addListener(object : Player.Listener {
+                override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                    val activeCtx = appCtx ?: return
+                    com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(activeCtx, currentDspProcessor, currentSpatialProcessor)
+                    com.music.spotui.audio.AudioEffectController.attach(activeCtx, audioSessionId)
+                }
+            })
+            if (ctx != null) {
+                com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(ctx, currentDspProcessor, currentSpatialProcessor)
+                com.music.spotui.audio.AudioEffectController.attach(ctx, incoming.audioSessionId)
+                refreshAudioEffects(ctx)
+            }
             runCatching { old?.stop(); old?.release() }
             isCrossfading = false
             // Re-bind the media session to the new player.
             onPlayerSwapped?.invoke(incoming)
         }
-        // Watch the newly-promoted track for its own end.
+        // Watch the newly-promoted track for its own end and prefetch the following track.
         startPositionWatch()
+        appCtx?.let { preResolveAndQueueNextTrack(it) }
     }
 
     // ── Sleep timer ──

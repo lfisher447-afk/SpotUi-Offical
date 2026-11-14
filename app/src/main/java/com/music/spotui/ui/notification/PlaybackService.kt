@@ -81,13 +81,14 @@ class PlaybackService : MediaLibraryService() {
     // unrecoverable source from looping forever while preserving playback on short URL/network hiccups.
     private val retryCountByQuery = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
+    @Volatile private var latestServiceMetadata: MediaMetadata? = null
+    @Volatile private var radioExtending = false
+
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
-            currentSongState.updateBufferingState(playbackState == Player.STATE_BUFFERING)
+            currentSongState.updateBufferingState(playbackState == Player.STATE_BUFFERING || SongPlayer.isResolvingTrack)
             if (playbackState == Player.STATE_ENDED) {
-                if (SongPlayer.isCrossfadeActive()) {
-                    // Ignore the old player's STATE_ENDED event during an active crossfade.
-                    // The crossfade routine itself handles the transition and promotes the new player.
+                if (SongPlayer.isCrossfadeActive() || SongPlayer.isResolvingTrack) {
                     return
                 }
                 val p = SongPlayer.exoPlayer
@@ -95,7 +96,6 @@ class PlaybackService : MediaLibraryService() {
                     val duration = p.duration
                     val position = p.currentPosition
                     if (duration <= 0 || position < duration - 6000) {
-                        // Spurious STATE_ENDED event (e.g. player cleared/reset or ended prematurely before loading)! Ignore it!
                         return
                     }
                 }
@@ -128,6 +128,31 @@ class PlaybackService : MediaLibraryService() {
                                 .coerceIn(0, queue.size - 1)
                             if (cur < queue.size - 1) {
                                 advance(forward = true)
+                            } else if (com.music.spotui.data.preferences.isAutoplayRadioEnabled(applicationContext) && !radioExtending) {
+                                val seeds = queue.takeLast(5)
+                                    .mapNotNull { it.spotifyTrackId.ifBlank { null } }
+                                    .distinct()
+                                if (seeds.isNotEmpty()) {
+                                    radioExtending = true
+                                    serviceScope.launch {
+                                        try {
+                                            val recs = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                                                repository.provideRecommendations(seeds)
+                                            }
+                                            val existing = currentSongState.queue.value
+                                            val existingIds = existing.map { it.id }.toSet()
+                                            val fresh = recs.filter { it.id !in existingIds }
+                                            if (fresh.isNotEmpty()) {
+                                                currentSongState.updateQueue(existing + fresh)
+                                                advance(forward = true)
+                                            }
+                                        } catch (t: Throwable) {
+                                            AppDiagnostics.warning("PlaybackService", "Background autoplay radio failed", t)
+                                        } finally {
+                                            radioExtending = false
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -188,8 +213,14 @@ class PlaybackService : MediaLibraryService() {
                 }
             } else {
                 retryCountByQuery.remove(current.url)
+                val autoSkip = com.music.spotui.data.preferences.isAutoSkipUnavailable(applicationContext)
                 val hasNext = cur >= 0 && (cur < queue.lastIndex || currentSongState.repeat.value == RepeatMode.ALL)
-                if (hasNext) advance(forward = true) else currentSongState.updatePlayingState(false)
+                if (autoSkip && hasNext) {
+                    advance(forward = true)
+                } else {
+                    currentSongState.updateResolveError(error.message ?: "Playback error")
+                    currentSongState.updatePlayingState(false)
+                }
             }
         }
     }
@@ -324,16 +355,15 @@ class PlaybackService : MediaLibraryService() {
     }
 
     /**
-     * Updates the current MediaSession's MediaMetadata with the currently playing track info.
-     * This is crucial for Samsung's Now Bar and system UI to display track information.
+     * Updates the cached MediaMetadata surfaced through [wrap] without calling
+     * `player.replaceMediaItem(...)` on live playing streams (which interrupts playback
+     * and causes Samsung One UI Now Bar to flash "Resume playback").
      */
     private fun updateCurrentMetadata() {
-        val song = currentSongState.queue.value.getOrNull(currentSongState.songIndex.value)
-        if (song == null) {
-            return
-        }
+        val song = currentSongState.queue.value.firstOrNull { it.id == currentSongState.songId.value }
+            ?: currentSongState.queue.value.getOrNull(currentSongState.songIndex.value)
+            ?: return
 
-        // Build metadata for the current song
         val metadataBuilder = MediaMetadata.Builder()
             .setTitle(song.title)
             .setArtist(song.singer)
@@ -341,25 +371,11 @@ class PlaybackService : MediaLibraryService() {
             .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
             .setIsPlayable(true)
 
-        // Attach artwork if available
         com.music.spotui.util.ArtworkHelper.attachArtwork(
             metadataBuilder, this, song.coverUri, song.id.toString(), song.url
         )
 
-        val metadata = metadataBuilder.build()
-        val player = SongPlayer.exoPlayer ?: return
-        val currentItem = player.currentMediaItem
-        if (currentItem != null && currentItem.localConfiguration != null) {
-            val updatedItem = currentItem.buildUpon()
-                .setMediaId("song/${song.id}")
-                .setMediaMetadata(metadata)
-                .build()
-            runCatching {
-                player.replaceMediaItem(player.currentMediaItemIndex, updatedItem)
-            }.onFailure {
-                AppDiagnostics.warning("PlaybackService", "Failed to update MediaMetadata", it)
-            }
-        }
+        latestServiceMetadata = metadataBuilder.build()
         android.util.Log.d(
             "PlaybackService",
             "Updated MediaMetadata: title='${song.title}', artist='${song.singer}', album='${song.album}'"
@@ -437,21 +453,93 @@ class PlaybackService : MediaLibraryService() {
         return object : ForwardingPlayer(base) {
             override fun getAvailableCommands(): Player.Commands =
                 super.getAvailableCommands().buildUpon()
+                    .add(COMMAND_PLAY_PAUSE)
+                    .add(COMMAND_PREPARE)
+                    .add(COMMAND_STOP)
+                    .add(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+                    .add(COMMAND_SEEK_TO_DEFAULT_POSITION)
                     .add(COMMAND_SEEK_TO_NEXT)
                     .add(COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
                     .add(COMMAND_SEEK_TO_PREVIOUS)
                     .add(COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                    .add(COMMAND_SET_REPEAT_MODE)
+                    .add(COMMAND_SET_SHUFFLE_MODE)
+                    .add(COMMAND_GET_CURRENT_MEDIA_ITEM)
+                    .add(COMMAND_GET_METADATA)
                     .build()
 
             override fun isCommandAvailable(command: Int): Boolean = when (command) {
+                COMMAND_PLAY_PAUSE,
+                COMMAND_PREPARE,
+                COMMAND_STOP,
+                COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+                COMMAND_SEEK_TO_DEFAULT_POSITION,
                 COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
-                COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> true
+                COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+                COMMAND_SET_REPEAT_MODE,
+                COMMAND_SET_SHUFFLE_MODE,
+                COMMAND_GET_CURRENT_MEDIA_ITEM,
+                COMMAND_GET_METADATA -> true
 
                 else -> super.isCommandAvailable(command)
             }
 
-            override fun hasNextMediaItem() = true
-            override fun hasPreviousMediaItem() = true
+            // Samsung S24 One UI Now Bar fix: never report a transient pause/idle during async stream resolution.
+            override fun getPlaybackState(): Int =
+                if (SongPlayer.isResolvingTrack) STATE_BUFFERING else super.getPlaybackState()
+
+            override fun getPlayWhenReady(): Boolean =
+                if (SongPlayer.isResolvingTrack) SongPlayer.shouldPlayWhenResolved() else super.getPlayWhenReady()
+
+            override fun isPlaying(): Boolean =
+                super.isPlaying() || (SongPlayer.isResolvingTrack && SongPlayer.shouldPlayWhenResolved())
+
+            override fun getMediaMetadata(): MediaMetadata =
+                latestServiceMetadata ?: super.getMediaMetadata()
+
+            override fun play() {
+                SongPlayer.play()
+                currentSongState.setPlaying(true)
+            }
+
+            override fun pause() {
+                SongPlayer.pause()
+                currentSongState.setPlaying(false)
+            }
+
+            override fun setPlayWhenReady(playWhenReady: Boolean) {
+                if (playWhenReady) play() else pause()
+            }
+
+            override fun stop() {
+                SongPlayer.stop()
+                currentSongState.setPlaying(false)
+            }
+
+            override fun getRepeatMode(): Int = when (currentSongState.repeat.value) {
+                RepeatMode.OFF -> Player.REPEAT_MODE_OFF
+                RepeatMode.ONE -> Player.REPEAT_MODE_ONE
+                RepeatMode.ALL -> Player.REPEAT_MODE_ALL
+            }
+
+            override fun setRepeatMode(repeatMode: Int) {
+                val mapped = when (repeatMode) {
+                    Player.REPEAT_MODE_ONE -> RepeatMode.ONE
+                    Player.REPEAT_MODE_ALL -> RepeatMode.ALL
+                    else -> RepeatMode.OFF
+                }
+                currentSongState.updateRepeatState(mapped)
+                mediaSession?.setCustomLayout(buildCustomLayout(mapped))
+            }
+
+            override fun getShuffleModeEnabled(): Boolean = currentSongState.shuffle.value
+
+            override fun setShuffleModeEnabled(shuffleModeEnabled: Boolean) {
+                currentSongState.updateShuffleState(shuffleModeEnabled)
+            }
+
+            override fun hasNextMediaItem() = currentSongState.queue.value.isNotEmpty()
+            override fun hasPreviousMediaItem() = currentSongState.queue.value.isNotEmpty()
             override fun seekToNext() = advance(forward = true)
             override fun seekToNextMediaItem() = advance(forward = true)
             override fun seekToPrevious() = advance(forward = false)
@@ -667,6 +755,36 @@ class PlaybackService : MediaLibraryService() {
             }
             return Futures.immediateFuture(
                 MediaSession.MediaItemsWithStartPosition(emptyList(), C.INDEX_UNSET, C.TIME_UNSET),
+            )
+        }
+
+        override fun onPlaybackResumption(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val savedQueue = com.music.spotui.data.preferences.loadLastQueue(applicationContext)
+            val savedLast = com.music.spotui.data.preferences.loadLastPlayback(applicationContext)
+            val targetSong = savedLast?.first ?: savedQueue.firstOrNull()
+            if (targetSong != null) {
+                val effectiveQueue = savedQueue.ifEmpty { listOf(targetSong) }
+                currentSongState.updateQueue(effectiveQueue)
+                val idx = effectiveQueue.indexOfFirst { it.id == targetSong.id }.coerceAtLeast(0)
+                currentSongState.updateSongState(
+                    targetSong.coverUri,
+                    targetSong.title,
+                    targetSong.singer,
+                    true,
+                    targetSong.id,
+                    idx,
+                    targetSong.album,
+                )
+                savedLast?.second?.takeIf { it > 0L }?.let { posMs ->
+                    SongPlayer.setRestorePoint(targetSong.url, posMs)
+                }
+                SongPlayer.playSong(targetSong.url, applicationContext, "song/${targetSong.id}")
+            }
+            return Futures.immediateFuture(
+                MediaSession.MediaItemsWithStartPosition(emptyList(), C.INDEX_UNSET, C.TIME_UNSET)
             )
         }
 

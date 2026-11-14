@@ -232,6 +232,11 @@ object SpotiFlac {
         upProvidersAt = 0L
     }
 
+    fun clearCooldowns() {
+        providerCooldowns.clear()
+        clearStatusCache()
+    }
+
     /**
      * Validates a user-provided Deezer ARL cookie against Deezer's session endpoint.
      * Never logs or leaks the ARL value.
