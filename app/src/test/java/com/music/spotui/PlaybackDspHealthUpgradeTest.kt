@@ -391,7 +391,7 @@ class PlaybackDspHealthUpgradeTest {
         SongPlayer.setNowPlayingMeta(
             title = "Midnight City",
             artist = "M83",
-            artworkUrl = "https://example.com/art.jpg",
+            coverUri = "https://example.com/art.jpg",
             album = "Hurry Up, We're Dreaming",
             durationMs = 243_000L,
         )
