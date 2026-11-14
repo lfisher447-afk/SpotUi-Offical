@@ -48,6 +48,7 @@ object MediaSessionController {
     @Volatile
     private var controller: MediaController? = null
     private var sessionObserverJob: Job? = null
+    private var connectionJob: Job? = null
     private var observedAppContext: Context? = null
 
     private val _state = MutableStateFlow(MediaControllerSnapshot())
@@ -74,15 +75,15 @@ object MediaSessionController {
                 if (alive) {
                     connectInternal(ctx)
                 } else {
-                    disconnect()
+                    releaseController()
                 }
             }
         }
     }
 
     private fun connectInternal(appContext: Context) {
-        if (controllerFuture != null || controller != null) return
-        scope.launch {
+        if (controllerFuture != null || controller != null || connectionJob?.isActive == true) return
+        connectionJob = scope.launch {
             runCatching {
                 val token = SessionToken(
                     appContext,
@@ -91,10 +92,15 @@ object MediaSessionController {
                 val future = MediaController.Builder(appContext, token).buildAsync()
                 controllerFuture = future
                 val resolved = future.await()
+                if (observedAppContext == null) {
+                    runCatching { resolved.release() }
+                    return@launch
+                }
                 controller = resolved
                 resolved.addListener(listener)
                 refreshSnapshot(resolved)
             }.onFailure { err ->
+                if (err is kotlinx.coroutines.CancellationException) throw err
                 AppDiagnostics.warning("MediaSessionController", "MediaController connection failed", err)
                 controllerFuture = null
                 controller = null
@@ -102,12 +108,21 @@ object MediaSessionController {
         }
     }
 
-    fun disconnect() {
+    private fun releaseController() {
+        connectionJob?.cancel()
+        connectionJob = null
         runCatching { controller?.removeListener(listener) }
         controller = null
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
         _state.value = MediaControllerSnapshot()
+    }
+
+    fun disconnect() {
+        sessionObserverJob?.cancel()
+        sessionObserverJob = null
+        observedAppContext = null
+        releaseController()
     }
 
     fun playPause() {

@@ -257,7 +257,6 @@ class PlaybackService : MediaLibraryService() {
     override fun onCreate() {
         super.onCreate()
         try {
-            PlaybackSessionBus.onServiceCreated()
             val appCtx = applicationContext
             val sink = GlanceWidgetSink(appCtx).also { widgetSink = it }
             widgetDebouncer = WidgetUpdateDebouncer(
@@ -367,6 +366,7 @@ class PlaybackService : MediaLibraryService() {
             mediaSession = MediaLibrarySession.Builder(this, wrap(base), LibraryCallback())
                 .setSessionActivity(sessionActivity)
                 .build()
+            PlaybackSessionBus.onServiceCreated()
 
             // Sync current song metadata to the MediaSession when it changes
             serviceScope.launch {

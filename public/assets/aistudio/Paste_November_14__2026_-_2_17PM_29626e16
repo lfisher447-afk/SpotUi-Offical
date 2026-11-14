@@ -1,0 +1,1779 @@
+
+Merging manifest with lower [androidx.navigation:navigation-common:2.8.5] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.navigation:navigation-common:2.8.5] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/0565d73a2f99ce5099ab190109502cee/transformed/navigation-runtime-2.8.5/AndroidManifest.xml
+Merging manifest with lower [androidx.navigation:navigation-runtime:2.8.5] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.navigation:navigation-runtime:2.8.5] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/8f63ee1ad8ee3c9e4f634ef67132c8b2/transformed/navigation-common-ktx-2.8.5/AndroidManifest.xml
+Merging manifest with lower [androidx.navigation:navigation-common-ktx:2.8.5] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.navigation:navigation-common-ktx:2.8.5] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/19de002464946d202daa6170894593b7/transformed/navigation-runtime-ktx-2.8.5/AndroidManifest.xml
+Merging manifest with lower [androidx.navigation:navigation-runtime-ktx:2.8.5] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.navigation:navigation-runtime-ktx:2.8.5] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/1b52f278a26a1e826df4fa9d58862d06/transformed/navigation-compose-2.8.5/AndroidManifest.xml
+Merging manifest with lower [androidx.navigation:navigation-compose:2.8.5] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.navigation:navigation-compose:2.8.5] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/57b649cd2eb90230b8abfa495404670d/transformed/hilt-work-1.2.0/AndroidManifest.xml
+Merging manifest with lower [androidx.hilt:hilt-work:1.2.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.hilt:hilt-work:1.2.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/69cc6421e781bc46f29860ce05857b61/transformed/hilt-android-2.57.1/AndroidManifest.xml
+Merging manifest with lower [com.google.dagger:hilt-android:2.57.1] AndroidManifest.xml:16:1-19:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [com.google.dagger:hilt-android:2.57.1] AndroidManifest.xml:18:3-42
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/e33e3f4e3e7f80f516cf8c4c0accca11/transformed/compose-1.0.0-beta01/AndroidManifest.xml
+Merging manifest with lower [com.github.bumptech.glide:compose:1.0.0-beta01] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [com.github.bumptech.glide:compose:1.0.0-beta01] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/bf72d086df487ca45cbebd73e1273efb/transformed/ktx-1.0.0-beta01/AndroidManifest.xml
+Merging manifest with lower [com.github.bumptech.glide:ktx:1.0.0-beta01] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [com.github.bumptech.glide:ktx:1.0.0-beta01] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/127b40eb2689fed66c5ac4bd409c399e/transformed/recyclerview-integration-5.0.0-rc01/AndroidManifest.xml
+Merging manifest with lower [com.github.bumptech.glide:recyclerview-integration:5.0.0-rc01] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [com.github.bumptech.glide:recyclerview-integration:5.0.0-rc01] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/79c832bdd5f5da05812aee12ecf665cc/transformed/glide-5.0.0-rc01/AndroidManifest.xml
+Merging manifest with lower [com.github.bumptech.glide:glide:5.0.0-rc01] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [com.github.bumptech.glide:glide:5.0.0-rc01] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/a3b8ad70e3d88b14a1c4b47d6cb3c1fc/transformed/translate-17.0.3/AndroidManifest.xml
+Merging manifest with lower [com.google.mlkit:translate:17.0.3] AndroidManifest.xml:2:1-20:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [com.google.mlkit:translate:17.0.3] AndroidManifest.xml:5:5-44
+Adopted [uses-permission: null]
+Adopted [uses-permission: null]
+Adopted [application: null]
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/1f6e3506606a6a1a4af19ade04290080/transformed/language-id-17.0.6/AndroidManifest.xml
+Merging manifest with lower [com.google.mlkit:language-id:17.0.6] AndroidManifest.xml:2:1-17:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [com.google.mlkit:language-id:17.0.6] AndroidManifest.xml:5:5-44
+application defined in both files...
+Merging application with lower [com.google.mlkit:language-id:17.0.6] AndroidManifest.xml:7:5-15:19
+service#com.google.mlkit.common.internal.MlKitComponentDiscoveryService defined in both files...
+Merging service#com.google.mlkit.common.internal.MlKitComponentDiscoveryService with lower [com.google.mlkit:language-id:17.0.6] AndroidManifest.xml:8:9-14:19
+Adopted [meta-data: null]
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/8756eb60beb217977a2543d73fc2b1b7/transformed/language-id-common-16.1.0/AndroidManifest.xml
+Merging manifest with lower [com.google.mlkit:language-id-common:16.1.0] AndroidManifest.xml:17:1-32:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [com.google.mlkit:language-id-common:16.1.0] AndroidManifest.xml:20:5-44
+application defined in both files...
+Merging application with lower [com.google.mlkit:language-id-common:16.1.0] AndroidManifest.xml:22:5-30:19
+service#com.google.mlkit.common.internal.MlKitComponentDiscoveryService defined in both files...
+Merging service#com.google.mlkit.common.internal.MlKitComponentDiscoveryService with lower [com.google.mlkit:language-id-common:16.1.0] AndroidManifest.xml:23:9-29:19
+Adopted [meta-data: null]
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/6296f5c2feb15249b30e3bafcfe8ee5a/transformed/common-18.11.0/AndroidManifest.xml
+Merging manifest with lower [com.google.mlkit:common:18.11.0] AndroidManifest.xml:2:1-26:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [com.google.mlkit:common:18.11.0] AndroidManifest.xml:6:5-44
+application defined in both files...
+Merging application with lower [com.google.mlkit:common:18.11.0] AndroidManifest.xml:8:5-24:19
+Adopted [provider: null]
+service#com.google.mlkit.common.internal.MlKitComponentDiscoveryService defined in both files...
+Merging service#com.google.mlkit.common.internal.MlKitComponentDiscoveryService with lower [com.google.mlkit:common:18.11.0] AndroidManifest.xml:15:9-23:19
+Adopted [meta-data: null]
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/a1175899102e9418c2bece12343833f5/transformed/play-services-base-18.5.0/AndroidManifest.xml
+Merging manifest with lower [com.google.android.gms:play-services-base:18.5.0] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [com.google.android.gms:play-services-base:18.5.0] AndroidManifest.xml:3:5-44
+application defined in both files...
+Merging application with lower [com.google.android.gms:play-services-base:18.5.0] AndroidManifest.xml:4:5-6:19
+Adopted [activity: null]
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/99e68e8c0b1511e299da9e9028f9e478/transformed/media3-exoplayer-dash-1.11.0/AndroidManifest.xml
+Merging manifest with lower [androidx.media3:media3-exoplayer-dash:1.11.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.media3:media3-exoplayer-dash:1.11.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/682bd6fcfa57e74d7b0217b32f96dda6/transformed/media3-exoplayer-1.11.0/AndroidManifest.xml
+Merging manifest with lower [androidx.media3:media3-exoplayer:1.11.0] AndroidManifest.xml:17:1-25:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.media3:media3-exoplayer:1.11.0] AndroidManifest.xml:20:5-44
+uses-permission#android.permission.ACCESS_NETWORK_STATE defined in both files...
+Merging uses-permission#android.permission.ACCESS_NETWORK_STATE with lower [androidx.media3:media3-exoplayer:1.11.0] AndroidManifest.xml:22:5-79
+Adopted [uses-permission: null]
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/e3492059a22b6abf1d3b7eb31b77f0e8/transformed/media3-ui-1.11.0/AndroidManifest.xml
+Merging manifest with lower [androidx.media3:media3-ui:1.11.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.media3:media3-ui:1.11.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/a8bcad2b1327a69bb65591282a3479ae/transformed/media3-session-1.11.0/AndroidManifest.xml
+Merging manifest with lower [androidx.media3:media3-session:1.11.0] AndroidManifest.xml:17:1-46:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.media3:media3-session:1.11.0] AndroidManifest.xml:20:5-44
+application defined in both files...
+Merging application with lower [androidx.media3:media3-session:1.11.0] AndroidManifest.xml:22:5-44:19
+Adopted [activity: null]
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/a0cb053b68bb1c1a364da120b50336f5/transformed/media3-datasource-okhttp-1.11.0/AndroidManifest.xml
+Merging manifest with lower [androidx.media3:media3-datasource-okhttp:1.11.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.media3:media3-datasource-okhttp:1.11.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/a332d56d649920c549e4ee361cea53dc/transformed/media3-extractor-1.11.0/AndroidManifest.xml
+Merging manifest with lower [androidx.media3:media3-extractor:1.11.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.media3:media3-extractor:1.11.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/812a59fe3dc83792ee88595ac60115c9/transformed/media3-container-1.11.0/AndroidManifest.xml
+Merging manifest with lower [androidx.media3:media3-container:1.11.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.media3:media3-container:1.11.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/cd09e7ec8da9d44e8ac6b2d602ade944/transformed/media3-datasource-1.11.0/AndroidManifest.xml
+Merging manifest with lower [androidx.media3:media3-datasource:1.11.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.media3:media3-datasource:1.11.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/624a21da8bda226aeb5430d04b08275e/transformed/media3-decoder-1.11.0/AndroidManifest.xml
+Merging manifest with lower [androidx.media3:media3-decoder:1.11.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.media3:media3-decoder:1.11.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/e0679e2269126f441967fa7a88b4dd04/transformed/media3-database-1.11.0/AndroidManifest.xml
+Merging manifest with lower [androidx.media3:media3-database:1.11.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.media3:media3-database:1.11.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/4f44abec339272b8c4a3fb1f9e7391a1/transformed/media3-common-1.11.0/AndroidManifest.xml
+Merging manifest with lower [androidx.media3:media3-common:1.11.0] AndroidManifest.xml:17:1-24:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.media3:media3-common:1.11.0] AndroidManifest.xml:20:5-44
+uses-permission#android.permission.ACCESS_NETWORK_STATE defined in both files...
+Merging uses-permission#android.permission.ACCESS_NETWORK_STATE with lower [androidx.media3:media3-common:1.11.0] AndroidManifest.xml:22:5-79
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/5100f546054652a7548173cb41261172/transformed/media3-exoplayer-workmanager-1.11.0/AndroidManifest.xml
+Merging manifest with lower [androidx.media3:media3-exoplayer-workmanager:1.11.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.media3:media3-exoplayer-workmanager:1.11.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/ec17d23f8f18f8bdad1da1fec330d7f4/transformed/glance-material3-1.1.1/AndroidManifest.xml
+Merging manifest with lower [androidx.glance:glance-material3:1.1.1] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.glance:glance-material3:1.1.1] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1/AndroidManifest.xml
+Merging manifest with lower [androidx.glance:glance-appwidget:1.1.1] AndroidManifest.xml:17:1-61:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.glance:glance-appwidget:1.1.1] AndroidManifest.xml:20:5-44
+application defined in both files...
+Merging application with lower [androidx.glance:glance-appwidget:1.1.1] AndroidManifest.xml:22:5-59:19
+Adopted [activity: null]
+Adopted [activity: null]
+Adopted [receiver: null]
+Adopted [receiver: null]
+Adopted [receiver: null]
+Adopted [service: null]
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/e19b916261250de6daa533ad4095b0aa/transformed/glance-1.1.1/AndroidManifest.xml
+Merging manifest with lower [androidx.glance:glance:1.1.1] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.glance:glance:1.1.1] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/a652482337e2e92b30a990db20390352/transformed/work-runtime-ktx-2.11.2/AndroidManifest.xml
+Merging manifest with lower [androidx.work:work-runtime-ktx:2.11.2] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.work:work-runtime-ktx:2.11.2] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/08e5fc667ba9e8777e2400760f8d4d1a/transformed/work-runtime-2.11.2/AndroidManifest.xml
+Merging manifest with lower [androidx.work:work-runtime:2.11.2] AndroidManifest.xml:17:1-83:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.work:work-runtime:2.11.2] AndroidManifest.xml:21:5-44
+uses-permission#android.permission.WAKE_LOCK defined in both files...
+Merging uses-permission#android.permission.WAKE_LOCK with lower [androidx.work:work-runtime:2.11.2] AndroidManifest.xml:23:5-68
+uses-permission#android.permission.ACCESS_NETWORK_STATE defined in both files...
+Merging uses-permission#android.permission.ACCESS_NETWORK_STATE with lower [androidx.work:work-runtime:2.11.2] AndroidManifest.xml:24:5-79
+Adopted [uses-permission: null]
+Adopted [uses-permission: null]
+application defined in both files...
+Merging application with lower [androidx.work:work-runtime:2.11.2] AndroidManifest.xml:28:5-81:19
+Adopted [provider: null]
+Adopted [service: null]
+Adopted [service: null]
+Adopted [receiver: null]
+Adopted [receiver: null]
+Adopted [receiver: null]
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/00a9ccf3ddd4091309a871100b9b3ae6/transformed/room-runtime-release/AndroidManifest.xml
+Merging manifest with lower [androidx.room:room-runtime-android:2.7.1] AndroidManifest.xml:17:1-31:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.room:room-runtime-android:2.7.1] AndroidManifest.xml:21:5-44
+application defined in both files...
+Merging application with lower [androidx.room:room-runtime-android:2.7.1] AndroidManifest.xml:23:5-29:19
+Adopted [service: null]
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/d07195aeff5635545e6416286c0202fa/transformed/room-ktx-2.7.1/AndroidManifest.xml
+Merging manifest with lower [androidx.room:room-ktx:2.7.1] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.room:room-ktx:2.7.1] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/e2836abed4cf10f65b9fdec57566de42/transformed/material3-release/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.material3:material3-android:1.3.1] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.material3:material3-android:1.3.1] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/3a6099695b5f104235122a653547eb3f/transformed/material-release/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.material:material-android:1.7.6] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.material:material-android:1.7.6] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/ee180bf009e71be57bf06058989909c9/transformed/material-ripple-release/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.material:material-ripple-android:1.7.6] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.material:material-ripple-android:1.7.6] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/afa9931c9f1a1e45d6a509f4bbb85a97/transformed/foundation-release/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.foundation:foundation-android:1.7.6] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.foundation:foundation-android:1.7.6] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/e95a774dee183e260023219384cbc34d/transformed/animation-core-release/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.animation:animation-core-android:1.7.6] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.animation:animation-core-android:1.7.6] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/e62bc0bc6a35df9d493b65ceb85f4325/transformed/animation-release/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.animation:animation-android:1.7.6] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.animation:animation-android:1.7.6] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/e48181d24a8b606ac16de706b34ddbd7/transformed/foundation-layout-release/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.foundation:foundation-layout-android:1.7.6] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.foundation:foundation-layout-android:1.7.6] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/2bcb5be1a479342eb7fbed2bc8d887bb/transformed/ui-tooling-data-release/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.ui:ui-tooling-data-android:1.7.6] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.ui:ui-tooling-data-android:1.7.6] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/d2a1e9c7baae4d37a52158cdd5d163ab/transformed/ui-test-release/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.ui:ui-test-android:1.7.6] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.ui:ui-test-android:1.7.6] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/065f5c8993860f84b2db007c2de01710/transformed/ui-geometry-release/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.ui:ui-geometry-android:1.7.6] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.ui:ui-geometry-android:1.7.6] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/c77e2724c079c5fd6b6fae511e437322/transformed/ui-util-release/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.ui:ui-util-android:1.7.6] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.ui:ui-util-android:1.7.6] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/e02ccbdeb4d94445bdac2242294b4992/transformed/ui-text-release/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.ui:ui-text-android:1.7.6] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.ui:ui-text-android:1.7.6] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/2578077ad9215f8fc8544d6c05814e18/transformed/ui-unit-release/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.ui:ui-unit-android:1.7.6] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.ui:ui-unit-android:1.7.6] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/a66286552377c2ca2d629de6d5f7ae1c/transformed/ui-tooling-preview-release/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.ui:ui-tooling-preview-android:1.7.6] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.ui:ui-tooling-preview-android:1.7.6] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/f8114a14ccc5c63b36b27ed7b691ee9f/transformed/ui-tooling-release/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.ui:ui-tooling-android:1.7.6] AndroidManifest.xml:17:1-28:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.ui:ui-tooling-android:1.7.6] AndroidManifest.xml:20:5-44
+application defined in both files...
+Merging application with lower [androidx.compose.ui:ui-tooling-android:1.7.6] AndroidManifest.xml:22:5-26:19
+Adopted [activity: null]
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/c004b3284642e125bb67eaab786c185a/transformed/ui-graphics-release/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.ui:ui-graphics-android:1.7.6] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.ui:ui-graphics-android:1.7.6] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/130f31b2dbfcd2905ca523c7e238af46/transformed/runtime-saveable-release/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.runtime:runtime-saveable-android:1.7.6] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.runtime:runtime-saveable-android:1.7.6] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/8c1738b2384b7e13a63ed2b07a159581/transformed/recyclerview-1.3.0/AndroidManifest.xml
+Merging manifest with lower [androidx.recyclerview:recyclerview:1.3.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.recyclerview:recyclerview:1.3.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/48d946f14a308bf7c99c85c611c72c43/transformed/customview-poolingcontainer-1.0.0/AndroidManifest.xml
+Merging manifest with lower [androidx.customview:customview-poolingcontainer:1.0.0] AndroidManifest.xml:17:1-23:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.customview:customview-poolingcontainer:1.0.0] AndroidManifest.xml:20:5-21:38
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/e9f802213270f3d2a5ca483ba6eac4d4/transformed/appcompat-resources-1.6.1/AndroidManifest.xml
+Merging manifest with lower [androidx.appcompat:appcompat-resources:1.6.1] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.appcompat:appcompat-resources:1.6.1] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/287ed614f584047c9243e3ff2563f185/transformed/appcompat-1.6.1/AndroidManifest.xml
+Merging manifest with lower [androidx.appcompat:appcompat:1.6.1] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.appcompat:appcompat:1.6.1] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/9029161c2b9a6cd34d56476c33554748/transformed/core-ktx-1.15.0/AndroidManifest.xml
+Merging manifest with lower [androidx.core:core-ktx:1.15.0] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.core:core-ktx:1.15.0] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/b801ae28f1ab9f377410e9b2e9bed424/transformed/core-remoteviews-1.1.0/AndroidManifest.xml
+Merging manifest with lower [androidx.core:core-remoteviews:1.1.0] AndroidManifest.xml:17:1-30:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.core:core-remoteviews:1.1.0] AndroidManifest.xml:21:5-44
+application defined in both files...
+Merging application with lower [androidx.core:core-remoteviews:1.1.0] AndroidManifest.xml:23:5-28:19
+Adopted [service: null]
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/a17aa3522d844e7181f647eef9390e8a/transformed/palette-ktx-1.0.0/AndroidManifest.xml
+Merging manifest with lower [androidx.palette:palette-ktx:1.0.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.palette:palette-ktx:1.0.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/e9c3aa78b0a976e27aebc283a6bea43d/transformed/palette-1.0.0/AndroidManifest.xml
+Merging manifest with lower [androidx.palette:palette:1.0.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.palette:palette:1.0.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/9cac0f78437a77a91b9b8ad67a125712/transformed/media-1.7.0/AndroidManifest.xml
+Merging manifest with lower [androidx.media:media:1.7.0] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.media:media:1.7.0] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/6be533209fe4c74052f8657904791d83/transformed/legacy-support-core-utils-1.0.0/AndroidManifest.xml
+Merging manifest with lower [androidx.legacy:legacy-support-core-utils:1.0.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.legacy:legacy-support-core-utils:1.0.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/d4fd2a1b7d8c8ea198fcca81badc609f/transformed/viewpager-1.0.0/AndroidManifest.xml
+Merging manifest with lower [androidx.viewpager:viewpager:1.0.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.viewpager:viewpager:1.0.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/a4d9a103c8766f7780de88c9b7c51d78/transformed/drawerlayout-1.0.0/AndroidManifest.xml
+Merging manifest with lower [androidx.drawerlayout:drawerlayout:1.0.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.drawerlayout:drawerlayout:1.0.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/b802dc974abf0d8f052844cda946332b/transformed/customview-1.0.0/AndroidManifest.xml
+Merging manifest with lower [androidx.customview:customview:1.0.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.customview:customview:1.0.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/39afbd19612ea20cde384044e83807b1/transformed/autofill-1.0.0/AndroidManifest.xml
+Merging manifest with lower [androidx.autofill:autofill:1.0.0] AndroidManifest.xml:17:1-24:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.autofill:autofill:1.0.0] AndroidManifest.xml:20:5-22:41
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/60f39c6b83cec37b3a39fb8b582d3fcc/transformed/graphics-path-1.0.1/AndroidManifest.xml
+Merging manifest with lower [androidx.graphics:graphics-path:1.0.1] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.graphics:graphics-path:1.0.1] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/a527c1a95ef1fdfe5a2ae020ab23fdbd/transformed/loader-1.0.0/AndroidManifest.xml
+Merging manifest with lower [androidx.loader:loader:1.0.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.loader:loader:1.0.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/0cdd9bfecd797290465a8d91ad3af273/transformed/vectordrawable-animated-1.1.0/AndroidManifest.xml
+Merging manifest with lower [androidx.vectordrawable:vectordrawable-animated:1.1.0] AndroidManifest.xml:17:1-24:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.vectordrawable:vectordrawable-animated:1.1.0] AndroidManifest.xml:20:5-22:41
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/f58cd34469b46a604f9fa15f471f1db3/transformed/vectordrawable-1.1.0/AndroidManifest.xml
+Merging manifest with lower [androidx.vectordrawable:vectordrawable:1.1.0] AndroidManifest.xml:17:1-24:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.vectordrawable:vectordrawable:1.1.0] AndroidManifest.xml:20:5-22:41
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/8fa2c37e7a608bd75e5448a2a1ce7f88/transformed/emoji2-views-helper-1.3.0/AndroidManifest.xml
+Merging manifest with lower [androidx.emoji2:emoji2-views-helper:1.3.0] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.emoji2:emoji2-views-helper:1.3.0] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/188f5a8bb9dafa07bc34dd57120fa9b8/transformed/emoji2-1.3.0/AndroidManifest.xml
+Merging manifest with lower [androidx.emoji2:emoji2:1.3.0] AndroidManifest.xml:17:1-35:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.emoji2:emoji2:1.3.0] AndroidManifest.xml:21:5-44
+application defined in both files...
+Merging application with lower [androidx.emoji2:emoji2:1.3.0] AndroidManifest.xml:23:5-33:19
+provider#androidx.startup.InitializationProvider defined in both files...
+Merging provider#androidx.startup.InitializationProvider with lower [androidx.emoji2:emoji2:1.3.0] AndroidManifest.xml:24:9-32:20
+Adopted [meta-data: null]
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/3b797d4b08857fc96109383441243624/transformed/core-1.15.0/AndroidManifest.xml
+Merging manifest with lower [androidx.core:core:1.15.0] AndroidManifest.xml:17:1-30:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.core:core:1.15.0] AndroidManifest.xml:20:5-44
+Adopted [permission: null]
+Adopted [uses-permission: null]
+application defined in both files...
+Merging application with lower [androidx.core:core:1.15.0] AndroidManifest.xml:28:5-89
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/2ca039608e0dfc8759d6694a3df07fa6/transformed/core-ktx-1.6.1/AndroidManifest.xml
+Merging manifest with lower [androidx.test:core-ktx:1.6.1] AndroidManifest.xml:17:1-24:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.test:core-ktx:1.6.1] AndroidManifest.xml:20:5-22:41
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/bcb44a91c5f1d63c3a9da163e03cb373/transformed/espresso-core-3.5.0/AndroidManifest.xml
+Merging manifest with lower [androidx.test.espresso:espresso-core:3.5.0] AndroidManifest.xml:17:1-24:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.test.espresso:espresso-core:3.5.0] AndroidManifest.xml:20:5-22:41
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/caff5adec038f248520af987090cc370/transformed/core-1.6.1/AndroidManifest.xml
+Merging manifest with lower [androidx.test:core:1.6.1] AndroidManifest.xml:17:1-53:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.test:core:1.6.1] AndroidManifest.xml:20:5-22:41
+Adopted [uses-permission: null]
+application defined in both files...
+Merging application with lower [androidx.test:core:1.6.1] AndroidManifest.xml:26:5-51:19
+Adopted [activity: null]
+Adopted [activity: null]
+Adopted [activity: null]
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/cfcc1584d9d808888f2471db083cfea2/transformed/lifecycle-process-2.8.7/AndroidManifest.xml
+Merging manifest with lower [androidx.lifecycle:lifecycle-process:2.8.7] AndroidManifest.xml:17:1-35:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.lifecycle:lifecycle-process:2.8.7] AndroidManifest.xml:21:5-44
+application defined in both files...
+Merging application with lower [androidx.lifecycle:lifecycle-process:2.8.7] AndroidManifest.xml:23:5-33:19
+provider#androidx.startup.InitializationProvider defined in both files...
+Merging provider#androidx.startup.InitializationProvider with lower [androidx.lifecycle:lifecycle-process:2.8.7] AndroidManifest.xml:24:9-32:20
+Adopted [meta-data: null]
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/d98376a015eefe1b1e2ab3fa64fbe6cd/transformed/lifecycle-viewmodel-compose-release/AndroidManifest.xml
+Merging manifest with lower [androidx.lifecycle:lifecycle-viewmodel-compose-android:2.8.7] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.lifecycle:lifecycle-viewmodel-compose-android:2.8.7] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/947b5c02ef955f1db301ea7244d834e0/transformed/lifecycle-viewmodel-2.8.7/AndroidManifest.xml
+Merging manifest with lower [androidx.lifecycle:lifecycle-viewmodel:2.8.7] AndroidManifest.xml:2:1-5:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.lifecycle:lifecycle-viewmodel:2.8.7] AndroidManifest.xml:4:5-43
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/dfd32da4f6e2443894746eaaa58711c6/transformed/lifecycle-viewmodel-release/AndroidManifest.xml
+Merging manifest with lower [androidx.lifecycle:lifecycle-viewmodel-android:2.8.7] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.lifecycle:lifecycle-viewmodel-android:2.8.7] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/74e475e5105bc3e130f925ba8fb4cb70/transformed/lifecycle-livedata-core-ktx-2.8.7/AndroidManifest.xml
+Merging manifest with lower [androidx.lifecycle:lifecycle-livedata-core-ktx:2.8.7] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.lifecycle:lifecycle-livedata-core-ktx:2.8.7] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/54cd28b3f4a40cc6acdc2b96b3bdbcaa/transformed/savedstate-ktx-1.2.1/AndroidManifest.xml
+Merging manifest with lower [androidx.savedstate:savedstate-ktx:1.2.1] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.savedstate:savedstate-ktx:1.2.1] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/f1abfa26b28b4c9cc49830bd9b1edea2/transformed/savedstate-1.2.1/AndroidManifest.xml
+Merging manifest with lower [androidx.savedstate:savedstate:1.2.1] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.savedstate:savedstate:1.2.1] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/35078b46c18a1e79904693e8f33992d9/transformed/lifecycle-runtime-release/AndroidManifest.xml
+Merging manifest with lower [androidx.lifecycle:lifecycle-runtime-android:2.8.7] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.lifecycle:lifecycle-runtime-android:2.8.7] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/fd476c87b2fbfdb339bcb754151d012f/transformed/lifecycle-livedata-core-2.8.7/AndroidManifest.xml
+Merging manifest with lower [androidx.lifecycle:lifecycle-livedata-core:2.8.7] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.lifecycle:lifecycle-livedata-core:2.8.7] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/fe5d88648881e29cac00d7655b0acada/transformed/lifecycle-viewmodel-ktx-2.8.7/AndroidManifest.xml
+Merging manifest with lower [androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/5edfc91ba4ee55736771335a7ec8ef25/transformed/lifecycle-viewmodel-savedstate-2.8.7/AndroidManifest.xml
+Merging manifest with lower [androidx.lifecycle:lifecycle-viewmodel-savedstate:2.8.7] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.lifecycle:lifecycle-viewmodel-savedstate:2.8.7] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/2cb6744df37510844fde9256d2d47df6/transformed/lifecycle-service-2.8.7/AndroidManifest.xml
+Merging manifest with lower [androidx.lifecycle:lifecycle-service:2.8.7] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.lifecycle:lifecycle-service:2.8.7] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/b5acdbfa08f6fce66effcf37b9e9450a/transformed/lifecycle-runtime-compose-release/AndroidManifest.xml
+Merging manifest with lower [androidx.lifecycle:lifecycle-runtime-compose-android:2.8.7] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.lifecycle:lifecycle-runtime-compose-android:2.8.7] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/555ca100ba6981f7a90b82c45b1609bd/transformed/runtime-release/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.runtime:runtime-android:1.7.6] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.runtime:runtime-android:1.7.6] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/653a528c3934d73ff4d75c5f96650b37/transformed/runtime-livedata-1.7.6/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.runtime:runtime-livedata:1.7.6] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.runtime:runtime-livedata:1.7.6] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/4e664e84e99a9202c577afce45a7077c/transformed/lifecycle-livedata-2.8.7/AndroidManifest.xml
+Merging manifest with lower [androidx.lifecycle:lifecycle-livedata:2.8.7] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.lifecycle:lifecycle-livedata:2.8.7] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/ab30b0770e8c9a480c13e77f01066570/transformed/lifecycle-runtime-ktx-release/AndroidManifest.xml
+Merging manifest with lower [androidx.lifecycle:lifecycle-runtime-ktx-android:2.8.7] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.lifecycle:lifecycle-runtime-ktx-android:2.8.7] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/5b6d6dc4c5909a72ee6df422b641e728/transformed/profileinstaller-1.3.1/AndroidManifest.xml
+Merging manifest with lower [androidx.profileinstaller:profileinstaller:1.3.1] AndroidManifest.xml:17:1-55:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.profileinstaller:profileinstaller:1.3.1] AndroidManifest.xml:21:5-44
+application defined in both files...
+Merging application with lower [androidx.profileinstaller:profileinstaller:1.3.1] AndroidManifest.xml:23:5-53:19
+provider#androidx.startup.InitializationProvider defined in both files...
+Merging provider#androidx.startup.InitializationProvider with lower [androidx.profileinstaller:profileinstaller:1.3.1] AndroidManifest.xml:24:9-32:20
+Adopted [meta-data: null]
+Adopted [receiver: null]
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/a4a8cc2d9878a03f27db14a97aa1f33b/transformed/datastore-preferences-1.0.0/AndroidManifest.xml
+Merging manifest with lower [androidx.datastore:datastore-preferences:1.0.0] AndroidManifest.xml:17:1-24:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.datastore:datastore-preferences:1.0.0] AndroidManifest.xml:20:5-22:41
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/640cb6be782119036a4c74fbaf0c3aab/transformed/datastore-1.0.0/AndroidManifest.xml
+Merging manifest with lower [androidx.datastore:datastore:1.0.0] AndroidManifest.xml:17:1-24:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.datastore:datastore:1.0.0] AndroidManifest.xml:20:5-22:41
+Merging library manifest /home/runner/work/SpotUi-Offical/SpotUi-Offical/innertube/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml
+Merging manifest with lower [:innertube] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [:innertube] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/908bc4453aa80406485102ec70d358f4/transformed/play-services-tasks-18.2.0/AndroidManifest.xml
+Merging manifest with lower [com.google.android.gms:play-services-tasks:18.2.0] AndroidManifest.xml:2:1-5:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [com.google.android.gms:play-services-tasks:18.2.0] AndroidManifest.xml:3:5-44
+application defined in both files...
+Merging application with lower [com.google.android.gms:play-services-tasks:18.2.0] AndroidManifest.xml:4:5-20
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/855911f9583d2edc563daee42eb232bf/transformed/play-services-basement-18.4.0/AndroidManifest.xml
+Merging manifest with lower [com.google.android.gms:play-services-basement:18.4.0] AndroidManifest.xml:2:1-9:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [com.google.android.gms:play-services-basement:18.4.0] AndroidManifest.xml:3:5-44
+application defined in both files...
+Merging application with lower [com.google.android.gms:play-services-basement:18.4.0] AndroidManifest.xml:5:5-7:19
+Adopted [meta-data: null]
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/3caf0c6963487abff4b619c1978b9748/transformed/fragment-1.6.1/AndroidManifest.xml
+Merging manifest with lower [androidx.fragment:fragment:1.6.1] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.fragment:fragment:1.6.1] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/4620c4720ac850672229e0028225b877/transformed/activity-1.9.3/AndroidManifest.xml
+Merging manifest with lower [androidx.activity:activity:1.9.3] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.activity:activity:1.9.3] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/550efd293611d8305338599464274c16/transformed/activity-ktx-1.9.3/AndroidManifest.xml
+Merging manifest with lower [androidx.activity:activity-ktx:1.9.3] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.activity:activity-ktx:1.9.3] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/76353fd4fcd697289f5292928f58b71b/transformed/activity-compose-1.9.3/AndroidManifest.xml
+Merging manifest with lower [androidx.activity:activity-compose:1.9.3] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.activity:activity-compose:1.9.3] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/c0cc469309a64b01e33d4e952c3f2e70/transformed/material-icons-extended-release/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.material:material-icons-extended-android:1.7.6] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.material:material-icons-extended-android:1.7.6] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/9e978d032c3c2179c83d3847dd0adfab/transformed/material-icons-core-release/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.material:material-icons-core-android:1.7.6] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.material:material-icons-core-android:1.7.6] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/6a5d9541aeffdb6036d6c0d5e10963e6/transformed/ui-release/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.ui:ui-android:1.7.6] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.ui:ui-android:1.7.6] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/41cd2225a79f352a75e482b986442dd2/transformed/ui-test-manifest-1.7.6/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.ui:ui-test-manifest:1.7.6] AndroidManifest.xml:17:1-28:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.ui:ui-test-manifest:1.7.6] AndroidManifest.xml:20:5-44
+application defined in both files...
+Merging application with lower [androidx.compose.ui:ui-test-manifest:1.7.6] AndroidManifest.xml:22:5-26:19
+Adopted [activity: null]
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/625f64d95ca4324795715618e4613740/transformed/ui-test-junit4-release/AndroidManifest.xml
+Merging manifest with lower [androidx.compose.ui:ui-test-junit4-android:1.7.6] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.compose.ui:ui-test-junit4-android:1.7.6] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/1b08fc615a71508ccd12182679210d67/transformed/junit-1.2.1/AndroidManifest.xml
+Merging manifest with lower [androidx.test.ext:junit:1.2.1] AndroidManifest.xml:17:1-24:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.test.ext:junit:1.2.1] AndroidManifest.xml:20:5-22:41
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/cb114d1edba8d2915ebf3a1a1a75e555/transformed/runner-1.5.0/AndroidManifest.xml
+Merging manifest with lower [androidx.test:runner:1.5.0] AndroidManifest.xml:17:1-32:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.test:runner:1.5.0] AndroidManifest.xml:20:5-22:41
+Adopted [queries: null]
+application defined in both files...
+Merging application with lower [androidx.test:runner:1.5.0] AndroidManifest.xml:30:5-20
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/a438ceaa719d0c65e8beefc20f273bb3/transformed/core-splashscreen-1.0.1/AndroidManifest.xml
+Merging manifest with lower [androidx.core:core-splashscreen:1.0.1] AndroidManifest.xml:17:1-24:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.core:core-splashscreen:1.0.1] AndroidManifest.xml:20:5-22:41
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/f682093186dde95851d94d68c33e3dbc/transformed/timber-5.0.1/AndroidManifest.xml
+Merging manifest with lower [com.jakewharton.timber:timber:5.0.1] AndroidManifest.xml:2:1-9:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [com.jakewharton.timber:timber:5.0.1] AndroidManifest.xml:5:5-44
+application defined in both files...
+Merging application with lower [com.jakewharton.timber:timber:5.0.1] AndroidManifest.xml:7:5-20
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/758bd8bb0fdce47a1f6a711333993d08/transformed/storage-1.5.0/AndroidManifest.xml
+Merging manifest with lower [androidx.test.services:storage:1.5.0] AndroidManifest.xml:17:1-24:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.test.services:storage:1.5.0] AndroidManifest.xml:20:5-22:41
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/f00526ae34f724c8f2df6d07bcd23601/transformed/monitor-1.7.2/AndroidManifest.xml
+Merging manifest with lower [androidx.test:monitor:1.7.2] AndroidManifest.xml:17:1-24:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.test:monitor:1.7.2] AndroidManifest.xml:20:5-22:41
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/1cf11ccb572034fdc1d009b330894f02/transformed/annotation-1.0.1/AndroidManifest.xml
+Merging manifest with lower [androidx.test:annotation:1.0.1] AndroidManifest.xml:17:1-24:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.test:annotation:1.0.1] AndroidManifest.xml:20:5-22:41
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/fbccb16e3719a885573986aca8e7e450/transformed/annotation-experimental-1.4.1/AndroidManifest.xml
+Merging manifest with lower [androidx.annotation:annotation-experimental:1.4.1] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.annotation:annotation-experimental:1.4.1] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/b845eb5a65367d2954c03417b6dc29ad/transformed/okhttp-release/AndroidManifest.xml
+Merging manifest with lower [com.squareup.okhttp3:okhttp-android:5.3.2] AndroidManifest.xml:2:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [com.squareup.okhttp3:okhttp-android:5.3.2] AndroidManifest.xml:6:5-44
+uses-permission#android.permission.INTERNET defined in both files...
+Merging uses-permission#android.permission.INTERNET with lower [com.squareup.okhttp3:okhttp-android:5.3.2] AndroidManifest.xml:8:5-67
+application defined in both files...
+Merging application with lower [com.squareup.okhttp3:okhttp-android:5.3.2] AndroidManifest.xml:10:5-20:19
+provider#androidx.startup.InitializationProvider defined in both files...
+Merging provider#androidx.startup.InitializationProvider with lower [com.squareup.okhttp3:okhttp-android:5.3.2] AndroidManifest.xml:11:9-19:20
+Adopted [meta-data: null]
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/c49dcdb4c836df3c0e16dca63dcdd255/transformed/startup-runtime-1.2.0/AndroidManifest.xml
+Merging manifest with lower [androidx.startup:startup-runtime:1.2.0] AndroidManifest.xml:17:1-31:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.startup:startup-runtime:1.2.0] AndroidManifest.xml:21:5-44
+application defined in both files...
+Merging application with lower [androidx.startup:startup-runtime:1.2.0] AndroidManifest.xml:23:5-29:19
+provider#androidx.startup.InitializationProvider defined in both files...
+Merging provider#androidx.startup.InitializationProvider with lower [androidx.startup:startup-runtime:1.2.0] AndroidManifest.xml:24:9-28:34
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/8af9656dde286043e4794b8e0104ef2a/transformed/tracing-1.2.0/AndroidManifest.xml
+Merging manifest with lower [androidx.tracing:tracing:1.2.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.tracing:tracing:1.2.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/23ab9192d7222d34900f8b13b30c6152/transformed/tracing-ktx-1.2.0/AndroidManifest.xml
+Merging manifest with lower [androidx.tracing:tracing-ktx:1.2.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.tracing:tracing-ktx:1.2.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/95ca23ce348a0643a64b43ebd46b255e/transformed/sqlite-framework-release/AndroidManifest.xml
+Merging manifest with lower [androidx.sqlite:sqlite-framework-android:2.5.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.sqlite:sqlite-framework-android:2.5.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/9776c513d684221e560a18c24623da1b/transformed/sqlite-release/AndroidManifest.xml
+Merging manifest with lower [androidx.sqlite:sqlite-android:2.5.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.sqlite:sqlite-android:2.5.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/a303a62e73900dfbf5514ca08713247b/transformed/versionedparcelable-1.1.1/AndroidManifest.xml
+Merging manifest with lower [androidx.versionedparcelable:versionedparcelable:1.1.1] AndroidManifest.xml:17:1-27:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.versionedparcelable:versionedparcelable:1.1.1] AndroidManifest.xml:20:5-22:41
+application defined in both files...
+Merging application with lower [androidx.versionedparcelable:versionedparcelable:1.1.1] AndroidManifest.xml:24:5-25:19
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/4ad38c63fa52798f6cd612289cb0c8a2/transformed/exifinterface-1.3.6/AndroidManifest.xml
+Merging manifest with lower [androidx.exifinterface:exifinterface:1.3.6] AndroidManifest.xml:17:1-24:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.exifinterface:exifinterface:1.3.6] AndroidManifest.xml:20:5-22:41
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/02f84cb9ef765f1b82601e7e24319fce/transformed/transport-backend-cct-2.3.3/AndroidManifest.xml
+Merging manifest with lower [com.google.android.datatransport:transport-backend-cct:2.3.3] AndroidManifest.xml:15:1-38:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [com.google.android.datatransport:transport-backend-cct:2.3.3] AndroidManifest.xml:19:5-21:41
+uses-permission#android.permission.ACCESS_NETWORK_STATE defined in both files...
+Merging uses-permission#android.permission.ACCESS_NETWORK_STATE with lower [com.google.android.datatransport:transport-backend-cct:2.3.3] AndroidManifest.xml:25:5-79
+uses-permission#android.permission.INTERNET defined in both files...
+Merging uses-permission#android.permission.INTERNET with lower [com.google.android.datatransport:transport-backend-cct:2.3.3] AndroidManifest.xml:26:5-67
+application defined in both files...
+Merging application with lower [com.google.android.datatransport:transport-backend-cct:2.3.3] AndroidManifest.xml:28:5-36:19
+Adopted [service: null]
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/8bbb4b6c08517d521aba37faf2c0107e/transformed/transport-runtime-2.2.6/AndroidManifest.xml
+Merging manifest with lower [com.google.android.datatransport:transport-runtime:2.2.6] AndroidManifest.xml:15:1-41:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [com.google.android.datatransport:transport-runtime:2.2.6] AndroidManifest.xml:18:5-20:41
+uses-permission#android.permission.ACCESS_NETWORK_STATE defined in both files...
+Merging uses-permission#android.permission.ACCESS_NETWORK_STATE with lower [com.google.android.datatransport:transport-runtime:2.2.6] AndroidManifest.xml:22:5-79
+application defined in both files...
+Merging application with lower [com.google.android.datatransport:transport-runtime:2.2.6] AndroidManifest.xml:25:5-39:19
+Adopted [service: null]
+Adopted [receiver: null]
+service#com.google.android.datatransport.runtime.backends.TransportBackendDiscovery defined in both files...
+Merging service#com.google.android.datatransport.runtime.backends.TransportBackendDiscovery with lower [com.google.android.datatransport:transport-runtime:2.2.6] AndroidManifest.xml:36:9-38:40
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/3583da22d5433f145f4446c8cb26135f/transformed/transport-api-2.2.1/AndroidManifest.xml
+Merging manifest with lower [com.google.android.datatransport:transport-api:2.2.1] AndroidManifest.xml:15:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [com.google.android.datatransport:transport-api:2.2.1] AndroidManifest.xml:18:5-20:41
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/99ef7ef5ce98b7dab1984320990a2b5c/transformed/firebase-components-16.1.0/AndroidManifest.xml
+Merging manifest with lower [com.google.firebase:firebase-components:16.1.0] AndroidManifest.xml:15:1-23:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [com.google.firebase:firebase-components:16.1.0] AndroidManifest.xml:19:5-21:41
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/9c58fc22ac4a3cef74e6219280f8418d/transformed/firebase-encoders-json-17.1.0/AndroidManifest.xml
+Merging manifest with lower [com.google.firebase:firebase-encoders-json:17.1.0] AndroidManifest.xml:15:1-23:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [com.google.firebase:firebase-encoders-json:17.1.0] AndroidManifest.xml:19:5-21:41
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/cbb8ee0d9e55bb9be9651b288fbf3db5/transformed/interpolator-1.0.0/AndroidManifest.xml
+Merging manifest with lower [androidx.interpolator:interpolator:1.0.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.interpolator:interpolator:1.0.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/c984da2d4d93561b7214f2caed924d50/transformed/core-runtime-2.2.0/AndroidManifest.xml
+Merging manifest with lower [androidx.arch.core:core-runtime:2.2.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.arch.core:core-runtime:2.2.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/273973ceffb5c9bf6d1cdcbff2cff414/transformed/gifdecoder-5.0.0-rc01/AndroidManifest.xml
+Merging manifest with lower [com.github.bumptech.glide:gifdecoder:5.0.0-rc01] AndroidManifest.xml:2:1-7:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [com.github.bumptech.glide:gifdecoder:5.0.0-rc01] AndroidManifest.xml:5:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/38cdaeb59706bf58aba415c150249b3b/transformed/documentfile-1.0.0/AndroidManifest.xml
+Merging manifest with lower [androidx.documentfile:documentfile:1.0.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.documentfile:documentfile:1.0.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/c8b07d584c940e48a11b70756646ee2f/transformed/localbroadcastmanager-1.0.0/AndroidManifest.xml
+Merging manifest with lower [androidx.localbroadcastmanager:localbroadcastmanager:1.0.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.localbroadcastmanager:localbroadcastmanager:1.0.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/19a0b2db038aefadf38eb95874e4e1ac/transformed/print-1.0.0/AndroidManifest.xml
+Merging manifest with lower [androidx.print:print:1.0.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.print:print:1.0.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/35c3641b2d37b6b63b08f1e5cbfa521d/transformed/cursoradapter-1.0.0/AndroidManifest.xml
+Merging manifest with lower [androidx.cursoradapter:cursoradapter:1.0.0] AndroidManifest.xml:17:1-22:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.cursoradapter:cursoradapter:1.0.0] AndroidManifest.xml:20:5-44
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/f3233485ffc3993303067dda93d94994/transformed/espresso-idling-resource-3.6.1/AndroidManifest.xml
+Merging manifest with lower [androidx.test.espresso:espresso-idling-resource:3.6.1] AndroidManifest.xml:17:1-24:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [androidx.test.espresso:espresso-idling-resource:3.6.1] AndroidManifest.xml:20:5-22:41
+Merging library manifest /home/runner/.gradle/caches/8.13/transforms/f7853671e8f6a1d59a7c47edf31c9024/transformed/dagger-lint-aar-2.57.1/AndroidManifest.xml
+Merging manifest with lower [com.google.dagger:dagger-lint-aar:2.57.1] AndroidManifest.xml:16:1-19:12
+uses-sdk defined in both files...
+Merging uses-sdk with lower [com.google.dagger:dagger-lint-aar:2.57.1] AndroidManifest.xml:18:3-42
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="com.music.spotui.debug" >
+4
+5    <uses-sdk
+5-->/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/intermediates/tmp/manifest/test/debug/tempFile1ProcessTestManifest10459026197203505831.xml:5:5-74
+6        android:minSdkVersion="26"
+6-->/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/intermediates/tmp/manifest/test/debug/tempFile1ProcessTestManifest10459026197203505831.xml:5:15-41
+7        android:targetSdkVersion="36" />
+7-->/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/intermediates/tmp/manifest/test/debug/tempFile1ProcessTestManifest10459026197203505831.xml:5:42-71
+8
+9    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+9-->[com.google.mlkit:translate:17.0.3] /home/runner/.gradle/caches/8.13/transforms/a3b8ad70e3d88b14a1c4b47d6cb3c1fc/transformed/translate-17.0.3/AndroidManifest.xml:7:5-79
+9-->[com.google.mlkit:translate:17.0.3] /home/runner/.gradle/caches/8.13/transforms/a3b8ad70e3d88b14a1c4b47d6cb3c1fc/transformed/translate-17.0.3/AndroidManifest.xml:7:22-76
+10    <uses-permission android:name="android.permission.INTERNET" />
+10-->[com.google.mlkit:translate:17.0.3] /home/runner/.gradle/caches/8.13/transforms/a3b8ad70e3d88b14a1c4b47d6cb3c1fc/transformed/translate-17.0.3/AndroidManifest.xml:8:5-67
+10-->[com.google.mlkit:translate:17.0.3] /home/runner/.gradle/caches/8.13/transforms/a3b8ad70e3d88b14a1c4b47d6cb3c1fc/transformed/translate-17.0.3/AndroidManifest.xml:8:22-64
+11    <uses-permission android:name="android.permission.WAKE_LOCK" />
+11-->[androidx.media3:media3-exoplayer:1.11.0] /home/runner/.gradle/caches/8.13/transforms/682bd6fcfa57e74d7b0217b32f96dda6/transformed/media3-exoplayer-1.11.0/AndroidManifest.xml:23:5-68
+11-->[androidx.media3:media3-exoplayer:1.11.0] /home/runner/.gradle/caches/8.13/transforms/682bd6fcfa57e74d7b0217b32f96dda6/transformed/media3-exoplayer-1.11.0/AndroidManifest.xml:23:22-65
+12    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+12-->[androidx.work:work-runtime:2.11.2] /home/runner/.gradle/caches/8.13/transforms/08e5fc667ba9e8777e2400760f8d4d1a/transformed/work-runtime-2.11.2/AndroidManifest.xml:25:5-81
+12-->[androidx.work:work-runtime:2.11.2] /home/runner/.gradle/caches/8.13/transforms/08e5fc667ba9e8777e2400760f8d4d1a/transformed/work-runtime-2.11.2/AndroidManifest.xml:25:22-78
+13    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+13-->[androidx.work:work-runtime:2.11.2] /home/runner/.gradle/caches/8.13/transforms/08e5fc667ba9e8777e2400760f8d4d1a/transformed/work-runtime-2.11.2/AndroidManifest.xml:26:5-77
+13-->[androidx.work:work-runtime:2.11.2] /home/runner/.gradle/caches/8.13/transforms/08e5fc667ba9e8777e2400760f8d4d1a/transformed/work-runtime-2.11.2/AndroidManifest.xml:26:22-74
+14
+15    <permission
+15-->[androidx.core:core:1.15.0] /home/runner/.gradle/caches/8.13/transforms/3b797d4b08857fc96109383441243624/transformed/core-1.15.0/AndroidManifest.xml:22:5-24:47
+16        android:name="com.music.spotui.debug.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+16-->[androidx.core:core:1.15.0] /home/runner/.gradle/caches/8.13/transforms/3b797d4b08857fc96109383441243624/transformed/core-1.15.0/AndroidManifest.xml:23:9-81
+17        android:protectionLevel="signature" />
+17-->[androidx.core:core:1.15.0] /home/runner/.gradle/caches/8.13/transforms/3b797d4b08857fc96109383441243624/transformed/core-1.15.0/AndroidManifest.xml:24:9-44
+18
+19    <uses-permission android:name="com.music.spotui.debug.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
+19-->[androidx.core:core:1.15.0] /home/runner/.gradle/caches/8.13/transforms/3b797d4b08857fc96109383441243624/transformed/core-1.15.0/AndroidManifest.xml:26:5-97
+19-->[androidx.core:core:1.15.0] /home/runner/.gradle/caches/8.13/transforms/3b797d4b08857fc96109383441243624/transformed/core-1.15.0/AndroidManifest.xml:26:22-94
+20    <uses-permission android:name="android.permission.REORDER_TASKS" />
+20-->[androidx.test:core:1.6.1] /home/runner/.gradle/caches/8.13/transforms/caff5adec038f248520af987090cc370/transformed/core-1.6.1/AndroidManifest.xml:24:5-72
+20-->[androidx.test:core:1.6.1] /home/runner/.gradle/caches/8.13/transforms/caff5adec038f248520af987090cc370/transformed/core-1.6.1/AndroidManifest.xml:24:22-69
+21
+22    <queries>
+22-->[androidx.test:runner:1.5.0] /home/runner/.gradle/caches/8.13/transforms/cb114d1edba8d2915ebf3a1a1a75e555/transformed/runner-1.5.0/AndroidManifest.xml:24:5-28:15
+23        <package android:name="androidx.test.orchestrator" />
+23-->[androidx.test:runner:1.5.0] /home/runner/.gradle/caches/8.13/transforms/cb114d1edba8d2915ebf3a1a1a75e555/transformed/runner-1.5.0/AndroidManifest.xml:25:9-62
+23-->[androidx.test:runner:1.5.0] /home/runner/.gradle/caches/8.13/transforms/cb114d1edba8d2915ebf3a1a1a75e555/transformed/runner-1.5.0/AndroidManifest.xml:25:18-59
+24        <package android:name="androidx.test.services" />
+24-->[androidx.test:runner:1.5.0] /home/runner/.gradle/caches/8.13/transforms/cb114d1edba8d2915ebf3a1a1a75e555/transformed/runner-1.5.0/AndroidManifest.xml:26:9-58
+24-->[androidx.test:runner:1.5.0] /home/runner/.gradle/caches/8.13/transforms/cb114d1edba8d2915ebf3a1a1a75e555/transformed/runner-1.5.0/AndroidManifest.xml:26:18-55
+25        <package android:name="com.google.android.apps.common.testing.services" />
+25-->[androidx.test:runner:1.5.0] /home/runner/.gradle/caches/8.13/transforms/cb114d1edba8d2915ebf3a1a1a75e555/transformed/runner-1.5.0/AndroidManifest.xml:27:9-83
+25-->[androidx.test:runner:1.5.0] /home/runner/.gradle/caches/8.13/transforms/cb114d1edba8d2915ebf3a1a1a75e555/transformed/runner-1.5.0/AndroidManifest.xml:27:18-80
+26    </queries>
+27
+28    <application
+28-->[com.google.mlkit:translate:17.0.3] /home/runner/.gradle/caches/8.13/transforms/a3b8ad70e3d88b14a1c4b47d6cb3c1fc/transformed/translate-17.0.3/AndroidManifest.xml:10:5-18:19
+29        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+29-->[androidx.core:core:1.15.0] /home/runner/.gradle/caches/8.13/transforms/3b797d4b08857fc96109383441243624/transformed/core-1.15.0/AndroidManifest.xml:28:18-86
+30        android:debuggable="true" >
+31        <service
+31-->[com.google.mlkit:translate:17.0.3] /home/runner/.gradle/caches/8.13/transforms/a3b8ad70e3d88b14a1c4b47d6cb3c1fc/transformed/translate-17.0.3/AndroidManifest.xml:11:9-17:19
+32            android:name="com.google.mlkit.common.internal.MlKitComponentDiscoveryService"
+32-->[com.google.mlkit:translate:17.0.3] /home/runner/.gradle/caches/8.13/transforms/a3b8ad70e3d88b14a1c4b47d6cb3c1fc/transformed/translate-17.0.3/AndroidManifest.xml:12:13-91
+33            android:directBootAware="true"
+33-->[com.google.mlkit:common:18.11.0] /home/runner/.gradle/caches/8.13/transforms/6296f5c2feb15249b30e3bafcfe8ee5a/transformed/common-18.11.0/AndroidManifest.xml:17:13-43
+34            android:exported="false" >
+34-->[com.google.mlkit:translate:17.0.3] /home/runner/.gradle/caches/8.13/transforms/a3b8ad70e3d88b14a1c4b47d6cb3c1fc/transformed/translate-17.0.3/AndroidManifest.xml:13:13-37
+35            <meta-data
+35-->[com.google.mlkit:translate:17.0.3] /home/runner/.gradle/caches/8.13/transforms/a3b8ad70e3d88b14a1c4b47d6cb3c1fc/transformed/translate-17.0.3/AndroidManifest.xml:14:13-16:85
+36                android:name="com.google.firebase.components:com.google.mlkit.nl.translate.NaturalLanguageTranslateRegistrar"
+36-->[com.google.mlkit:translate:17.0.3] /home/runner/.gradle/caches/8.13/transforms/a3b8ad70e3d88b14a1c4b47d6cb3c1fc/transformed/translate-17.0.3/AndroidManifest.xml:15:17-126
+37                android:value="com.google.firebase.components.ComponentRegistrar" />
+37-->[com.google.mlkit:translate:17.0.3] /home/runner/.gradle/caches/8.13/transforms/a3b8ad70e3d88b14a1c4b47d6cb3c1fc/transformed/translate-17.0.3/AndroidManifest.xml:16:17-82
+38            <meta-data
+38-->[com.google.mlkit:language-id:17.0.6] /home/runner/.gradle/caches/8.13/transforms/1f6e3506606a6a1a4af19ade04290080/transformed/language-id-17.0.6/AndroidManifest.xml:11:13-13:85
+39                android:name="com.google.firebase.components:com.google.mlkit.nl.languageid.bundled.internal.ThickLanguageIdRegistrar"
+39-->[com.google.mlkit:language-id:17.0.6] /home/runner/.gradle/caches/8.13/transforms/1f6e3506606a6a1a4af19ade04290080/transformed/language-id-17.0.6/AndroidManifest.xml:12:17-135
+40                android:value="com.google.firebase.components.ComponentRegistrar" />
+40-->[com.google.mlkit:language-id:17.0.6] /home/runner/.gradle/caches/8.13/transforms/1f6e3506606a6a1a4af19ade04290080/transformed/language-id-17.0.6/AndroidManifest.xml:13:17-82
+41            <meta-data
+41-->[com.google.mlkit:language-id-common:16.1.0] /home/runner/.gradle/caches/8.13/transforms/8756eb60beb217977a2543d73fc2b1b7/transformed/language-id-common-16.1.0/AndroidManifest.xml:26:13-28:85
+42                android:name="com.google.firebase.components:com.google.mlkit.nl.languageid.internal.LanguageIdRegistrar"
+42-->[com.google.mlkit:language-id-common:16.1.0] /home/runner/.gradle/caches/8.13/transforms/8756eb60beb217977a2543d73fc2b1b7/transformed/language-id-common-16.1.0/AndroidManifest.xml:27:17-122
+43                android:value="com.google.firebase.components.ComponentRegistrar" />
+43-->[com.google.mlkit:language-id-common:16.1.0] /home/runner/.gradle/caches/8.13/transforms/8756eb60beb217977a2543d73fc2b1b7/transformed/language-id-common-16.1.0/AndroidManifest.xml:28:17-82
+44            <meta-data
+44-->[com.google.mlkit:common:18.11.0] /home/runner/.gradle/caches/8.13/transforms/6296f5c2feb15249b30e3bafcfe8ee5a/transformed/common-18.11.0/AndroidManifest.xml:20:13-22:85
+45                android:name="com.google.firebase.components:com.google.mlkit.common.internal.CommonComponentRegistrar"
+45-->[com.google.mlkit:common:18.11.0] /home/runner/.gradle/caches/8.13/transforms/6296f5c2feb15249b30e3bafcfe8ee5a/transformed/common-18.11.0/AndroidManifest.xml:21:17-120
+46                android:value="com.google.firebase.components.ComponentRegistrar" />
+46-->[com.google.mlkit:common:18.11.0] /home/runner/.gradle/caches/8.13/transforms/6296f5c2feb15249b30e3bafcfe8ee5a/transformed/common-18.11.0/AndroidManifest.xml:22:17-82
+47        </service>
+48
+49        <provider
+49-->[com.google.mlkit:common:18.11.0] /home/runner/.gradle/caches/8.13/transforms/6296f5c2feb15249b30e3bafcfe8ee5a/transformed/common-18.11.0/AndroidManifest.xml:9:9-13:38
+50            android:name="com.google.mlkit.common.internal.MlKitInitProvider"
+50-->[com.google.mlkit:common:18.11.0] /home/runner/.gradle/caches/8.13/transforms/6296f5c2feb15249b30e3bafcfe8ee5a/transformed/common-18.11.0/AndroidManifest.xml:10:13-78
+51            android:authorities="com.music.spotui.debug.mlkitinitprovider"
+51-->[com.google.mlkit:common:18.11.0] /home/runner/.gradle/caches/8.13/transforms/6296f5c2feb15249b30e3bafcfe8ee5a/transformed/common-18.11.0/AndroidManifest.xml:11:13-69
+52            android:exported="false"
+52-->[com.google.mlkit:common:18.11.0] /home/runner/.gradle/caches/8.13/transforms/6296f5c2feb15249b30e3bafcfe8ee5a/transformed/common-18.11.0/AndroidManifest.xml:12:13-37
+53            android:initOrder="99" />
+53-->[com.google.mlkit:common:18.11.0] /home/runner/.gradle/caches/8.13/transforms/6296f5c2feb15249b30e3bafcfe8ee5a/transformed/common-18.11.0/AndroidManifest.xml:13:13-35
+54
+55        <activity
+55-->[com.google.android.gms:play-services-base:18.5.0] /home/runner/.gradle/caches/8.13/transforms/a1175899102e9418c2bece12343833f5/transformed/play-services-base-18.5.0/AndroidManifest.xml:5:9-173
+56            android:name="com.google.android.gms.common.api.GoogleApiActivity"
+56-->[com.google.android.gms:play-services-base:18.5.0] /home/runner/.gradle/caches/8.13/transforms/a1175899102e9418c2bece12343833f5/transformed/play-services-base-18.5.0/AndroidManifest.xml:5:19-85
+57            android:exported="false"
+57-->[com.google.android.gms:play-services-base:18.5.0] /home/runner/.gradle/caches/8.13/transforms/a1175899102e9418c2bece12343833f5/transformed/play-services-base-18.5.0/AndroidManifest.xml:5:146-170
+58            android:theme="@android:style/Theme.Translucent.NoTitleBar" /> <!-- TODO: b/510644544 - Remove this workaround once minSdk is 38 -->
+58-->[com.google.android.gms:play-services-base:18.5.0] /home/runner/.gradle/caches/8.13/transforms/a1175899102e9418c2bece12343833f5/transformed/play-services-base-18.5.0/AndroidManifest.xml:5:86-145
+59        <activity
+59-->[androidx.media3:media3-session:1.11.0] /home/runner/.gradle/caches/8.13/transforms/a8bcad2b1327a69bb65591282a3479ae/transformed/media3-session-1.11.0/AndroidManifest.xml:25:9-43:20
+60            android:name="androidx.media3.session.BluetoothValidationActivity"
+60-->[androidx.media3:media3-session:1.11.0] /home/runner/.gradle/caches/8.13/transforms/a8bcad2b1327a69bb65591282a3479ae/transformed/media3-session-1.11.0/AndroidManifest.xml:26:13-79
+61            android:excludeFromRecents="true"
+61-->[androidx.media3:media3-session:1.11.0] /home/runner/.gradle/caches/8.13/transforms/a8bcad2b1327a69bb65591282a3479ae/transformed/media3-session-1.11.0/AndroidManifest.xml:27:13-46
+62            android:exported="true"
+62-->[androidx.media3:media3-session:1.11.0] /home/runner/.gradle/caches/8.13/transforms/a8bcad2b1327a69bb65591282a3479ae/transformed/media3-session-1.11.0/AndroidManifest.xml:28:13-36
+63            android:noHistory="true"
+63-->[androidx.media3:media3-session:1.11.0] /home/runner/.gradle/caches/8.13/transforms/a8bcad2b1327a69bb65591282a3479ae/transformed/media3-session-1.11.0/AndroidManifest.xml:29:13-37
+64            android:permission="android.permission.BLUETOOTH_PRIVILEGED"
+64-->[androidx.media3:media3-session:1.11.0] /home/runner/.gradle/caches/8.13/transforms/a8bcad2b1327a69bb65591282a3479ae/transformed/media3-session-1.11.0/AndroidManifest.xml:30:13-73
+65            android:theme="@android:style/Theme.NoDisplay" >
+65-->[androidx.media3:media3-session:1.11.0] /home/runner/.gradle/caches/8.13/transforms/a8bcad2b1327a69bb65591282a3479ae/transformed/media3-session-1.11.0/AndroidManifest.xml:31:13-59
+66            <intent-filter>
+66-->[androidx.media3:media3-session:1.11.0] /home/runner/.gradle/caches/8.13/transforms/a8bcad2b1327a69bb65591282a3479ae/transformed/media3-session-1.11.0/AndroidManifest.xml:32:13-42:29
+67
+68                <!-- Omit CATEGORY_DEFAULT to avoid listing this app as a generic audio app. -->
+69                <action android:name="android.intent.action.VIEW" />
+69-->[androidx.media3:media3-session:1.11.0] /home/runner/.gradle/caches/8.13/transforms/a8bcad2b1327a69bb65591282a3479ae/transformed/media3-session-1.11.0/AndroidManifest.xml:35:17-69
+69-->[androidx.media3:media3-session:1.11.0] /home/runner/.gradle/caches/8.13/transforms/a8bcad2b1327a69bb65591282a3479ae/transformed/media3-session-1.11.0/AndroidManifest.xml:35:25-66
+70
+71                <data android:scheme="content" />
+71-->[androidx.media3:media3-session:1.11.0] /home/runner/.gradle/caches/8.13/transforms/a8bcad2b1327a69bb65591282a3479ae/transformed/media3-session-1.11.0/AndroidManifest.xml:37:17-50
+71-->[androidx.media3:media3-session:1.11.0] /home/runner/.gradle/caches/8.13/transforms/a8bcad2b1327a69bb65591282a3479ae/transformed/media3-session-1.11.0/AndroidManifest.xml:37:23-47
+72                <data android:host="media" />
+72-->[androidx.media3:media3-session:1.11.0] /home/runner/.gradle/caches/8.13/transforms/a8bcad2b1327a69bb65591282a3479ae/transformed/media3-session-1.11.0/AndroidManifest.xml:37:17-50
+73                <!-- Satisfies the probe used in Bluetooths's MediaPlayerList.java on API 36 and 37. -->
+74                <data android:pathPrefix="/internal/audio/media/" />
+74-->[androidx.media3:media3-session:1.11.0] /home/runner/.gradle/caches/8.13/transforms/a8bcad2b1327a69bb65591282a3479ae/transformed/media3-session-1.11.0/AndroidManifest.xml:37:17-50
+75                <data android:mimeType="audio/*" />
+75-->[androidx.media3:media3-session:1.11.0] /home/runner/.gradle/caches/8.13/transforms/a8bcad2b1327a69bb65591282a3479ae/transformed/media3-session-1.11.0/AndroidManifest.xml:37:17-50
+76            </intent-filter>
+77        </activity>
+78        <activity
+78-->[androidx.glance:glance-appwidget:1.1.1] /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1/AndroidManifest.xml:23:9-28:62
+79            android:name="androidx.glance.appwidget.action.ActionTrampolineActivity"
+79-->[androidx.glance:glance-appwidget:1.1.1] /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1/AndroidManifest.xml:24:13-85
+80            android:enabled="true"
+80-->[androidx.glance:glance-appwidget:1.1.1] /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1/AndroidManifest.xml:25:13-35
+81            android:excludeFromRecents="true"
+81-->[androidx.glance:glance-appwidget:1.1.1] /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1/AndroidManifest.xml:26:13-46
+82            android:exported="false"
+82-->[androidx.glance:glance-appwidget:1.1.1] /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1/AndroidManifest.xml:27:13-37
+83            android:theme="@android:style/Theme.NoDisplay" />
+83-->[androidx.glance:glance-appwidget:1.1.1] /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1/AndroidManifest.xml:28:13-59
+84        <activity
+84-->[androidx.glance:glance-appwidget:1.1.1] /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1/AndroidManifest.xml:29:9-36:81
+85            android:name="androidx.glance.appwidget.action.InvisibleActionTrampolineActivity"
+85-->[androidx.glance:glance-appwidget:1.1.1] /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1/AndroidManifest.xml:30:13-94
+86            android:enabled="true"
+86-->[androidx.glance:glance-appwidget:1.1.1] /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1/AndroidManifest.xml:31:13-35
+87            android:exported="false"
+87-->[androidx.glance:glance-appwidget:1.1.1] /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1/AndroidManifest.xml:32:13-37
+88            android:launchMode="singleInstance"
+88-->[androidx.glance:glance-appwidget:1.1.1] /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1/AndroidManifest.xml:33:13-48
+89            android:noHistory="true"
+89-->[androidx.glance:glance-appwidget:1.1.1] /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1/AndroidManifest.xml:34:13-37
+90            android:taskAffinity="androidx.glance.appwidget.ListAdapterCallbackTrampoline"
+90-->[androidx.glance:glance-appwidget:1.1.1] /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1/AndroidManifest.xml:35:13-91
+91            android:theme="@style/Widget.Glance.AppWidget.CallbackTrampoline" />
+91-->[androidx.glance:glance-appwidget:1.1.1] /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1/AndroidManifest.xml:36:13-78
+92
+93        <receiver
+93-->[androidx.glance:glance-appwidget:1.1.1] /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1/AndroidManifest.xml:38:9-41:40
+94            android:name="androidx.glance.appwidget.action.ActionCallbackBroadcastReceiver"
+94-->[androidx.glance:glance-appwidget:1.1.1] /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1/AndroidManifest.xml:39:13-92
+95            android:enabled="true"
+95-->[androidx.glance:glance-appwidget:1.1.1] /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1/AndroidManifest.xml:40:13-35
+96            android:exported="false" />
+96-->[androidx.glance:glance-appwidget:1.1.1] /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1/AndroidManifest.xml:41:13-37
+97        <receiver
+97-->[androidx.glance:glance-appwidget:1.1.1] /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1/AndroidManifest.xml:42:9-45:40
+98            android:name="androidx.glance.appwidget.UnmanagedSessionReceiver"
+98-->[androidx.glance:glance-appwidget:1.1.1] /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1/AndroidManifest.xml:43:13-78
+99            android:enabled="true"
+99-->[androidx.glance:glance-appwidget:1.1.1] /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1/AndroidManifest.xml:44:13-35
+> Task :app:kspDebugKotlin
+Build cache key for StructureTransformAction: /home/runner/work/SpotUi-Offical/SpotUi-Offical/spotify/build/libs/spotify.jar is fc28d926e3fad3dea6f15f93c64515e8
+Loaded cache entry for StructureTransformAction: /home/runner/work/SpotUi-Offical/SpotUi-Offical/spotify/build/libs/spotify.jar with cache key fc28d926e3fad3dea6f15f93c64515e8
+Build cache key for task ':app:kspDebugKotlin' is f7da93c9c556d041709c4a468aae592f
+Task ':app:kspDebugKotlin' is not up-to-date because:
+  No history is available.
+The input changes require a full rebuild for incremental task ':app:kspDebugKotlin'.
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/debug/kotlin', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/debug/java', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/main/kotlin', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/debug/java', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/debug/kotlin', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/debug/java', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/main/kotlin', not found
+i: [ksp] loaded provider(s): [dagger.hilt.processor.internal.uninstallmodules.KspUninstallModulesProcessor$Provider, dagger.hilt.android.processor.internal.androidentrypoint.KspAndroidEntryPointProcessor$Provider, dagger.hilt.processor.internal.aggregateddeps.KspAggregatedDepsProcessor$Provider, dagger.hilt.processor.internal.generatesrootinput.KspGeneratesRootInputProcessor$Provider, dagger.hilt.android.processor.internal.customtestapplication.KspCustomTestApplicationProcessor$Provider, dagger.hilt.processor.internal.definecomponent.KspDefineComponentProcessor$Provider, dagger.hilt.android.processor.internal.viewmodel.KspViewModelProcessor$Provider, dagger.hilt.android.processor.internal.bindvalue.KspBindValueProcessor$Provider, dagger.hilt.processor.internal.root.KspComponentTreeDepsProcessor$Provider, dagger.hilt.processor.internal.earlyentrypoint.KspEarlyEntryPointProcessor$Provider, dagger.hilt.processor.internal.aliasof.KspAliasOfProcessor$Provider, dagger.hilt.processor.internal.originatingelement.KspO
+Stored cache entry for task ':app:kspDebugKotlin' with cache key f7da93c9c556d041709c4a468aae592f
+Resolve mutations for :app:compileDebugKotlin (Thread[#57,Execution worker,5,main]) started.
+:app:compileDebugKotlin (Thread[#57,Execution worker,5,main]) started.
+> Task :app:compileDebugKotlin FROM-CACHE
+Adding -Xuse-inline-scopes-numbers Kotlin compiler flag for task :app:compileDebugAndroidTestKotlin
+Build cache key for BuildToolsApiClasspathEntrySnapshotTransform: /home/runner/work/SpotUi-Offical/SpotUi-Offical/spotify/build/libs/spotify.jar is 9f061b7c905346bd5d8c0a2558c25371
+Loaded cache entry for BuildToolsApiClasspathEntrySnapshotTransform: /home/runner/work/SpotUi-Offical/SpotUi-Offical/spotify/build/libs/spotify.jar with cache key 9f061b7c905346bd5d8c0a2558c25371
+Build cache key for task ':app:compileDebugKotlin' is e6af8a32e1702b3b969e1027b2db8797
+Task ':app:compileDebugKotlin' is not up-to-date because:
+  No history is available.
+Loaded cache entry for task ':app:compileDebugKotlin' with cache key e6af8a32e1702b3b969e1027b2db8797
+Resolve mutations for :app:compileDebugJavaWithJavac (Thread[#57,Execution worker,5,main]) started.
+:app:compileDebugJavaWithJavac (Thread[#57,Execution worker,5,main]) started.
+> Task :app:compileDebugJavaWithJavac FROM-CACHE
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debug/classes', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debug/classes', not found
+Custom actions are attached to task ':app:compileDebugJavaWithJavac'.
+Build cache key for task ':app:compileDebugJavaWithJavac' is 1107959ca62141f06e0e3bcdd6ff63fd
+Task ':app:compileDebugJavaWithJavac' is not up-to-date because:
+  No history is available.
+Loaded cache entry for task ':app:compileDebugJavaWithJavac' with cache key 1107959ca62141f06e0e3bcdd6ff63fd
+No compile result for :app:compileDebugJavaWithJavac
+Resolve mutations for :app:hiltAggregateDepsDebug (Thread[#57,Execution worker,5,main]) started.
+:app:hiltAggregateDepsDebug (Thread[#57,Execution worker,5,main]) started.
+> Task :app:hiltAggregateDepsDebug FROM-CACHE
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debug/classes', not found
+Caching disabled for IdentityTransform: /home/runner/work/SpotUi-Offical/SpotUi-Offical/spotify/build/libs/spotify.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/work/SpotUi-Offical/SpotUi-Offical/spotify/build/libs/spotify.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/work/SpotUi-Offical/SpotUi-Offical/spotify/build/libs/spotify.jar is 70aa32d3121d7152e787722c5f1cc420
+Loaded cache entry for AggregatedPackagesTransform: /home/runner/work/SpotUi-Offical/SpotUi-Offical/spotify/build/libs/spotify.jar with cache key 70aa32d3121d7152e787722c5f1cc420
+Build cache key for task ':app:hiltAggregateDepsDebug' is 0638d30c314cdbb15f5b53b6f43c067c
+Task ':app:hiltAggregateDepsDebug' is not up-to-date because:
+  No history is available.
+Loaded cache entry for task ':app:hiltAggregateDepsDebug' with cache key 0638d30c314cdbb15f5b53b6f43c067c
+Resolve mutations for :app:hiltJavaCompileDebug (Thread[#56,included builds,5,main]) started.
+:app:hiltJavaCompileDebug (Thread[#56,included builds,5,main]) started.
+> Task :app:hiltJavaCompileDebug FROM-CACHE
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debug/classes', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debug/classes', not found
+Build cache key for task ':app:hiltJavaCompileDebug' is 9332a8df421300a49d82e0cbbf480b45
+Task ':app:hiltJavaCompileDebug' is not up-to-date because:
+  No history is available.
+Loaded cache entry for task ':app:hiltJavaCompileDebug' with cache key 9332a8df421300a49d82e0cbbf480b45
+No compile result for :app:hiltJavaCompileDebug
+Resolve mutations for :app:transformDebugClassesWithAsm (Thread[#56,included builds,5,main]) started.
+:app:transformDebugClassesWithAsm (Thread[#56,included builds,5,main]) started.
+> Task :app:transformDebugClassesWithAsm FROM-CACHE
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debug/classes', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debug/classes', not found
+Build cache key for task ':app:transformDebugClassesWithAsm' is 9963fc81b1ae1440834bf5d559174ce2
+Task ':app:transformDebugClassesWithAsm' is not up-to-date because:
+  No history is available.
+Loaded cache entry for task ':app:transformDebugClassesWithAsm' with cache key 9963fc81b1ae1440834bf5d559174ce2
+Resolve mutations for :app:bundleDebugClassesToRuntimeJar (Thread[#56,included builds,5,main]) started.
+:app:bundleDebugClassesToRuntimeJar (Thread[#56,included builds,5,main]) started.
+Resolve mutations for :app:processDebugJavaRes (Thread[#57,Execution worker,5,main]) started.
+:app:processDebugJavaRes (Thread[#57,Execution worker,5,main]) started.
+> Task :app:processDebugJavaRes
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/main/resources', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/debug/resources', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debug/classes', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debug/classes', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/main/resources', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/debug/resources', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debug/classes', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debug/classes', not found
+Caching disabled for task ':app:processDebugJavaRes' because:
+  Caching has been disabled for the task
+Task ':app:processDebugJavaRes' is not up-to-date because:
+  No history is available.
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/main/resources', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/debug/resources', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debug/classes', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debug/classes', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/main/resources', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/debug/resources', not found
+work action resolve out (project :app) (Thread[#57,Execution worker,5,main]) started.
+Resolve mutations for :app:bundleDebugClassesToCompileJar (Thread[#57,Execution worker,5,main]) started.
+:app:bundleDebugClassesToCompileJar (Thread[#57,Execution worker,5,main]) started.
+> Task :app:bundleDebugClassesToRuntimeJar
+Caching disabled for task ':app:bundleDebugClassesToRuntimeJar' because:
+  Caching has been disabled for the task
+Task ':app:bundleDebugClassesToRuntimeJar' is not up-to-date because:
+  No history is available.
+work action resolve classes.jar (project :app) (Thread[#56,included builds,5,main]) started.
+> Task :app:bundleDebugClassesToCompileJar
+Caching disabled for task ':app:bundleDebugClassesToCompileJar' because:
+  Caching has been disabled for the task
+Task ':app:bundleDebugClassesToCompileJar' is not up-to-date because:
+  No history is available.
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debug/classes', not found
+work action resolve classes.jar (project :app) (Thread[#57,Execution worker,5,main]) started.
+Resolve mutations for :app:kspDebugUnitTestKotlin (Thread[#57,Execution worker,5,main]) started.
+IdentityTransform (Thread[#56,included builds,5,main]) started.
+:app:kspDebugUnitTestKotlin (Thread[#57,Execution worker,5,main]) started.
+CopyTransform (Thread[#56,included builds,5,main]) started.
+AggregatedPackagesTransform (Thread[#56,included builds,5,main]) started.
+> Task :app:kspDebugUnitTestKotlin
+Build cache key for task ':app:kspDebugUnitTestKotlin' is 194781066b294d2d9a8797b00f314a07
+Task ':app:kspDebugUnitTestKotlin' is not up-to-date because:
+  No history is available.
+The input changes require a full rebuild for incremental task ':app:kspDebugUnitTestKotlin'.
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/debugUnitTest/kotlin', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/test/kotlin', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/testDebug/kotlin', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/testDebug/java', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/testDebug/java', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/debugUnitTest/kotlin', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/test/kotlin', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/testDebug/kotlin', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/testDebug/java', not found
+i: [ksp] loaded provider(s): [dagger.hilt.processor.internal.uninstallmodules.KspUninstallModulesProcessor$Provider, dagger.hilt.android.processor.internal.androidentrypoint.KspAndroidEntryPointProcessor$Provider, dagger.hilt.processor.internal.aggregateddeps.KspAggregatedDepsProcessor$Provider, dagger.hilt.processor.internal.generatesrootinput.KspGeneratesRootInputProcessor$Provider, dagger.hilt.android.processor.internal.customtestapplication.KspCustomTestApplicationProcessor$Provider, dagger.hilt.processor.internal.definecomponent.KspDefineComponentProcessor$Provider, dagger.hilt.android.processor.internal.viewmodel.KspViewModelProcessor$Provider, dagger.hilt.android.processor.internal.bindvalue.KspBindValueProcessor$Provider, dagger.hilt.processor.internal.root.KspComponentTreeDepsProcessor$Provider, dagger.hilt.processor.internal.earlyentrypoint.KspEarlyEntryPointProcessor$Provider, dagger.hilt.processor.internal.aliasof.KspAliasOfProcessor$Provider, dagger.hilt.processor.internal.originatingelement.KspO
+Stored cache entry for task ':app:kspDebugUnitTestKotlin' with cache key 194781066b294d2d9a8797b00f314a07
+Resolve mutations for :app:compileDebugUnitTestKotlin (Thread[#57,Execution worker,5,main]) started.
+:app:compileDebugUnitTestKotlin (Thread[#57,Execution worker,5,main]) started.
+> Task :app:hiltAggregateDepsDebugUnitTest
+Caching disabled for AarToClassTransform: /home/runner/.gradle/caches/modules-2/files-2.1/androidx.compose.ui/ui-test-android/1.7.6/f85768b7ff63356e210b756ab700b8302b95c0ff/ui-test-release.aar because:
+  Caching not enabled.
+Caching disabled for AarToClassTransform: /home/runner/.gradle/caches/modules-2/files-2.1/androidx.test/core-ktx/1.6.1/2081cbffbc2e8203246295f02d8e6a619164ad5e/core-ktx-1.6.1.aar because:
+  Caching not enabled.
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/8.13/transforms/39429903ffc0077cacc8a9675fae782b/transformed/core-ktx-1.6.1-runtime.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/8.13/transforms/39429903ffc0077cacc8a9675fae782b/transformed/core-ktx-1.6.1-runtime.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/39429903ffc0077cacc8a9675fae782b/transformed/core-ktx-1.6.1-runtime.jar is 3e7bc98f46ab55cfaf26b3122ba455a8
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/8.13/transforms/dd59930d1dc67be534641ac3e66dba28/transformed/ui-test-release-runtime.jar because:
+  Caching not enabled.
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/39429903ffc0077cacc8a9675fae782b/transformed/core-ktx-1.6.1-runtime.jar with cache key 3e7bc98f46ab55cfaf26b3122ba455a8
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/8.13/transforms/dd59930d1dc67be534641ac3e66dba28/transformed/ui-test-release-runtime.jar because:
+  Caching not enabled.
+Caching disabled for AarToClassTransform: /home/runner/.gradle/caches/modules-2/files-2.1/androidx.test.espresso/espresso-core/3.5.0/ad190e8b95ac21ceab785c880d5c781d9731c703/espresso-core-3.5.0.aar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/dd59930d1dc67be534641ac3e66dba28/transformed/ui-test-release-runtime.jar is 39bb53edee012f1ea123744cb3655db2
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/dd59930d1dc67be534641ac3e66dba28/transformed/ui-test-release-runtime.jar with cache key 39bb53edee012f1ea123744cb3655db2
+Caching disabled for AarToClassTransform: /home/runner/.gradle/caches/modules-2/files-2.1/androidx.test/core/1.6.1/6ae9504ddc6a6aae3b74cf1b3786d8457edfafb3/core-1.6.1.aar because:
+  Caching not enabled.
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/8.13/transforms/ae89e12519fbcbcbe2e47bdefe5a1822/transformed/core-1.6.1-runtime.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/8.13/transforms/ae89e12519fbcbcbe2e47bdefe5a1822/transformed/core-1.6.1-runtime.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/ae89e12519fbcbcbe2e47bdefe5a1822/transformed/core-1.6.1-runtime.jar is d5a9ddd0b541cf77aa289b2a23ad31cc
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/ae89e12519fbcbcbe2e47bdefe5a1822/transformed/core-1.6.1-runtime.jar with cache key d5a9ddd0b541cf77aa289b2a23ad31cc
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlinx/kotlinx-coroutines-test-jvm/1.11.0/1dfe8ce2b805d913922f283b386895bd0979dfcb/kotlinx-coroutines-test-jvm-1.11.0.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlinx/kotlinx-coroutines-test-jvm/1.11.0/1dfe8ce2b805d913922f283b386895bd0979dfcb/kotlinx-coroutines-test-jvm-1.11.0.jar is 81f98307a83276f9211462ffa42d36a5
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlinx/kotlinx-coroutines-test-jvm/1.11.0/1dfe8ce2b805d913922f283b386895bd0979dfcb/kotlinx-coroutines-test-jvm-1.11.0.jar with cache key 81f98307a83276f9211462ffa42d36a5
+Caching disabled for AarToClassTransform: /home/runner/.gradle/caches/modules-2/files-2.1/androidx.compose.ui/ui-test-junit4-android/1.7.6/174f109b15d2ff0f8e636f01ef7f4c5df802f458/ui-test-junit4-release.aar because:
+  Caching not enabled.
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/8.13/transforms/b64637a9c5742b7cc27c6e162caf9709/transformed/ui-test-junit4-release-runtime.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/8.13/transforms/b64637a9c5742b7cc27c6e162caf9709/transformed/ui-test-junit4-release-runtime.jar because:
+  Caching not enabled.
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/8.13/transforms/bbaccfde86ab3773eb1553e6044b014e/transformed/espresso-core-3.5.0-runtime.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/b64637a9c5742b7cc27c6e162caf9709/transformed/ui-test-junit4-release-runtime.jar is 4e7fe1794ecb7e29f68b5384d3f7399b
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/8.13/transforms/bbaccfde86ab3773eb1553e6044b014e/transformed/espresso-core-3.5.0-runtime.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/bbaccfde86ab3773eb1553e6044b014e/transformed/espresso-core-3.5.0-runtime.jar is fd95f6fd927731d998153aa958411711
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/b64637a9c5742b7cc27c6e162caf9709/transformed/ui-test-junit4-release-runtime.jar with cache key 4e7fe1794ecb7e29f68b5384d3f7399b
+Caching disabled for AarToClassTransform: /home/runner/.gradle/caches/modules-2/files-2.1/androidx.test.ext/junit/1.2.1/3e0b80141a354fce2195baee82a35127fceddfce/junit-1.2.1.aar because:
+  Caching not enabled.
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/8.13/transforms/3ba19afcc2027ee24221ddd95960740a/transformed/junit-1.2.1-runtime.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/8.13/transforms/3ba19afcc2027ee24221ddd95960740a/transformed/junit-1.2.1-runtime.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/3ba19afcc2027ee24221ddd95960740a/transformed/junit-1.2.1-runtime.jar is cd43618eb1d7118941f6e5286cb7e4a0
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/3ba19afcc2027ee24221ddd95960740a/transformed/junit-1.2.1-runtime.jar with cache key cd43618eb1d7118941f6e5286cb7e4a0
+Caching disabled for AarToClassTransform: /home/runner/.gradle/caches/modules-2/files-2.1/androidx.test/runner/1.5.0/64daa2867437cbe2d35a1f2b55eef58c30ce136f/runner-1.5.0.aar because:
+  Caching not enabled.
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/bbaccfde86ab3773eb1553e6044b014e/transformed/espresso-core-3.5.0-runtime.jar with cache key fd95f6fd927731d998153aa958411711
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/junit/junit/4.13.2/8ac9e16d933b6fb43bc7f576336b8f4d7eb5ba12/junit-4.13.2.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/junit/junit/4.13.2/8ac9e16d933b6fb43bc7f576336b8f4d7eb5ba12/junit-4.13.2.jar is 6815c1803b5744b261189750d817f988
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/8.13/transforms/d9c56f5c5d9ca66dc7df1dcddcf8a0c4/transformed/runner-1.5.0-runtime.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/8.13/transforms/d9c56f5c5d9ca66dc7df1dcddcf8a0c4/transformed/runner-1.5.0-runtime.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/d9c56f5c5d9ca66dc7df1dcddcf8a0c4/transformed/runner-1.5.0-runtime.jar is cd27b5ba69a8ee9858458f8a3b02ba10
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/d9c56f5c5d9ca66dc7df1dcddcf8a0c4/transformed/runner-1.5.0-runtime.jar with cache key cd27b5ba69a8ee9858458f8a3b02ba10
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/junit/junit/4.13.2/8ac9e16d933b6fb43bc7f576336b8f4d7eb5ba12/junit-4.13.2.jar with cache key 6815c1803b5744b261189750d817f988
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/robolectric/4.14.1/1e1c6c170ac76b5a6a60a6248e6ee0d144f5d0f4/robolectric-4.14.1.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/shadows-framework/4.14.1/fb42ece6c8802d425aa4e52c3041b9a3c780f1ae/shadows-framework-4.14.1.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/robolectric/4.14.1/1e1c6c170ac76b5a6a60a6248e6ee0d144f5d0f4/robolectric-4.14.1.jar is 1caecf36ba1dc1c2d5e7a13ebda4af69
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/shadows-framework/4.14.1/fb42ece6c8802d425aa4e52c3041b9a3c780f1ae/shadows-framework-4.14.1.jar is 17c4663ac26eaad21fc68d1c547015d9
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/robolectric/4.14.1/1e1c6c170ac76b5a6a60a6248e6ee0d144f5d0f4/robolectric-4.14.1.jar with cache key 1caecf36ba1dc1c2d5e7a13ebda4af69
+Caching disabled for AarToClassTransform: /home/runner/.gradle/caches/modules-2/files-2.1/androidx.test.services/storage/1.5.0/2565386ffab255ae5ad1f0a03ccb9f8927d0213c/storage-1.5.0.aar because:
+  Caching not enabled.
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/8.13/transforms/3cf21214557d247e6ccec879225da5d3/transformed/storage-1.5.0-runtime.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/8.13/transforms/3cf21214557d247e6ccec879225da5d3/transformed/storage-1.5.0-runtime.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/3cf21214557d247e6ccec879225da5d3/transformed/storage-1.5.0-runtime.jar is 0b8daedce41659032d9ded63e13042ab
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/3cf21214557d247e6ccec879225da5d3/transformed/storage-1.5.0-runtime.jar with cache key 0b8daedce41659032d9ded63e13042ab
+Caching disabled for AarToClassTransform: /home/runner/.gradle/caches/modules-2/files-2.1/androidx.test/monitor/1.7.2/84b6b1761cca2b9d0b214bf466b735ed3031bf8c/monitor-1.7.2.aar because:
+  Caching not enabled.
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/8.13/transforms/07adffda0279aaa7eb90c70f9ba964b1/transformed/monitor-1.7.2-runtime.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/8.13/transforms/07adffda0279aaa7eb90c70f9ba964b1/transformed/monitor-1.7.2-runtime.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/07adffda0279aaa7eb90c70f9ba964b1/transformed/monitor-1.7.2-runtime.jar is 71318101ec75306bc8dd9c07ec867777
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/07adffda0279aaa7eb90c70f9ba964b1/transformed/monitor-1.7.2-runtime.jar with cache key 71318101ec75306bc8dd9c07ec867777
+Caching disabled for AarToClassTransform: /home/runner/.gradle/caches/modules-2/files-2.1/androidx.test/annotation/1.0.1/5b8f891800db5da96485d08b42b1e435bc0c43da/annotation-1.0.1.aar because:
+  Caching not enabled.
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/8.13/transforms/e784d06554ee059633b49cbdfec18f5b/transformed/annotation-1.0.1-runtime.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/8.13/transforms/e784d06554ee059633b49cbdfec18f5b/transformed/annotation-1.0.1-runtime.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/e784d06554ee059633b49cbdfec18f5b/transformed/annotation-1.0.1-runtime.jar is bfae295152c6e1991605b13fc0a47363
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/e784d06554ee059633b49cbdfec18f5b/transformed/annotation-1.0.1-runtime.jar with cache key bfae295152c6e1991605b13fc0a47363
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.hamcrest/hamcrest-integration/1.3/5de0c73fef18917cd85d0ab70bb23818685e4dfd/hamcrest-integration-1.3.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.hamcrest/hamcrest-integration/1.3/5de0c73fef18917cd85d0ab70bb23818685e4dfd/hamcrest-integration-1.3.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-util/9.7.1/9e23359b598ec6b74b23e53110dd5c577adf2243/asm-util-9.7.1.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-util/9.7.1/9e23359b598ec6b74b23e53110dd5c577adf2243/asm-util-9.7.1.jar is 89a935683417e47d20e75ab3596f8f6a
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-util/9.7.1/9e23359b598ec6b74b23e53110dd5c577adf2243/asm-util-9.7.1.jar with cache key 89a935683417e47d20e75ab3596f8f6a
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-analysis/9.7.1/f97a3b319f0ed6a8cd944dc79060d3912a28985f/asm-analysis-9.7.1.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-analysis/9.7.1/f97a3b319f0ed6a8cd944dc79060d3912a28985f/asm-analysis-9.7.1.jar is 946e3b2f366b6078aa8cc2e10d7d6714
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-analysis/9.7.1/f97a3b319f0ed6a8cd944dc79060d3912a28985f/asm-analysis-9.7.1.jar with cache key 946e3b2f366b6078aa8cc2e10d7d6714
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-tree/9.7.1/3a53139787663b139de76b627fca0084ab60d32c/asm-tree-9.7.1.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-tree/9.7.1/3a53139787663b139de76b627fca0084ab60d32c/asm-tree-9.7.1.jar is ab1a25b2a212f9b15513511f71200877
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-tree/9.7.1/3a53139787663b139de76b627fca0084ab60d32c/asm-tree-9.7.1.jar with cache key ab1a25b2a212f9b15513511f71200877
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm/9.7.1/f0ed132a49244b042cd0e15702ab9f2ce3cc8436/asm-9.7.1.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm/9.7.1/f0ed132a49244b042cd0e15702ab9f2ce3cc8436/asm-9.7.1.jar is b3d40a9019b154383ff22e9c1243e99c
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm/9.7.1/f0ed132a49244b042cd0e15702ab9f2ce3cc8436/asm-9.7.1.jar with cache key b3d40a9019b154383ff22e9c1243e99c
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/com.almworks.sqlite4java/sqlite4java/1.0.392/d6234e08ff4e1607ff5321da2579571f05ff778d/sqlite4java-1.0.392.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/com.almworks.sqlite4java/sqlite4java/1.0.392/d6234e08ff4e1607ff5321da2579571f05ff778d/sqlite4java-1.0.392.jar is 971023b52933fad88aa4ef31dd305dfc
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/com.almworks.sqlite4java/sqlite4java/1.0.392/d6234e08ff4e1607ff5321da2579571f05ff778d/sqlite4java-1.0.392.jar with cache key 971023b52933fad88aa4ef31dd305dfc
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/com.ibm.icu/icu4j/75.1/e8f8dcc2967f5ec2cfae185172293adfa5599b78/icu4j-75.1.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/com.ibm.icu/icu4j/75.1/e8f8dcc2967f5ec2cfae185172293adfa5599b78/icu4j-75.1.jar is 0ed97c123017e0498ab49c08fec4817a
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.bouncycastle/bcprov-jdk18on/1.78.1/39e9e45359e20998eb79c1828751f94a818d25f8/bcprov-jdk18on-1.78.1.jar with cache key de046876a32649814aa4d2f951a89865
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/nativeruntime-dist-compat/1.0.16/ef05f75ca93873db8afb4642c32ba816e67856bc/nativeruntime-dist-compat-1.0.16.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/nativeruntime-dist-compat/1.0.16/ef05f75ca93873db8afb4642c32ba816e67856bc/nativeruntime-dist-compat-1.0.16.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/nativeruntime-dist-compat/1.0.16/ef05f75ca93873db8afb4642c32ba816e67856bc/nativeruntime-dist-compat-1.0.16.jar is 84d3f2973a1dcfc9af54b86ec982c987
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/com.ibm.icu/icu4j/75.1/e8f8dcc2967f5ec2cfae185172293adfa5599b78/icu4j-75.1.jar with cache key 0ed97c123017e0498ab49c08fec4817a
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/modules-2/files-2.1/com.squareup/javawriter/2.1.1/67ff45d9ae02e583d0f9b3432a5ebbe05c30c966/javawriter-2.1.1.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/com.squareup/javawriter/2.1.1/67ff45d9ae02e583d0f9b3432a5ebbe05c30c966/javawriter-2.1.1.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/com.squareup/javawriter/2.1.1/67ff45d9ae02e583d0f9b3432a5ebbe05c30c966/javawriter-2.1.1.jar is a703bb89df226c18929a2459b48e6230
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/com.squareup/javawriter/2.1.1/67ff45d9ae02e583d0f9b3432a5ebbe05c30c966/javawriter-2.1.1.jar with cache key a703bb89df226c18929a2459b48e6230
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/nativeruntime-dist-compat/1.0.16/ef05f75ca93873db8afb4642c32ba816e67856bc/nativeruntime-dist-compat-1.0.16.jar with cache key 84d3f2973a1dcfc9af54b86ec982c987
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debugUnitTest/classes', not found
+Caching disabled for IdentityTransform: /home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/intermediates/compile_app_classes_jar/debug/bundleDebugClassesToCompileJar/classes.jar because:
+  Caching not enabled.
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/8.13/transforms/f149ab806eab050040cc374161bfa404/transformed/ui-test-release-api.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/8.13/transforms/f149ab806eab050040cc374161bfa404/transformed/ui-test-release-api.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/f149ab806eab050040cc374161bfa404/transformed/ui-test-release-api.jar is f3ad66c3def75a5887a222469f34d6c8
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/f149ab806eab050040cc374161bfa404/transformed/ui-test-release-api.jar with cache key f3ad66c3def75a5887a222469f34d6c8
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/8.13/transforms/ff4b99b8417cbcb072812c8bf0078901/transformed/ui-test-junit4-release-api.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/8.13/transforms/ff4b99b8417cbcb072812c8bf0078901/transformed/ui-test-junit4-release-api.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/ff4b99b8417cbcb072812c8bf0078901/transformed/ui-test-junit4-release-api.jar is 03f8dffbc01a4a0015ef1324514ace42
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/ff4b99b8417cbcb072812c8bf0078901/transformed/ui-test-junit4-release-api.jar with cache key 03f8dffbc01a4a0015ef1324514ace42
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/8.13/transforms/50098d4cbe0ed52151bd95cf3ef5fc29/transformed/core-ktx-1.6.1-api.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/8.13/transforms/50098d4cbe0ed52151bd95cf3ef5fc29/transformed/core-ktx-1.6.1-api.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/50098d4cbe0ed52151bd95cf3ef5fc29/transformed/core-ktx-1.6.1-api.jar is 5ea26defba1bcc9251de73c1eca88373
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/50098d4cbe0ed52151bd95cf3ef5fc29/transformed/core-ktx-1.6.1-api.jar with cache key 5ea26defba1bcc9251de73c1eca88373
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/8.13/transforms/2acc2e07fd67e68a1ea6a0ce404ef072/transformed/junit-1.2.1-api.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/8.13/transforms/2acc2e07fd67e68a1ea6a0ce404ef072/transformed/junit-1.2.1-api.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/2acc2e07fd67e68a1ea6a0ce404ef072/transformed/junit-1.2.1-api.jar is 64e979f24ba6d2215328ea8a16ecb554
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/2acc2e07fd67e68a1ea6a0ce404ef072/transformed/junit-1.2.1-api.jar with cache key 64e979f24ba6d2215328ea8a16ecb554
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/8.13/transforms/c9e57ca1a51860a640b6155e369e21f9/transformed/core-1.6.1-api.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/8.13/transforms/c9e57ca1a51860a640b6155e369e21f9/transformed/core-1.6.1-api.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/c9e57ca1a51860a640b6155e369e21f9/transformed/core-1.6.1-api.jar is 360dc08214deabf42ed822f7ba211f50
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/c9e57ca1a51860a640b6155e369e21f9/transformed/core-1.6.1-api.jar with cache key 360dc08214deabf42ed822f7ba211f50
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/8.13/transforms/80d151316f07f729be9a7c8996a227fa/transformed/storage-1.5.0-api.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/8.13/transforms/80d151316f07f729be9a7c8996a227fa/transformed/storage-1.5.0-api.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/80d151316f07f729be9a7c8996a227fa/transformed/storage-1.5.0-api.jar is 90af25d6864cab5529294e98c831c423
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/80d151316f07f729be9a7c8996a227fa/transformed/storage-1.5.0-api.jar with cache key 90af25d6864cab5529294e98c831c423
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/8.13/transforms/aa3d5be91a40cdc033a9c9db74d6beb9/transformed/monitor-1.7.2-api.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/8.13/transforms/aa3d5be91a40cdc033a9c9db74d6beb9/transformed/monitor-1.7.2-api.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/aa3d5be91a40cdc033a9c9db74d6beb9/transformed/monitor-1.7.2-api.jar is b6e6ca71e19a9e5cb1854a660957f3d4
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/aa3d5be91a40cdc033a9c9db74d6beb9/transformed/monitor-1.7.2-api.jar with cache key b6e6ca71e19a9e5cb1854a660957f3d4
+Caching disabled for CopyTransform: /home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/tmp/kotlin-classes/debugUnitTest because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/tmp/kotlin-classes/debugUnitTest is 2f190088e7e3a1c6e6a90916e467eb52
+Caching disabled for CopyTransform: /home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/intermediates/compile_app_classes_jar/debug/bundleDebugClassesToCompileJar/classes.jar because:
+  Caching not enabled.
+Stored cache entry for AggregatedPackagesTransform: /home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/tmp/kotlin-classes/debugUnitTest with cache key 2f190088e7e3a1c6e6a90916e467eb52
+Build cache key for AggregatedPackagesTransform: /home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/intermediates/compile_app_classes_jar/debug/bundleDebugClassesToCompileJar/classes.jar is ca2666d0ca7e0efc7f07dc9efa18cdf6
+Stored cache entry for AggregatedPackagesTransform: /home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/intermediates/compile_app_classes_jar/debug/bundleDebugClassesToCompileJar/classes.jar with cache key ca2666d0ca7e0efc7f07dc9efa18cdf6
+Build cache key for task ':app:hiltAggregateDepsDebugUnitTest' is ea434960de4b681cbb202e8411d3ed05
+Task ':app:hiltAggregateDepsDebugUnitTest' is not up-to-date because:
+  No history is available.
+The input changes require a full rebuild for incremental task ':app:hiltAggregateDepsDebugUnitTest'.
+Stored cache entry for task ':app:hiltAggregateDepsDebugUnitTest' with cache key ea434960de4b681cbb202e8411d3ed05
+Resolve mutations for :app:hiltJavaCompileDebugUnitTest (Thread[#56,included builds,5,main]) started.
+:app:hiltJavaCompileDebugUnitTest (Thread[#56,included builds,5,main]) started.
+> Task :app:hiltJavaCompileDebugUnitTest NO-SOURCE
+Skipping task ':app:hiltJavaCompileDebugUnitTest' as it has no source files and no previous output files.
+Resolve mutations for :app:processDebugUnitTestJavaRes (Thread[#56,included builds,5,main]) started.
+:app:processDebugUnitTestJavaRes (Thread[#56,included builds,5,main]) started.
+> Task :app:processDebugUnitTestJavaRes
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/test/resources', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/testDebug/resources', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debugUnitTest/classes', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debugUnitTest/classes', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/test/resources', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/testDebug/resources', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debugUnitTest/classes', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debugUnitTest/classes', not found
+Caching disabled for task ':app:processDebugUnitTestJavaRes' because:
+  Caching has been disabled for the task
+Task ':app:processDebugUnitTestJavaRes' is not up-to-date because:
+  No history is available.
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/test/resources', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/testDebug/resources', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debugUnitTest/classes', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debugUnitTest/classes', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/test/resources', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/testDebug/resources', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/intermediates/hilt/component_classes/debugUnitTest', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debugUnitTest/resources', not found
+Resolve mutations for :app:transformDebugUnitTestClassesWithAsm (Thread[#56,included builds,5,main]) started.
+:app:transformDebugUnitTestClassesWithAsm (Thread[#56,included builds,5,main]) started.
+> Task :app:transformDebugUnitTestClassesWithAsm
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debugUnitTest/classes', not found
+file or directory '/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/generated/ksp/debugUnitTest/classes', not found
+Build cache key for task ':app:transformDebugUnitTestClassesWithAsm' is a18811a223cfa439c3328c1ba4d1a118
+Task ':app:transformDebugUnitTestClassesWithAsm' is not up-to-date because:
+  No history is available.
+The input changes require a full rebuild for incremental task ':app:transformDebugUnitTestClassesWithAsm'.
+Stored cache entry for task ':app:transformDebugUnitTestClassesWithAsm' with cache key a18811a223cfa439c3328c1ba4d1a118
+Resolve mutations for :app:testDebugUnitTest (Thread[#57,Execution worker,5,main]) started.
+:app:testDebugUnitTest (Thread[#56,included builds,5,main]) started.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.hamcrest/hamcrest-integration/1.3/5de0c73fef18917cd85d0ab70bb23818685e4dfd/hamcrest-integration-1.3.jar is 808a9550a330a6b778744c0257268b45
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.hamcrest/hamcrest-integration/1.3/5de0c73fef18917cd85d0ab70bb23818685e4dfd/hamcrest-integration-1.3.jar with cache key 808a9550a330a6b778744c0257268b45
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.hamcrest/hamcrest-library/1.3/4785a3c21320980282f9f33d0d1264a69040538f/hamcrest-library-1.3.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.hamcrest/hamcrest-library/1.3/4785a3c21320980282f9f33d0d1264a69040538f/hamcrest-library-1.3.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.hamcrest/hamcrest-library/1.3/4785a3c21320980282f9f33d0d1264a69040538f/hamcrest-library-1.3.jar is 7e561bd5ed8a47d8d5a1e2c8a43138b8
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.hamcrest/hamcrest-library/1.3/4785a3c21320980282f9f33d0d1264a69040538f/hamcrest-library-1.3.jar with cache key 7e561bd5ed8a47d8d5a1e2c8a43138b8
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.hamcrest/hamcrest-core/1.3/42a25dc3219429f0e5d060061f71acb49bf010a0/hamcrest-core-1.3.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.hamcrest/hamcrest-core/1.3/42a25dc3219429f0e5d060061f71acb49bf010a0/hamcrest-core-1.3.jar is 75683862ef8d17de40fca5473d90de0d
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.hamcrest/hamcrest-core/1.3/42a25dc3219429f0e5d060061f71acb49bf010a0/hamcrest-core-1.3.jar with cache key 75683862ef8d17de40fca5473d90de0d
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.conscrypt/conscrypt-openjdk-uber/2.5.2/d858f142ea189c62771c505a6548d8606ac098fe/conscrypt-openjdk-uber-2.5.2.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.conscrypt/conscrypt-openjdk-uber/2.5.2/d858f142ea189c62771c505a6548d8606ac098fe/conscrypt-openjdk-uber-2.5.2.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.conscrypt/conscrypt-openjdk-uber/2.5.2/d858f142ea189c62771c505a6548d8606ac098fe/conscrypt-openjdk-uber-2.5.2.jar is 388056c3f02da57a122bbc9728842c62
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/shadows-framework/4.14.1/fb42ece6c8802d425aa4e52c3041b9a3c780f1ae/shadows-framework-4.14.1.jar with cache key 17c4663ac26eaad21fc68d1c547015d9
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.yaml/snakeyaml/2.3/936b36210e27320f920536f695cf1af210c44586/snakeyaml-2.3.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.yaml/snakeyaml/2.3/936b36210e27320f920536f695cf1af210c44586/snakeyaml-2.3.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.yaml/snakeyaml/2.3/936b36210e27320f920536f695cf1af210c44586/snakeyaml-2.3.jar is 5ba58bb7bad4937c939c41399d8c34c4
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.yaml/snakeyaml/2.3/936b36210e27320f920536f695cf1af210c44586/snakeyaml-2.3.jar with cache key 5ba58bb7bad4937c939c41399d8c34c4
+Caching disabled for AarToClassTransform: /home/runner/.gradle/caches/modules-2/files-2.1/androidx.test.espresso/espresso-idling-resource/3.6.1/dc4fe0890e742bc4c9645a53ab07aa1d07a06686/espresso-idling-resource-3.6.1.aar because:
+  Caching not enabled.
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/8.13/transforms/d9dc9bc6a135e47cd5c1ef687e8e772d/transformed/espresso-idling-resource-3.6.1-runtime.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/8.13/transforms/d9dc9bc6a135e47cd5c1ef687e8e772d/transformed/espresso-idling-resource-3.6.1-runtime.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/d9dc9bc6a135e47cd5c1ef687e8e772d/transformed/espresso-idling-resource-3.6.1-runtime.jar is 84f69f49804b9e7269694d541b49bdbe
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/8.13/transforms/d9dc9bc6a135e47cd5c1ef687e8e772d/transformed/espresso-idling-resource-3.6.1-runtime.jar with cache key 84f69f49804b9e7269694d541b49bdbe
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/modules-2/files-2.1/com.google.testparameterinjector/test-parameter-injector/1.18/5da02ca88c55bab58071a33e3f5fb6cfcf5df270/test-parameter-injector-1.18.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/com.google.testparameterinjector/test-parameter-injector/1.18/5da02ca88c55bab58071a33e3f5fb6cfcf5df270/test-parameter-injector-1.18.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/com.google.testparameterinjector/test-parameter-injector/1.18/5da02ca88c55bab58071a33e3f5fb6cfcf5df270/test-parameter-injector-1.18.jar is 05600bb57c4da685cb74b4862d34172d
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/com.google.testparameterinjector/test-parameter-injector/1.18/5da02ca88c55bab58071a33e3f5fb6cfcf5df270/test-parameter-injector-1.18.jar with cache key 05600bb57c4da685cb74b4862d34172d
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/junit/4.14.1/fa7cb6a5385f4acb4b0af58ce467187d8f1559b1/junit-4.14.1.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/junit/4.14.1/fa7cb6a5385f4acb4b0af58ce467187d8f1559b1/junit-4.14.1.jar is 064a1f1faef91b81a7e712428779032b
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/junit/4.14.1/fa7cb6a5385f4acb4b0af58ce467187d8f1559b1/junit-4.14.1.jar with cache key 064a1f1faef91b81a7e712428779032b
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/resources/4.14.1/9e5155937c5cf5d6f9099879f12b485ead249ca6/resources-4.14.1.jar because:
+  Caching not enabled.
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.conscrypt/conscrypt-openjdk-uber/2.5.2/d858f142ea189c62771c505a6548d8606ac098fe/conscrypt-openjdk-uber-2.5.2.jar with cache key 388056c3f02da57a122bbc9728842c62
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/resources/4.14.1/9e5155937c5cf5d6f9099879f12b485ead249ca6/resources-4.14.1.jar is 23dfbb21bce832bc5e6f28ab12323578
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/sandbox/4.14.1/1f68cda721d15d8ae05f811f87ddb29647c3035b/sandbox-4.14.1.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/sandbox/4.14.1/1f68cda721d15d8ae05f811f87ddb29647c3035b/sandbox-4.14.1.jar is 8f53fa49907d23d6ea7d0b554ef33c7e
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/sandbox/4.14.1/1f68cda721d15d8ae05f811f87ddb29647c3035b/sandbox-4.14.1.jar with cache key 8f53fa49907d23d6ea7d0b554ef33c7e
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/nativeruntime/4.14.1/1ecc7a9ab86c85526dda78244d8997d3f8e4bb30/nativeruntime-4.14.1.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/nativeruntime/4.14.1/1ecc7a9ab86c85526dda78244d8997d3f8e4bb30/nativeruntime-4.14.1.jar is 84343547b7e12ba0e4bdbecae8f4ae44
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/nativeruntime/4.14.1/1ecc7a9ab86c85526dda78244d8997d3f8e4bb30/nativeruntime-4.14.1.jar with cache key 84343547b7e12ba0e4bdbecae8f4ae44
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/utils-reflector/4.14.1/1b2fdbe1ba9c416d204969d088b597294b099422/utils-reflector-4.14.1.jar because:
+  Caching not enabled.
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/resources/4.14.1/9e5155937c5cf5d6f9099879f12b485ead249ca6/resources-4.14.1.jar with cache key 23dfbb21bce832bc5e6f28ab12323578
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/plugins-maven-dependency-resolver/4.14.1/79f52110888b65a9dc0a39f796f971aaa042a036/plugins-maven-dependency-resolver-4.14.1.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/utils-reflector/4.14.1/1b2fdbe1ba9c416d204969d088b597294b099422/utils-reflector-4.14.1.jar is 84eabd9f6ee56e4d1671dc8ce05c159e
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/utils-reflector/4.14.1/1b2fdbe1ba9c416d204969d088b597294b099422/utils-reflector-4.14.1.jar with cache key 84eabd9f6ee56e4d1671dc8ce05c159e
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/plugins-maven-dependency-resolver/4.14.1/79f52110888b65a9dc0a39f796f971aaa042a036/plugins-maven-dependency-resolver-4.14.1.jar is 666a143b00ab2b9f213fdebff2e572b6
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/shadowapi/4.14.1/f0caf6757e0232a2a7fd2e22eebeb2049e26383f/shadowapi-4.14.1.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/shadowapi/4.14.1/f0caf6757e0232a2a7fd2e22eebeb2049e26383f/shadowapi-4.14.1.jar is 58cc56911e873b8f9ce72f9078281fe3
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/shadowapi/4.14.1/f0caf6757e0232a2a7fd2e22eebeb2049e26383f/shadowapi-4.14.1.jar with cache key 58cc56911e873b8f9ce72f9078281fe3
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/plugins-maven-dependency-resolver/4.14.1/79f52110888b65a9dc0a39f796f971aaa042a036/plugins-maven-dependency-resolver-4.14.1.jar with cache key 666a143b00ab2b9f213fdebff2e572b6
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/utils/4.14.1/8a69e156d65c68a069c48ee23a8ac5d36b9cbd22/utils-4.14.1.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/pluginapi/4.14.1/7b78bf0d46e609608117895acebec19d48593858/pluginapi-4.14.1.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/utils/4.14.1/8a69e156d65c68a069c48ee23a8ac5d36b9cbd22/utils-4.14.1.jar is ce6468d67107d271ed9e42de976f93b6
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/pluginapi/4.14.1/7b78bf0d46e609608117895acebec19d48593858/pluginapi-4.14.1.jar is 278cf95807b065c7ea371f7e7aab8734
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/utils/4.14.1/8a69e156d65c68a069c48ee23a8ac5d36b9cbd22/utils-4.14.1.jar with cache key ce6468d67107d271ed9e42de976f93b6
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/pluginapi/4.14.1/7b78bf0d46e609608117895acebec19d48593858/pluginapi-4.14.1.jar with cache key 278cf95807b065c7ea371f7e7aab8734
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/annotations/4.14.1/75dc083bf3b04f711fa6246263d5f544968e1163/annotations-4.14.1.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/javax.annotation/javax.annotation-api/1.3.2/934c04d3cfef185a8008e7bf34331b79730a9d43/javax.annotation-api-1.3.2.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/annotations/4.14.1/75dc083bf3b04f711fa6246263d5f544968e1163/annotations-4.14.1.jar is 2c579310e3641fd6ca34099935bfadb4
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.robolectric/annotations/4.14.1/75dc083bf3b04f711fa6246263d5f544968e1163/annotations-4.14.1.jar with cache key 2c579310e3641fd6ca34099935bfadb4
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.bouncycastle/bcprov-jdk18on/1.78.1/39e9e45359e20998eb79c1828751f94a818d25f8/bcprov-jdk18on-1.78.1.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/javax.annotation/javax.annotation-api/1.3.2/934c04d3cfef185a8008e7bf34331b79730a9d43/javax.annotation-api-1.3.2.jar is e85e46c4ea77db6833aa4f4a8db16874
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.bouncycastle/bcprov-jdk18on/1.78.1/39e9e45359e20998eb79c1828751f94a818d25f8/bcprov-jdk18on-1.78.1.jar is de046876a32649814aa4d2f951a89865
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/javax.annotation/javax.annotation-api/1.3.2/934c04d3cfef185a8008e7bf34331b79730a9d43/javax.annotation-api-1.3.2.jar with cache key e85e46c4ea77db6833aa4f4a8db16874
+Caching disabled for IdentityTransform: /home/runner/.gradle/caches/modules-2/files-2.1/com.google.errorprone/error_prone_annotation/2.34.0/d74b3474300d060bfb83f961bb0ec118c502ec76/error_prone_annotation-2.34.0.jar because:
+  Caching not enabled.
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/com.google.errorprone/error_prone_annotation/2.34.0/d74b3474300d060bfb83f961bb0ec118c502ec76/error_prone_annotation-2.34.0.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/com.google.errorprone/error_prone_annotation/2.34.0/d74b3474300d060bfb83f961bb0ec118c502ec76/error_prone_annotation-2.34.0.jar is c01712b33c100fa57ed1247a766c09cc
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/com.google.errorprone/error_prone_annotation/2.34.0/d74b3474300d060bfb83f961bb0ec118c502ec76/error_prone_annotation-2.34.0.jar with cache key c01712b33c100fa57ed1247a766c09cc
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/com.google.auto.value/auto-value-annotations/1.11.0/f0d047931d07cfbc6fa4079854f181ff62891d6f/auto-value-annotations-1.11.0.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/com.google.auto.value/auto-value-annotations/1.11.0/f0d047931d07cfbc6fa4079854f181ff62891d6f/auto-value-annotations-1.11.0.jar is d73ec385678e461ba8b08849ac673e23
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/com.google.auto.value/auto-value-annotations/1.11.0/f0d047931d07cfbc6fa4079854f181ff62891d6f/auto-value-annotations-1.11.0.jar with cache key d73ec385678e461ba8b08849ac673e23
+Caching disabled for CopyTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-commons/9.7.1/406c6a2225cfe1819f102a161e54cc16a5c24f75/asm-commons-9.7.1.jar because:
+  Caching not enabled.
+Build cache key for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-commons/9.7.1/406c6a2225cfe1819f102a161e54cc16a5c24f75/asm-commons-9.7.1.jar is d24f912af5fa2853eefa92d8efbcf815
+Stored cache entry for AggregatedPackagesTransform: /home/runner/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-commons/9.7.1/406c6a2225cfe1819f102a161e54cc16a5c24f75/asm-commons-9.7.1.jar with cache key d24f912af5fa2853eefa92d8efbcf815
+Gradle Test Executor 1 started executing tests.
+> Task :app:testDebugUnitTest
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/35a403ea413c89988e655bd25c1ba492/transformed/hilt-navigation-compose-1.2.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/9071e49eb28137e833f28ee16c78ffe1/transformed/hilt-navigation-1.2.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/43f62d1489d6f48071b5684877572118/transformed/navigation-common-2.8.5 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/0565d73a2f99ce5099ab190109502cee/transformed/navigation-runtime-2.8.5 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/8f63ee1ad8ee3c9e4f634ef67132c8b2/transformed/navigation-common-ktx-2.8.5 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/19de002464946d202daa6170894593b7/transformed/navigation-runtime-ktx-2.8.5 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/1b52f278a26a1e826df4fa9d58862d06/transformed/navigation-compose-2.8.5 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/57b649cd2eb90230b8abfa495404670d/transformed/hilt-work-1.2.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/69cc6421e781bc46f29860ce05857b61/transformed/hilt-android-2.57.1 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/e33e3f4e3e7f80f516cf8c4c0accca11/transformed/compose-1.0.0-beta01 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/bf72d086df487ca45cbebd73e1273efb/transformed/ktx-1.0.0-beta01 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/127b40eb2689fed66c5ac4bd409c399e/transformed/recyclerview-integration-5.0.0-rc01 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/79c832bdd5f5da05812aee12ecf665cc/transformed/glide-5.0.0-rc01 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/a3b8ad70e3d88b14a1c4b47d6cb3c1fc/transformed/translate-17.0.3 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/1f6e3506606a6a1a4af19ade04290080/transformed/language-id-17.0.6 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/8756eb60beb217977a2543d73fc2b1b7/transformed/language-id-common-16.1.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/6296f5c2feb15249b30e3bafcfe8ee5a/transformed/common-18.11.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/a1175899102e9418c2bece12343833f5/transformed/play-services-base-18.5.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/99e68e8c0b1511e299da9e9028f9e478/transformed/media3-exoplayer-dash-1.11.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/682bd6fcfa57e74d7b0217b32f96dda6/transformed/media3-exoplayer-1.11.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/e3492059a22b6abf1d3b7eb31b77f0e8/transformed/media3-ui-1.11.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/a8bcad2b1327a69bb65591282a3479ae/transformed/media3-session-1.11.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/a0cb053b68bb1c1a364da120b50336f5/transformed/media3-datasource-okhttp-1.11.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/a332d56d649920c549e4ee361cea53dc/transformed/media3-extractor-1.11.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/812a59fe3dc83792ee88595ac60115c9/transformed/media3-container-1.11.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/cd09e7ec8da9d44e8ac6b2d602ade944/transformed/media3-datasource-1.11.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/624a21da8bda226aeb5430d04b08275e/transformed/media3-decoder-1.11.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/e0679e2269126f441967fa7a88b4dd04/transformed/media3-database-1.11.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/4f44abec339272b8c4a3fb1f9e7391a1/transformed/media3-common-1.11.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/5100f546054652a7548173cb41261172/transformed/media3-exoplayer-workmanager-1.11.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/ec17d23f8f18f8bdad1da1fec330d7f4/transformed/glance-material3-1.1.1 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/e19b916261250de6daa533ad4095b0aa/transformed/glance-1.1.1 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/48ebe66595bd44c26cc8bae579cffef3/transformed/glance-appwidget-1.1.1 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/a652482337e2e92b30a990db20390352/transformed/work-runtime-ktx-2.11.2 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/08e5fc667ba9e8777e2400760f8d4d1a/transformed/work-runtime-2.11.2 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/00a9ccf3ddd4091309a871100b9b3ae6/transformed/room-runtime-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/d07195aeff5635545e6416286c0202fa/transformed/room-ktx-2.7.1 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/e2836abed4cf10f65b9fdec57566de42/transformed/material3-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/3a6099695b5f104235122a653547eb3f/transformed/material-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/ee180bf009e71be57bf06058989909c9/transformed/material-ripple-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/afa9931c9f1a1e45d6a509f4bbb85a97/transformed/foundation-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/e62bc0bc6a35df9d493b65ceb85f4325/transformed/animation-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/e95a774dee183e260023219384cbc34d/transformed/animation-core-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/e48181d24a8b606ac16de706b34ddbd7/transformed/foundation-layout-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/2bcb5be1a479342eb7fbed2bc8d887bb/transformed/ui-tooling-data-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/d2a1e9c7baae4d37a52158cdd5d163ab/transformed/ui-test-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/065f5c8993860f84b2db007c2de01710/transformed/ui-geometry-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/c77e2724c079c5fd6b6fae511e437322/transformed/ui-util-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/e02ccbdeb4d94445bdac2242294b4992/transformed/ui-text-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/2578077ad9215f8fc8544d6c05814e18/transformed/ui-unit-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/a66286552377c2ca2d629de6d5f7ae1c/transformed/ui-tooling-preview-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/f8114a14ccc5c63b36b27ed7b691ee9f/transformed/ui-tooling-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/c004b3284642e125bb67eaab786c185a/transformed/ui-graphics-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/130f31b2dbfcd2905ca523c7e238af46/transformed/runtime-saveable-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/48d946f14a308bf7c99c85c611c72c43/transformed/customview-poolingcontainer-1.0.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/8c1738b2384b7e13a63ed2b07a159581/transformed/recyclerview-1.3.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/e9f802213270f3d2a5ca483ba6eac4d4/transformed/appcompat-resources-1.6.1 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/9029161c2b9a6cd34d56476c33554748/transformed/core-ktx-1.15.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/287ed614f584047c9243e3ff2563f185/transformed/appcompat-1.6.1 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/a17aa3522d844e7181f647eef9390e8a/transformed/palette-ktx-1.0.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/b801ae28f1ab9f377410e9b2e9bed424/transformed/core-remoteviews-1.1.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/e9c3aa78b0a976e27aebc283a6bea43d/transformed/palette-1.0.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/9cac0f78437a77a91b9b8ad67a125712/transformed/media-1.7.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/6be533209fe4c74052f8657904791d83/transformed/legacy-support-core-utils-1.0.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/d4fd2a1b7d8c8ea198fcca81badc609f/transformed/viewpager-1.0.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/a4d9a103c8766f7780de88c9b7c51d78/transformed/drawerlayout-1.0.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/b802dc974abf0d8f052844cda946332b/transformed/customview-1.0.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/39afbd19612ea20cde384044e83807b1/transformed/autofill-1.0.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/60f39c6b83cec37b3a39fb8b582d3fcc/transformed/graphics-path-1.0.1 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/a527c1a95ef1fdfe5a2ae020ab23fdbd/transformed/loader-1.0.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/0cdd9bfecd797290465a8d91ad3af273/transformed/vectordrawable-animated-1.1.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/f58cd34469b46a604f9fa15f471f1db3/transformed/vectordrawable-1.1.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/8fa2c37e7a608bd75e5448a2a1ce7f88/transformed/emoji2-views-helper-1.3.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/188f5a8bb9dafa07bc34dd57120fa9b8/transformed/emoji2-1.3.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/3b797d4b08857fc96109383441243624/transformed/core-1.15.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/bcb44a91c5f1d63c3a9da163e03cb373/transformed/espresso-core-3.5.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/2ca039608e0dfc8759d6694a3df07fa6/transformed/core-ktx-1.6.1 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/caff5adec038f248520af987090cc370/transformed/core-1.6.1 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/cfcc1584d9d808888f2471db083cfea2/transformed/lifecycle-process-2.8.7 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/d98376a015eefe1b1e2ab3fa64fbe6cd/transformed/lifecycle-viewmodel-compose-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/947b5c02ef955f1db301ea7244d834e0/transformed/lifecycle-viewmodel-2.8.7 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/dfd32da4f6e2443894746eaaa58711c6/transformed/lifecycle-viewmodel-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/74e475e5105bc3e130f925ba8fb4cb70/transformed/lifecycle-livedata-core-ktx-2.8.7 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/54cd28b3f4a40cc6acdc2b96b3bdbcaa/transformed/savedstate-ktx-1.2.1 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/f1abfa26b28b4c9cc49830bd9b1edea2/transformed/savedstate-1.2.1 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/35078b46c18a1e79904693e8f33992d9/transformed/lifecycle-runtime-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/fd476c87b2fbfdb339bcb754151d012f/transformed/lifecycle-livedata-core-2.8.7 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/fe5d88648881e29cac00d7655b0acada/transformed/lifecycle-viewmodel-ktx-2.8.7 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/5edfc91ba4ee55736771335a7ec8ef25/transformed/lifecycle-viewmodel-savedstate-2.8.7 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/2cb6744df37510844fde9256d2d47df6/transformed/lifecycle-service-2.8.7 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/b5acdbfa08f6fce66effcf37b9e9450a/transformed/lifecycle-runtime-compose-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/555ca100ba6981f7a90b82c45b1609bd/transformed/runtime-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/653a528c3934d73ff4d75c5f96650b37/transformed/runtime-livedata-1.7.6 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/4e664e84e99a9202c577afce45a7077c/transformed/lifecycle-livedata-2.8.7 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/ab30b0770e8c9a480c13e77f01066570/transformed/lifecycle-runtime-ktx-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/5b6d6dc4c5909a72ee6df422b641e728/transformed/profileinstaller-1.3.1 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/640cb6be782119036a4c74fbaf0c3aab/transformed/datastore-1.0.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/a4a8cc2d9878a03f27db14a97aa1f33b/transformed/datastore-preferences-1.0.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/908bc4453aa80406485102ec70d358f4/transformed/play-services-tasks-18.2.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/855911f9583d2edc563daee42eb232bf/transformed/play-services-basement-18.4.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/3caf0c6963487abff4b619c1978b9748/transformed/fragment-1.6.1 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/4620c4720ac850672229e0028225b877/transformed/activity-1.9.3 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/550efd293611d8305338599464274c16/transformed/activity-ktx-1.9.3 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/76353fd4fcd697289f5292928f58b71b/transformed/activity-compose-1.9.3 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/c0cc469309a64b01e33d4e952c3f2e70/transformed/material-icons-extended-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/9e978d032c3c2179c83d3847dd0adfab/transformed/material-icons-core-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/6a5d9541aeffdb6036d6c0d5e10963e6/transformed/ui-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/41cd2225a79f352a75e482b986442dd2/transformed/ui-test-manifest-1.7.6 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/1b08fc615a71508ccd12182679210d67/transformed/junit-1.2.1 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/625f64d95ca4324795715618e4613740/transformed/ui-test-junit4-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/cb114d1edba8d2915ebf3a1a1a75e555/transformed/runner-1.5.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/a438ceaa719d0c65e8beefc20f273bb3/transformed/core-splashscreen-1.0.1 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/758bd8bb0fdce47a1f6a711333993d08/transformed/storage-1.5.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/f00526ae34f724c8f2df6d07bcd23601/transformed/monitor-1.7.2 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/1cf11ccb572034fdc1d009b330894f02/transformed/annotation-1.0.1 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/fbccb16e3719a885573986aca8e7e450/transformed/annotation-experimental-1.4.1 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/8af9656dde286043e4794b8e0104ef2a/transformed/tracing-1.2.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/23ab9192d7222d34900f8b13b30c6152/transformed/tracing-ktx-1.2.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/95ca23ce348a0643a64b43ebd46b255e/transformed/sqlite-framework-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/9776c513d684221e560a18c24623da1b/transformed/sqlite-release because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/a303a62e73900dfbf5514ca08713247b/transformed/versionedparcelable-1.1.1 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/4ad38c63fa52798f6cd612289cb0c8a2/transformed/exifinterface-1.3.6 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/02f84cb9ef765f1b82601e7e24319fce/transformed/transport-backend-cct-2.3.3 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/8bbb4b6c08517d521aba37faf2c0107e/transformed/transport-runtime-2.2.6 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/3583da22d5433f145f4446c8cb26135f/transformed/transport-api-2.2.1 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/99ef7ef5ce98b7dab1984320990a2b5c/transformed/firebase-components-16.1.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/9c58fc22ac4a3cef74e6219280f8418d/transformed/firebase-encoders-json-17.1.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/cbb8ee0d9e55bb9be9651b288fbf3db5/transformed/interpolator-1.0.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/c984da2d4d93561b7214f2caed924d50/transformed/core-runtime-2.2.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/273973ceffb5c9bf6d1cdcbff2cff414/transformed/gifdecoder-5.0.0-rc01 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/38cdaeb59706bf58aba415c150249b3b/transformed/documentfile-1.0.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/c8b07d584c940e48a11b70756646ee2f/transformed/localbroadcastmanager-1.0.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/19a0b2db038aefadf38eb95874e4e1ac/transformed/print-1.0.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/35c3641b2d37b6b63b08f1e5cbfa521d/transformed/cursoradapter-1.0.0 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/f3233485ffc3993303067dda93d94994/transformed/espresso-idling-resource-3.6.1 because:
+  Caching not enabled.
+Caching disabled for AarTransform: /home/runner/.gradle/caches/8.13/transforms/f7853671e8f6a1d59a7c47edf31c9024/transformed/dagger-lint-aar-2.57.1 because:
+  Caching not enabled.
+Build cache key for task ':app:testDebugUnitTest' is 4a9d08ae96492a9a2e01cad1342ef252
+Task ':app:testDebugUnitTest' is not up-to-date because:
+  No history is available.
+Starting process 'Gradle Test Executor 1'. Working directory: /home/runner/work/SpotUi-Offical/SpotUi-Offical/app Command: /usr/lib/jvm/temurin-21-jdk-amd64/bin/java -Djava.awt.headless=true -Djava.library.path=/usr/java/packages/lib:/usr/lib64:/lib64:/lib:/usr/lib:/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/testDebug/jniLibs:/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/src/test/jniLibs -Dorg.gradle.internal.worker.tmpdir=/home/runner/work/SpotUi-Offical/SpotUi-Offical/app/build/tmp/testDebugUnitTest/work --add-opens=java.base/java.io=ALL-UNNAMED @/home/runner/.gradle/.tmp/gradle-worker-classpath8723346980235038161txt -Xmx512m -Dfile.encoding=UTF-8 -Duser.country -Duser.language=en -Duser.variant -ea worker.org.gradle.process.internal.worker.GradleWorkerMain 'Gradle Test Executor 1'
+Successfully started process 'Gradle Test Executor 1'
+AuthenticatedLaunchCrashTest > authenticatedLaunch_landsOnHomeScreen_withoutCrashing STANDARD_ERROR
+    SLF4J(W): No SLF4J providers were found.
+    SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+    SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+    android.os.ServiceManager$ServiceNotFoundException: No service published for: media_metrics
+    	at android.os.ServiceManager.getServiceOrThrow(ServiceManager.java:203)
+    	at android.app.SystemServiceRegistry$131.createService(SystemServiceRegistry.java:1577)
+    	at android.app.SystemServiceRegistry$131.createService(SystemServiceRegistry.java:1572)
+    	at android.app.SystemServiceRegistry$CachedServiceFetcher.getService(SystemServiceRegistry.java:2231)
+    	at android.app.SystemServiceRegistry.getSystemService(SystemServiceRegistry.java:1812)
+    	at android.app.ContextImpl.getSystemService(ContextImpl.java:2241)
+    	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+    	at org.robolectric.shadows.ShadowContextImpl$_ContextImpl_$$Reflector5.getSystemService(Unknown Source)
+    	at org.robolectric.shadows.ShadowContextImpl.getSystemService(ShadowContextImpl.java:84)
+    	at android.app.ContextImpl.getSystemService(ContextImpl.java)
+    	at android.content.ContextWrapper.getSystemService(ContextWrapper.java:936)
+    	at androidx.media3.exoplayer.analytics.MediaMetricsListener.create(MediaMetricsListener.java:107)
+    	at androidx.media3.exoplayer.ExoPlayerImpl$Api31.lambda$registerMediaMetricsListener$0(ExoPlayerImpl.java:3760)
+    	at android.os.Handler.handleCallback(Handler.java:959)
+    	at android.os.Handler.dispatchMessage(Handler.java:100)
+    	at android.os.Looper.loopOnce(Looper.java:232)
+    	at android.os.Looper.loop(Looper.java:317)
+    	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+    	at org.robolectric.shadows.ShadowPausedLooper$LooperReflector$$Reflector1.loop(Unknown Source)
+    	at org.robolectric.shadows.ShadowPausedLooper.loop(ShadowPausedLooper.java:472)
+    	at android.os.Looper.loop(Looper.java)
+    	at android.os.HandlerThread.run(HandlerThread.java:85)
+    android.os.ServiceManager$ServiceNotFoundException: No service published for: domain_verification
+    	at android.os.ServiceManager.getServiceOrThrow(ServiceManager.java:203)
+    	at android.app.SystemServiceRegistry$133.createService(SystemServiceRegistry.java:1598)
+    	at android.app.SystemServiceRegistry$133.createService(SystemServiceRegistry.java:1594)
+    	at android.app.SystemServiceRegistry$CachedServiceFetcher.getService(SystemServiceRegistry.java:2231)
+    	at android.app.SystemServiceRegistry.getSystemService(SystemServiceRegistry.java:1812)
+    	at android.app.ContextImpl.getSystemService(ContextImpl.java:2241)
+    	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+    	at org.robolectric.shadows.ShadowContextImpl$_ContextImpl_$$Reflector5.getSystemService(Unknown Source)
+    	at org.robolectric.shadows.ShadowContextImpl.getSystemService(ShadowContextImpl.java:84)
+    	at android.app.ContextImpl.getSystemService(ContextImpl.java)
+    	at android.view.ContextThemeWrapper.getSystemService(ContextThemeWrapper.java:188)
+    	at android.app.Activity.getSystemService(Activity.java:7738)
+    	at android.content.Context.getSystemService(Context.java:4503)
+    	at com.music.spotui.util.DefaultLinkHelper.isAppDefaultLinkHandler(DefaultLinkHelper.kt:20)
+    	at com.music.spotui.ui.components.DefaultAppPromptKt.DefaultAppPrompt$lambda$13$lambda$12$lambda$10(DefaultAppPrompt.kt:91)
+    	at androidx.lifecycle.LifecycleRegistry$ObserverWithState.dispatchEvent(LifecycleRegistry.jvm.kt:320)
+    	at androidx.lifecycle.LifecycleRegistry.forwardPass(LifecycleRegistry.jvm.kt:257)
+    	at androidx.lifecycle.LifecycleRegistry.sync(LifecycleRegistry.jvm.kt:293)
+    	at androidx.lifecycle.LifecycleRegistry.addObserver(LifecycleRegistry.jvm.kt:205)
+    	at androidx.compose.ui.platform.WrappedComposition$setContent$1.invoke(Wrapper.android.kt:131)
+    	at androidx.compose.ui.platform.WrappedComposition$setContent$1.invoke(Wrapper.android.kt:124)
+    	at androidx.compose.ui.platform.AndroidComposeView.onAttachedToWindow(AndroidComposeView.android.kt:1707)
+    	at android.view.View.dispatchAttachedToWindow(View.java:22860)
+    	at android.view.ViewGroup.dispatchAttachedToWindow(ViewGroup.java:3492)
+    	at android.view.ViewGroup.dispatchAttachedToWindow(ViewGroup.java:3499)
+    	at android.view.ViewGroup.dispatchAttachedToWindow(ViewGroup.java:3499)
+    	at android.view.ViewGroup.dispatchAttachedToWindow(ViewGroup.java:3499)
+    	at android.view.ViewGroup.dispatchAttachedToWindow(ViewGroup.java:3499)
+    	at android.view.ViewRootImpl.performTraversals(ViewRootImpl.java:3443)
+    	at android.view.ViewRootImpl.doTraversal(ViewRootImpl.java:2917)
+    	at android.view.ViewRootImpl$TraversalRunnable.run(ViewRootImpl.java:10324)
+    	at android.view.Choreographer$CallbackRecord.run(Choreographer.java:1406)
+    	at android.view.Choreographer$CallbackRecord.run(Choreographer.java:1415)
+    	at android.view.Choreographer.doCallbacks(Choreographer.java:1015)
+    	at android.view.Choreographer.doFrame(Choreographer.java:945)
+    	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+    	at org.robolectric.shadows.ShadowChoreographer$ChoreographerReflector$$Reflector39.doFrame(Unknown Source)
+    	at org.robolectric.shadows.ShadowChoreographer.lambda$doFrame$1(ShadowChoreographer.java:197)
+    	at org.robolectric.util.PerfStatsCollector.measure(PerfStatsCollector.java:82)
+    	at org.robolectric.shadows.ShadowChoreographer.doFrame(ShadowChoreographer.java:197)
+    	at android.view.Choreographer.doFrame(Choreographer.java)
+    	at android.view.Choreographer$FrameDisplayEventReceiver.run(Choreographer.java:1389)
+    	at android.os.Handler.handleCallback(Handler.java:959)
+    	at android.os.Handler.dispatchMessage(Handler.java:100)
+    	at org.robolectric.shadows.ShadowPausedLooper$IdlingRunnable.doRun(ShadowPausedLooper.java:599)
+    	at org.robolectric.shadows.ShadowPausedLooper$ControlRunnable.run(ShadowPausedLooper.java:562)
+    	at org.robolectric.shadows.ShadowPausedLooper.executeOnLooper(ShadowPausedLooper.java:684)
+    	at org.robolectric.shadows.ShadowPausedLooper.idle(ShadowPausedLooper.java:104)
+    	at org.robolectric.shadows.ShadowPausedLooper.idleIfPaused(ShadowPausedLooper.java:177)
+    	at org.robolectric.android.controller.ActivityController.visible(ActivityController.java:233)
+    	at org.robolectric.android.internal.RoboMonitoringInstrumentation.lambda$startActivitySyncInternal$0(RoboMonitoringInstrumentation.java:139)
+    	at org.robolectric.shadows.ShadowInstrumentation.runOnMainSyncNoIdle(ShadowInstrumentation.java:1190)
+    	at org.robolectric.android.internal.RoboMonitoringInstrumentation.startActivitySyncInternal(RoboMonitoringInstrumentation.java:125)
+    	at org.robolectric.android.internal.LocalActivityInvoker.startActivity(LocalActivityInvoker.java:36)
+    	at org.robolectric.android.internal.LocalActivityInvoker.startActivity(LocalActivityInvoker.java:41)
+    	at androidx.test.core.app.ActivityScenario.launchInternal(ActivityScenario.java:367)
+    	at androidx.test.core.app.ActivityScenario.launch(ActivityScenario.java:203)
+    	at androidx.test.ext.junit.rules.ActivityScenarioRule.lambda$new$0(ActivityScenarioRule.java:77)
+    	at androidx.test.ext.junit.rules.ActivityScenarioRule.before(ActivityScenarioRule.java:112)
+    	at org.junit.rules.ExternalResource$1.evaluate(ExternalResource.java:50)
+    	at androidx.compose.ui.test.junit4.AndroidComposeTestRule$apply$1$evaluate$1.invoke(AndroidComposeTestRule.android.kt:272)
+    	at androidx.compose.ui.test.junit4.AndroidComposeTestRule$apply$1$evaluate$1.invoke(AndroidComposeTestRule.android.kt:271)
+    	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$AndroidComposeUiTestImpl.withDisposableContent(ComposeUiTest.android.kt:505)
+    	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1$1$1$1$1.invoke(ComposeUiTest.android.kt:333)
+    	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.withComposeIdlingResource(ComposeUiTest.android.kt:385)
+    	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.access$withComposeIdlingResource(ComposeUiTest.android.kt:219)
+    	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1$1$1$1.invoke(ComposeUiTest.android.kt:332)
+    	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.withWindowRecomposer(ComposeUiTest.android.kt:359)
+    	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.access$withWindowRecomposer(ComposeUiTest.android.kt:219)
+    	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1$1$1.invoke(ComposeUiTest.android.kt:331)
+    	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.withTestCoroutines(ComposeUiTest.android.kt:372)
+    	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.access$withTestCoroutines(ComposeUiTest.android.kt:219)
+    	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1$1.invoke(ComposeUiTest.android.kt:330)
+    	at androidx.compose.ui.test.IdlingStrategy.withStrategy(IdlingStrategy.android.kt:52)
+    	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1.invoke(ComposeUiTest.android.kt:329)
+    	at androidx.compose.ui.test.IdlingResourceRegistry.withRegistry(IdlingResourceRegistry.jvm.kt:155)
+    	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1.invoke(ComposeUiTest.android.kt:328)
+    	at androidx.compose.ui.test.ComposeRootRegistry.withRegistry(ComposeRootRegistry.android.kt:146)
+    	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.runTest(ComposeUiTest.android.kt:327)
+    	at androidx.compose.ui.test.junit4.AndroidComposeTestRule$apply$1.evaluate(AndroidComposeTestRule.android.kt:271)
+    	at org.junit.rules.ExternalResource$1.evaluate(ExternalResource.java:54)
+    	at org.junit.rules.RunRules.evaluate(RunRules.java:20)
+    	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
+    	at org.robolectric.RobolectricTestRunner$HelperTestRunner$1.evaluate(RobolectricTestRunner.java:502)
+    	at org.robolectric.internal.SandboxTestRunner$2.lambda$evaluate$2(SandboxTestRunner.java:285)
+    	at org.robolectric.internal.bytecode.Sandbox.lambda$runOnMainThread$0(Sandbox.java:104)
+    	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
+    	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+    	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+    	at java.base/java.lang.Thread.run(Thread.java:1583)
+LaunchAndLoginCrashTest > coldLaunch_rendersLoginScreen_andTabs_andGuestNavigation_withoutCrashing STANDARD_ERROR
+    android.os.ServiceManager$ServiceNotFoundException: No service published for: media_metrics
+    	at android.os.ServiceManager.getServiceOrThrow(ServiceManager.java:203)
+    	at android.app.SystemServiceRegistry$131.createService(SystemServiceRegistry.java:1577)
+    	at android.app.SystemServiceRegistry$131.createService(SystemServiceRegistry.java:1572)
+    	at android.app.SystemServiceRegistry$CachedServiceFetcher.getService(SystemServiceRegistry.java:2231)
+    	at android.app.SystemServiceRegistry.getSystemService(SystemServiceRegistry.java:1812)
+    	at android.app.ContextImpl.getSystemService(ContextImpl.java:2241)
+    	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+    	at org.robolectric.shadows.ShadowContextImpl$_ContextImpl_$$Reflector5.getSystemService(Unknown Source)
+    	at org.robolectric.shadows.ShadowContextImpl.getSystemService(ShadowContextImpl.java:84)
+    	at android.app.ContextImpl.getSystemService(ContextImpl.java)
+    	at android.content.ContextWrapper.getSystemService(ContextWrapper.java:936)
+    	at androidx.media3.exoplayer.analytics.MediaMetricsListener.create(MediaMetricsListener.java:107)
+    	at androidx.media3.exoplayer.ExoPlayerImpl$Api31.lambda$registerMediaMetricsListener$0(ExoPlayerImpl.java:3760)
+    	at android.os.Handler.handleCallback(Handler.java:959)
+    	at android.os.Handler.dispatchMessage(Handler.java:100)
+    	at android.os.Looper.loopOnce(Looper.java:232)
+    	at android.os.Looper.loop(Looper.java:317)
+    	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+    	at org.robolectric.shadows.ShadowPausedLooper$LooperReflector$$Reflector1.loop(Unknown Source)
+    	at org.robolectric.shadows.ShadowPausedLooper.loop(ShadowPausedLooper.java:472)
+    	at android.os.Looper.loop(Looper.java)
+    	at android.os.HandlerThread.run(HandlerThread.java:85)
+LaunchAndLoginCrashTest > coldLaunch_rendersLoginScreen_andTabs_andGuestNavigation_withoutCrashing FAILED
+    java.lang.NullPointerException: Cannot invoke "android.content.ComponentName.getPackageName()" because "name" is null
+        at androidx.media3.session.MediaControllerImplBase$SessionServiceConnection.onServiceConnected(MediaControllerImplBase.java:3739)
+        at org.robolectric.shadows.ShadowInstrumentation.lambda$bindService$0(ShadowInstrumentation.java:737)
+        at android.os.Handler.handleCallback(Handler.java:959)
+        at android.os.Handler.dispatchMessage(Handler.java:100)
+        at org.robolectric.shadows.ShadowPausedLooper$IdlingRunnable.doRun(ShadowPausedLooper.java:599)
+        at org.robolectric.shadows.ShadowPausedLooper$ControlRunnable.run(ShadowPausedLooper.java:562)
+        at org.robolectric.shadows.ShadowPausedLooper.executeOnLooper(ShadowPausedLooper.java:684)
+        at org.robolectric.shadows.ShadowPausedLooper.idle(ShadowPausedLooper.java:104)
+        at org.robolectric.shadows.ShadowPausedLooper.idleIfPaused(ShadowPausedLooper.java:177)
+        at org.robolectric.android.controller.ServiceController.create(ServiceController.java:65)
+        at com.music.spotui.LaunchAndLoginCrashTest$playbackServiceRule$1.before(LaunchAndLoginCrashTest.kt:41)
+        at org.junit.rules.ExternalResource$1.evaluate(ExternalResource.java:50)
+        at org.junit.rules.RunRules.evaluate(RunRules.java:20)
+        at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
+        at org.robolectric.RobolectricTestRunner$HelperTestRunner$1.evaluate(RobolectricTestRunner.java:502)
+        at org.robolectric.internal.SandboxTestRunner$2.lambda$evaluate$2(SandboxTestRunner.java:285)
+        at org.robolectric.internal.bytecode.Sandbox.lambda$runOnMainThread$0(Sandbox.java:104)
+        at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
+        at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+        at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+        at java.base/java.lang.Thread.run(Thread.java:1583)
