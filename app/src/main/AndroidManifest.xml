@@ -205,6 +205,38 @@
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </receiver>
+
+        <!-- Widget key relay handles Pause/Next/Prev from home-screen widgets and safely
+             redraws stale widgets if PlaybackService was idle-stopped or killed. -->
+        <receiver
+            android:name=".widget.WidgetKeyRelay"
+            android:exported="false" />
+
+        <!-- Compact 2x2 Glance Home Screen Widget -->
+        <receiver
+            android:name=".widget.SpotuiCompactWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_compact_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/spotui_compact_widget_info" />
+        </receiver>
+
+        <!-- Expanded 4x2 Glance Home Screen Widget -->
+        <receiver
+            android:name=".widget.SpotuiExpandedWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_expanded_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/spotui_expanded_widget_info" />
+        </receiver>
     </application>
 
 </manifest>

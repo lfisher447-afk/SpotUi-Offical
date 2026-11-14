@@ -21,9 +21,12 @@ import com.music.spotui.data.preferences.getEqSubBass
 import com.music.spotui.data.preferences.getSeekStepSeconds
 import com.music.spotui.data.preferences.getSpatialProfile
 import com.music.spotui.data.preferences.getSpatialRoomDelayMs
+import com.music.spotui.data.preferences.isAdvancedSettingsEnabled
+import com.music.spotui.data.preferences.isAudioOffloadEnabled
 import com.music.spotui.data.preferences.isAutoResumeOnBluetooth
 import com.music.spotui.data.preferences.isAutoSkipUnavailable
 import com.music.spotui.data.preferences.isAutoplayRadioEnabled
+import com.music.spotui.data.preferences.isBatteryPromptDismissed
 import com.music.spotui.data.preferences.isEqEnabled
 import com.music.spotui.data.preferences.isFadeInOnPlay
 import com.music.spotui.data.preferences.isFloatAudioOutput
@@ -34,9 +37,12 @@ import com.music.spotui.data.preferences.isPauseOnUnplugEnabled
 import com.music.spotui.data.preferences.isPauseOnZeroVolume
 import com.music.spotui.data.preferences.isSearchExplicitFilter
 import com.music.spotui.data.preferences.isSpectrumVisualizerEnabled
+import com.music.spotui.data.preferences.setAdvancedSettingsEnabled
 import com.music.spotui.data.preferences.setAudioFocusMode
 import com.music.spotui.data.preferences.setAudioNormalizerTargetLufs
+import com.music.spotui.data.preferences.setAudioOffloadEnabled
 import com.music.spotui.data.preferences.setBassBoostStrength
+import com.music.spotui.data.preferences.setBatteryPromptDismissed
 import com.music.spotui.data.preferences.setBufferProfile
 import com.music.spotui.data.preferences.setEqBrilliance
 import com.music.spotui.data.preferences.setEqEnabled
@@ -60,6 +66,9 @@ import com.music.spotui.data.preferences.setAutoplayRadioEnabled
 import com.music.spotui.deezer.DeezerCrypto
 import com.music.spotui.di.CurrentSongState
 import com.music.spotui.di.SongPlayer
+import com.music.spotui.ui.notification.MediaSessionController
+import com.music.spotui.ui.viewmodel.LibraryFilterType
+import com.music.spotui.ui.viewmodel.LibrarySortOrder
 import com.music.spotui.util.CheckSeverity
 import com.music.spotui.util.StreamSanitizer
 import com.music.spotui.util.SystemHealthChecker
@@ -104,6 +113,9 @@ class PlaybackDspHealthUpgradeTest {
         setAudioFocusMode(context, AudioFocusMode.PAUSE_AND_DUCK)
         setSeekStepSeconds(context, 10)
         setSearchExplicitFilter(context, false)
+        setAdvancedSettingsEnabled(context, false)
+        setAudioOffloadEnabled(context, true)
+        setBatteryPromptDismissed(context, false)
         ProviderRoutingPreferences.setLosslessOrder(context, listOf("tidal", "qobuz", "amazon", "deezer"))
         listOf("tidal", "qobuz", "amazon", "deezer").forEach {
             ProviderRoutingPreferences.setProviderEnabled(context, it, true)
@@ -354,5 +366,45 @@ class PlaybackDspHealthUpgradeTest {
         )
         assertTrue(report.checks.all { it.title.isNotBlank() && it.summary.isNotBlank() })
         assertNotEquals(CheckSeverity.FAIL, report.checks.first { it.id == "crashes" }.severity)
+    }
+
+    @Test
+    fun advancedSettings_oneUiOffload_metadataAndLibraryOptions_workSafely() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+
+        // Default states
+        assertFalse(isAdvancedSettingsEnabled(context))
+        assertTrue(isAudioOffloadEnabled(context))
+        assertFalse(isBatteryPromptDismissed(context))
+
+        // Persistence round-trip
+        setAdvancedSettingsEnabled(context, true)
+        setAudioOffloadEnabled(context, false)
+        setBatteryPromptDismissed(context, true)
+
+        assertTrue(isAdvancedSettingsEnabled(context))
+        assertFalse(isAudioOffloadEnabled(context))
+        assertTrue(isBatteryPromptDismissed(context))
+
+        // Hardware offload policy refresh + One UI metadata propagation do not throw without active player
+        SongPlayer.refreshAudioOffloadPolicy(context)
+        SongPlayer.setNowPlayingMeta(
+            title = "Midnight City",
+            artist = "M83",
+            artworkUrl = "https://example.com/art.jpg",
+            album = "Hurry Up, We're Dreaming",
+            durationMs = 243_000L,
+        )
+
+        // MediaSessionController safe disconnected operations
+        MediaSessionController.disconnect()
+        assertFalse(MediaSessionController.state.value.connected)
+        MediaSessionController.playPause()
+        MediaSessionController.seekTo(12_000L)
+
+        // Library filters and sort orders cover all modes cleanly
+        assertEquals(4, LibraryFilterType.entries.size)
+        assertEquals(4, LibrarySortOrder.entries.size)
+        assertTrue(LibrarySortOrder.entries.all { it.label.isNotBlank() })
     }
 }

@@ -19,6 +19,13 @@ enum class LibraryFilterType {
     ALL, PLAYLISTS, ALBUMS, ARTISTS
 }
 
+enum class LibrarySortOrder(val label: String) {
+    RECENT("Recently Added"),
+    ALPHABETICAL("Alphabetical (A–Z)"),
+    CREATOR("Creator / Artist"),
+    DOWNLOADED_FIRST("Downloaded First"),
+}
+
 @HiltViewModel
 class LibraryViewModel @Inject constructor(private val repository: AppRepository) : ViewModel() {
 
@@ -38,6 +45,12 @@ class LibraryViewModel @Inject constructor(private val repository: AppRepository
     private val _isDownloadedOnly: MutableStateFlow<Boolean> = MutableStateFlow(false)
     val isDownloadedOnly: StateFlow<Boolean> = _isDownloadedOnly
 
+    private val _searchQuery: MutableStateFlow<String> = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery
+
+    private val _sortOrder: MutableStateFlow<LibrarySortOrder> = MutableStateFlow(LibrarySortOrder.RECENT)
+    val sortOrder: StateFlow<LibrarySortOrder> = _sortOrder
+
     private var loadJob: Job? = null
 
     init {
@@ -54,9 +67,18 @@ class LibraryViewModel @Inject constructor(private val repository: AppRepository
         _isDownloadedOnly.value = !_isDownloadedOnly.value
     }
 
+    fun setSearchQuery(query: String) {
+        _searchQuery.value = query
+    }
+
+    fun setSortOrder(order: LibrarySortOrder) {
+        _sortOrder.value = order
+    }
+
     fun clearFilters() {
         _selectedFilter.value = LibraryFilterType.ALL
         _isDownloadedOnly.value = false
+        _searchQuery.value = ""
     }
 
     fun load() {

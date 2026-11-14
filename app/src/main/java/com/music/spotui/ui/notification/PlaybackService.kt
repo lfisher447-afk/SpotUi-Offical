@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.KeyEvent
 import androidx.compose.runtime.snapshotFlow
 import androidx.media3.common.C
@@ -34,13 +35,26 @@ import com.music.spotui.di.CurrentSongState
 import com.music.spotui.di.RepeatMode
 import com.music.spotui.di.SongPlayer
 import com.music.spotui.di.SpotifyWebPlayer
+import com.music.spotui.playback.MediaCommand
+import com.music.spotui.playback.MediaCommandDispatcher
+import com.music.spotui.playback.PlaybackSessionBus
+import com.music.spotui.playback.QueueWindow
+import com.music.spotui.playback.ResumePlanBuilder
 import com.music.spotui.ui.repository.AppRepository
 import com.music.spotui.util.AppDiagnostics
+import com.music.spotui.widget.GlanceWidgetSink
+import com.music.spotui.widget.NowPlayingWidgetSink
+import com.music.spotui.widget.NowPlayingWidgetState
+import com.music.spotui.widget.WidgetActionRouter
+import com.music.spotui.widget.WidgetMediaIntents
+import com.music.spotui.widget.WidgetUpdateDebouncer
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -226,10 +240,71 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private var smartUnplugHandler: com.music.spotui.engine.SmartUnplugHandler? = null
+    private var widgetSink: NowPlayingWidgetSink? = null
+    private var widgetDebouncer: WidgetUpdateDebouncer? = null
+    private var idleStopJob: Job? = null
+
+    private data class WidgetStateKey(
+        val songId: Int,
+        val title: String,
+        val artist: String,
+        val album: String,
+        val artworkUrl: String,
+        val isPlaying: Boolean,
+        val isLiked: Boolean,
+    )
 
     override fun onCreate() {
         super.onCreate()
         try {
+            PlaybackSessionBus.onServiceCreated()
+            val appCtx = applicationContext
+            val sink = GlanceWidgetSink(appCtx).also { widgetSink = it }
+            widgetDebouncer = WidgetUpdateDebouncer(
+                scope = serviceScope,
+                clock = { SystemClock.elapsedRealtime() },
+                publish = { state -> sink.publish(state) },
+            )
+
+            MediaCommandDispatcher.start(
+                scope = serviceScope,
+                windowMs = MediaCommandDispatcher.DEFAULT_DEBOUNCE_WINDOW_MS,
+            ) { command ->
+                when (command) {
+                    MediaCommand.Play -> {
+                        if (currentSongState.queue.value.isEmpty() || (SongPlayer.exoPlayer?.mediaItemCount ?: 0) == 0) {
+                            resumeFromPersistence(skipFirst = false)
+                        } else {
+                            SongPlayer.play()
+                        }
+                    }
+                    MediaCommand.Pause, MediaCommand.Stop -> SongPlayer.pause()
+                    MediaCommand.PlayPause -> {
+                        if (currentSongState.queue.value.isEmpty() || (SongPlayer.exoPlayer?.mediaItemCount ?: 0) == 0) {
+                            resumeFromPersistence(skipFirst = false)
+                        } else {
+                            SongPlayer.togglePlay()
+                        }
+                    }
+                    MediaCommand.Next -> {
+                        if (currentSongState.queue.value.isEmpty()) {
+                            resumeFromPersistence(skipFirst = true)
+                        } else {
+                            SongPlayer.next(appCtx)
+                        }
+                    }
+                    MediaCommand.Previous -> {
+                        if (currentSongState.queue.value.isEmpty()) {
+                            resumeFromPersistence(skipFirst = false)
+                        } else {
+                            SongPlayer.previous(appCtx)
+                        }
+                    }
+                    is MediaCommand.Seek -> SongPlayer.seekTo(command.positionMs)
+                }
+                scheduleIdleStopCheck()
+            }
+
             SongPlayer.ensureCreated(this)
             smartUnplugHandler = com.music.spotui.engine.SmartUnplugHandler(this).apply {
                 register()
@@ -250,17 +325,20 @@ class PlaybackService : MediaLibraryService() {
                     return runCatching {
                         val base =
                             super.getMediaButtons(session, playerCommands, customLayout, showPauseButton)
-                        val repeatBtn = base.find { it.sessionCommand?.customAction == "ACTION_REPEAT" }
-                        val closeBtn = base.find { it.sessionCommand?.customAction == "ACTION_CLOSE" }
+                        val favoriteBtn = base.find { it.sessionCommand?.customAction == ACTION_FAVORITE }
+                        val shuffleBtn = base.find { it.sessionCommand?.customAction == ACTION_SHUFFLE }
                         val transport = base.filterNotNull().filter {
-                            it.sessionCommand?.customAction != "ACTION_REPEAT" &&
-                                    it.sessionCommand?.customAction != "ACTION_CLOSE" &&
-                                    it.sessionCommand?.customAction != "ACTION_NONE"
+                            val act = it.sessionCommand?.customAction
+                            act != ACTION_FAVORITE &&
+                                act != ACTION_SHUFFLE &&
+                                act != ACTION_REPEAT &&
+                                act != ACTION_CLOSE &&
+                                act != "ACTION_NONE"
                         }
                         val builder = ImmutableList.builder<CommandButton>()
-                        repeatBtn?.let { builder.add(it) }
+                        favoriteBtn?.let { builder.add(it) }
                         builder.addAll(transport)
-                        closeBtn?.let { builder.add(it) }
+                        shuffleBtn?.let { builder.add(it) }
                         builder.build()
                     }.getOrElse {
                         runCatching { super.getMediaButtons(session, playerCommands, customLayout, showPauseButton) }
@@ -307,14 +385,67 @@ class PlaybackService : MediaLibraryService() {
                 newPlayer.addListener(playerListener)
             }
 
-            // Keep the notification's repeat icon in sync whenever the repeat mode
-            // changes from ANY source (full-screen UI, notification button, etc.).
+            // Keep the One UI notification custom slots (Favorite & Shuffle) synchronized
+            // whenever the active song, liked status, or shuffle state changes.
             serviceScope.launch {
-                snapshotFlow { currentSongState.repeat.value }
+                snapshotFlow {
+                    Triple(
+                        currentSongState.songId.value,
+                        currentSongState.likeState.value,
+                        currentSongState.shuffle.value,
+                    )
+                }
                     .distinctUntilChanged()
-                    .collect { mode ->
-                        runCatching { mediaSession?.setCustomLayout(buildCustomLayout(mode)) }
+                    .collect { (songId, _, shuffled) ->
+                        val liked = isCurrentSongLiked(songId)
+                        runCatching { mediaSession?.setCustomLayout(buildCustomLayout(liked, shuffled)) }
                             .onFailure { AppDiagnostics.warning("PlaybackService", "Custom layout sync failed", it) }
+                    }
+            }
+
+            // Sync widget likes back into CurrentSongState + MediaSession custom layout.
+            WidgetActionRouter.onToggleLike = { songId, isLikedNow ->
+                if (currentSongState.songId.value == songId) {
+                    currentSongState.updateLikeState(isLikedNow)
+                    runCatching {
+                        mediaSession?.setCustomLayout(
+                            buildCustomLayout(isLiked = isLikedNow, isShuffled = currentSongState.shuffle.value)
+                        )
+                    }
+                }
+            }
+
+            // Observe settled playback state -> debounced Glance widget updates + 5-min idle watchdog.
+            serviceScope.launch {
+                snapshotFlow {
+                    val songId = currentSongState.songId.value
+                    WidgetStateKey(
+                        songId = songId,
+                        title = currentSongState.title.value,
+                        artist = currentSongState.singer.value,
+                        album = currentSongState.album.value,
+                        artworkUrl = currentSongState.coverUri.value,
+                        isPlaying = currentSongState.playingState.value,
+                        isLiked = isCurrentSongLiked(songId),
+                    )
+                }
+                    .distinctUntilChanged()
+                    .collect { key ->
+                        if (key.title.isNotBlank()) {
+                            widgetDebouncer?.submit(
+                                NowPlayingWidgetState(
+                                    songId = key.songId,
+                                    title = key.title,
+                                    artist = key.artist,
+                                    album = key.album,
+                                    artworkUrl = key.artworkUrl,
+                                    isPlaying = key.isPlaying,
+                                    isLiked = key.isLiked,
+                                    updatedAtMs = System.currentTimeMillis(),
+                                )
+                            )
+                        }
+                        scheduleIdleStopCheck()
                     }
             }
 
@@ -370,6 +501,9 @@ class PlaybackService : MediaLibraryService() {
             .setAlbumTitle(song.album)
             .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
             .setIsPlayable(true)
+        if (song.durationMs > 0) {
+            metadataBuilder.setDurationMs(song.durationMs.toLong())
+        }
 
         com.music.spotui.util.ArtworkHelper.attachArtwork(
             metadataBuilder, this, song.coverUri, song.id.toString(), song.url
@@ -378,7 +512,7 @@ class PlaybackService : MediaLibraryService() {
         latestServiceMetadata = metadataBuilder.build()
         android.util.Log.d(
             "PlaybackService",
-            "Updated MediaMetadata: title='${song.title}', artist='${song.singer}', album='${song.album}'"
+            "Updated MediaMetadata: title='${song.title}', artist='${song.singer}', album='${song.album}', durationMs=${song.durationMs}"
         )
     }
 
@@ -529,13 +663,18 @@ class PlaybackService : MediaLibraryService() {
                     else -> RepeatMode.OFF
                 }
                 currentSongState.updateRepeatState(mapped)
-                mediaSession?.setCustomLayout(buildCustomLayout(mapped))
             }
 
             override fun getShuffleModeEnabled(): Boolean = currentSongState.shuffle.value
 
             override fun setShuffleModeEnabled(shuffleModeEnabled: Boolean) {
                 currentSongState.updateShuffleState(shuffleModeEnabled)
+                mediaSession?.setCustomLayout(
+                    buildCustomLayout(
+                        isLiked = isCurrentSongLiked(currentSongState.songId.value),
+                        isShuffled = shuffleModeEnabled,
+                    )
+                )
             }
 
             override fun hasNextMediaItem() = currentSongState.queue.value.isNotEmpty()
@@ -563,36 +702,91 @@ class PlaybackService : MediaLibraryService() {
         const val NODE_DOWNLOADS = "downloads"
         const val NODE_PLAYLISTS = "playlists"
         const val NODE_ALBUMS = "albums"
+        const val ACTION_FAVORITE = "ACTION_FAVORITE"
+        const val ACTION_SHUFFLE = "ACTION_SHUFFLE"
+        const val ACTION_REPEAT = "ACTION_REPEAT"
+        const val ACTION_CLOSE = "ACTION_CLOSE"
+        const val IDLE_STOP_TIMEOUT_MS = 5 * 60_000L
     }
 
+    private fun scheduleIdleStopCheck() {
+        idleStopJob?.cancel()
+        val isActive = SongPlayer.isPlaying() ||
+            SongPlayer.isResolvingTrack ||
+            SpotifyWebPlayer.isPlaying ||
+            currentSongState.playingState.value
+        if (isActive || currentSongState.title.value.isBlank()) {
+            idleStopJob = null
+            return
+        }
+        idleStopJob = serviceScope.launch {
+            delay(IDLE_STOP_TIMEOUT_MS)
+            val stillIdle = !SongPlayer.isPlaying() &&
+                !SongPlayer.isResolvingTrack &&
+                !SpotifyWebPlayer.isPlaying &&
+                !currentSongState.playingState.value
+            if (stillIdle) {
+                widgetDebouncer?.reset()
+                widgetSink?.serviceStopped()
+                PlaybackSessionBus.onServiceStopping()
+                stopSelf()
+            }
+        }
+    }
+
+    private fun resumeFromPersistence(skipFirst: Boolean): Pair<List<SongsModel>, Int>? {
+        val savedQueue = com.music.spotui.data.preferences.loadLastQueue(applicationContext)
+        val savedLast = com.music.spotui.data.preferences.loadLastPlayback(applicationContext)
+        val plan = ResumePlanBuilder.buildWithFallback(
+            savedQueue = savedQueue,
+            lastSong = savedLast?.first,
+            lastPositionMs = savedLast?.second ?: 0L,
+            skipFirst = skipFirst,
+        ) ?: return null
+
+        currentSongState.updateQueue(plan.queue)
+        val targetSong = plan.startSong
+        currentSongState.updateSongState(
+            targetSong.coverUri,
+            targetSong.title,
+            targetSong.singer,
+            true,
+            targetSong.id,
+            plan.startIndex,
+            targetSong.album,
+        )
+        if (plan.positionMs > 0L) {
+            SongPlayer.setRestorePoint(targetSong.url, plan.positionMs)
+        }
+        SongPlayer.playSong(targetSong.url, applicationContext, "song/${targetSong.id}")
+        return plan.queue to plan.startIndex
+    }
+
+    private fun isCurrentSongLiked(songId: Int = currentSongState.songId.value): Boolean =
+        songId > 0 && com.music.spotui.data.preferences.isSongLiked(applicationContext, songId.toString())
+
     /**
-     * Builds the notification custom layout: [repeat button | close button].
-     * The repeat button icon reflects the current [mode].
+     * Builds the One UI & notification custom layout (max 2 custom slots):
+     * Slot 1: [ACTION_FAVORITE] — toggles liked status for the playing track.
+     * Slot 2: [ACTION_SHUFFLE]  — toggles shuffle state for the active queue.
      */
-    private fun buildCustomLayout(mode: RepeatMode): ImmutableList<CommandButton> {
-        val repeatIconRes = when (mode) {
-            RepeatMode.OFF -> R.drawable.ic_repeat_off  // slashed arrows = disabled
-            RepeatMode.ONE -> R.drawable.ic_repeat_one  // arrows + "1"
-            RepeatMode.ALL -> R.drawable.ic_repeat      // plain arrows = loop all
-        }
-        val repeatLabel = when (mode) {
-            RepeatMode.OFF -> "Repeat off"
-            RepeatMode.ONE -> "Repeat one"
-            RepeatMode.ALL -> "Repeat all"
-        }
-        val repeatButton = CommandButton.Builder()
-            .setDisplayName(repeatLabel)
-            .setSessionCommand(SessionCommand("ACTION_REPEAT", Bundle.EMPTY))
-            .setIconResId(repeatIconRes)
+    private fun buildCustomLayout(
+        isLiked: Boolean = isCurrentSongLiked(),
+        isShuffled: Boolean = currentSongState.shuffle.value,
+    ): ImmutableList<CommandButton> {
+        val favoriteButton = CommandButton.Builder()
+            .setDisplayName(if (isLiked) "Favorited" else "Favorite")
+            .setSessionCommand(SessionCommand(ACTION_FAVORITE, Bundle.EMPTY))
+            .setIconResId(if (isLiked) R.drawable.ic_favorite_filled else R.drawable.ic_favorite_border)
             .build()
 
-        val closeButton = CommandButton.Builder()
-            .setDisplayName("Close")
-            .setSessionCommand(SessionCommand("ACTION_CLOSE", Bundle.EMPTY))
-            .setIconResId(R.drawable.ic_close)
+        val shuffleButton = CommandButton.Builder()
+            .setDisplayName(if (isShuffled) "Shuffle On" else "Shuffle")
+            .setSessionCommand(SessionCommand(ACTION_SHUFFLE, Bundle.EMPTY))
+            .setIconResId(if (isShuffled) R.drawable.ic_player_shuffle else R.drawable.ic_shuffle_off)
             .build()
 
-        return ImmutableList.of(repeatButton, closeButton)
+        return ImmutableList.of(favoriteButton, shuffleButton)
     }
 
     private inner class LibraryCallback : MediaLibrarySession.Callback {
@@ -608,50 +802,29 @@ class PlaybackService : MediaLibraryService() {
             controller: MediaSession.ControllerInfo,
             intent: Intent,
         ): Boolean {
-            val keyEvent = intent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
-            android.util.Log.d(
-                "PlaybackService",
-                "onMediaButtonEvent: keyEvent=$keyEvent action=${intent.action}"
-            )
-            if (keyEvent == null) {
-                android.util.Log.w(
-                    "PlaybackService",
-                    "onMediaButtonEvent: no KeyEvent in intent extras=${intent.extras?.keySet()}"
-                )
-                return false
-            }
-            android.util.Log.d(
-                "PlaybackService",
-                "onMediaButtonEvent: keyCode=${keyEvent.keyCode} action=${keyEvent.action}"
-            )
-            if (keyEvent.action != KeyEvent.ACTION_DOWN) return false
-            when (keyEvent.keyCode) {
-                KeyEvent.KEYCODE_MEDIA_NEXT -> {
-                    android.util.Log.d(
-                        "PlaybackService",
-                        "onMediaButtonEvent: handling KEYCODE_MEDIA_NEXT"
-                    )
+            if (WidgetMediaIntents.isSkipFirst(intent)) {
+                if (currentSongState.queue.value.isNotEmpty() && SongPlayer.exoPlayer != null) {
                     SongPlayer.next(applicationContext)
-                    return true
+                } else {
+                    resumeFromPersistence(skipFirst = true)
                 }
-
-                KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
-                    android.util.Log.d(
-                        "PlaybackService",
-                        "onMediaButtonEvent: handling KEYCODE_MEDIA_PREVIOUS"
-                    )
-                    SongPlayer.previous(applicationContext)
-                    return true
-                }
-
-                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-                    android.util.Log.d(
-                        "PlaybackService",
-                        "onMediaButtonEvent: KEYCODE_MEDIA_PLAY_PAUSE (not intercepting)"
-                    )
-                }
+                return true
             }
-            return false
+            val keyEvent = intent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
+                ?: return false
+            if (keyEvent.action != KeyEvent.ACTION_DOWN) return false
+            val command = when (keyEvent.keyCode) {
+                KeyEvent.KEYCODE_MEDIA_NEXT -> MediaCommand.Next
+                KeyEvent.KEYCODE_MEDIA_PREVIOUS -> MediaCommand.Previous
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> MediaCommand.PlayPause
+                KeyEvent.KEYCODE_MEDIA_PLAY -> MediaCommand.Play
+                KeyEvent.KEYCODE_MEDIA_PAUSE -> MediaCommand.Pause
+                KeyEvent.KEYCODE_MEDIA_STOP -> MediaCommand.Stop
+                else -> null
+            } ?: return false
+
+            MediaCommandDispatcher.dispatchMediaCommand(command)
+            return true
         }
 
         override fun onConnect(
@@ -660,14 +833,16 @@ class PlaybackService : MediaLibraryService() {
         ): MediaSession.ConnectionResult {
             val baseResult = super.onConnect(session, controller)
             val sessionCommands = baseResult.availableSessionCommands.buildUpon()
-                .add(SessionCommand("ACTION_CLOSE", Bundle.EMPTY))
-                .add(SessionCommand("ACTION_REPEAT", Bundle.EMPTY))
+                .add(SessionCommand(ACTION_FAVORITE, Bundle.EMPTY))
+                .add(SessionCommand(ACTION_SHUFFLE, Bundle.EMPTY))
+                .add(SessionCommand(ACTION_REPEAT, Bundle.EMPTY))
+                .add(SessionCommand(ACTION_CLOSE, Bundle.EMPTY))
                 .build()
 
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(sessionCommands)
                 .setAvailablePlayerCommands(baseResult.availablePlayerCommands)
-                .setCustomLayout(buildCustomLayout(currentSongState.repeat.value))
+                .setCustomLayout(buildCustomLayout())
                 .build()
         }
 
@@ -679,7 +854,35 @@ class PlaybackService : MediaLibraryService() {
             args: Bundle
         ): ListenableFuture<SessionResult> {
             when (customCommand.customAction) {
-                "ACTION_CLOSE" -> {
+                ACTION_FAVORITE -> {
+                    val songId = currentSongState.songId.value
+                    if (songId > 0) {
+                        val key = songId.toString()
+                        val likedNow = com.music.spotui.data.preferences.isSongLiked(applicationContext, key)
+                        if (likedNow) {
+                            com.music.spotui.data.preferences.removeLikedSongId(applicationContext, key)
+                        } else {
+                            com.music.spotui.data.preferences.addLikedSongId(applicationContext, key)
+                        }
+                        val nextLiked = !likedNow
+                        currentSongState.updateLikeState(nextLiked)
+                        mediaSession?.setCustomLayout(
+                            buildCustomLayout(isLiked = nextLiked, isShuffled = currentSongState.shuffle.value)
+                        )
+                    }
+                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
+
+                ACTION_SHUFFLE -> {
+                    val nextShuffle = !currentSongState.shuffle.value
+                    currentSongState.updateShuffleState(nextShuffle)
+                    mediaSession?.setCustomLayout(
+                        buildCustomLayout(isLiked = isCurrentSongLiked(), isShuffled = nextShuffle)
+                    )
+                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
+
+                ACTION_CLOSE -> {
                     // End playback through the service lifecycle. Killing the whole process here
                     // is indistinguishable from a crash and can interrupt writes or state cleanup.
                     SongPlayer.stop()
@@ -687,7 +890,7 @@ class PlaybackService : MediaLibraryService() {
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
 
-                "ACTION_REPEAT" -> {
+                ACTION_REPEAT -> {
                     // Cycle OFF → ALL → ONE → OFF (matches full-screen UI)
                     val next = when (currentSongState.repeat.value) {
                         RepeatMode.OFF -> RepeatMode.ALL
@@ -695,9 +898,6 @@ class PlaybackService : MediaLibraryService() {
                         RepeatMode.ONE -> RepeatMode.OFF
                     }
                     currentSongState.updateRepeatState(next)
-                    // Update the custom layout so the notification icon reflects the new mode
-                    val newLayout = buildCustomLayout(next)
-                    mediaSession?.setCustomLayout(newLayout)
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
             }
@@ -762,29 +962,19 @@ class PlaybackService : MediaLibraryService() {
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
-            val savedQueue = com.music.spotui.data.preferences.loadLastQueue(applicationContext)
-            val savedLast = com.music.spotui.data.preferences.loadLastPlayback(applicationContext)
-            val targetSong = savedLast?.first ?: savedQueue.firstOrNull()
-            if (targetSong != null) {
-                val effectiveQueue = savedQueue.ifEmpty { listOf(targetSong) }
-                currentSongState.updateQueue(effectiveQueue)
-                val idx = effectiveQueue.indexOfFirst { it.id == targetSong.id }.coerceAtLeast(0)
-                currentSongState.updateSongState(
-                    targetSong.coverUri,
-                    targetSong.title,
-                    targetSong.singer,
-                    true,
-                    targetSong.id,
-                    idx,
-                    targetSong.album,
+            val resumed = resumeFromPersistence(skipFirst = false)
+                ?: return Futures.immediateFuture(
+                    MediaSession.MediaItemsWithStartPosition(emptyList(), C.INDEX_UNSET, C.TIME_UNSET)
                 )
-                savedLast?.second?.takeIf { it > 0L }?.let { posMs ->
-                    SongPlayer.setRestorePoint(targetSong.url, posMs)
-                }
-                SongPlayer.playSong(targetSong.url, applicationContext, "song/${targetSong.id}")
-            }
+            val slice = QueueWindow.slice(resumed.first, resumed.second)
+            val windowItems = slice.items.map { playable(it) }
+            val startPosMs = com.music.spotui.data.preferences.loadLastPlayback(applicationContext)?.second ?: 0L
             return Futures.immediateFuture(
-                MediaSession.MediaItemsWithStartPosition(emptyList(), C.INDEX_UNSET, C.TIME_UNSET)
+                MediaSession.MediaItemsWithStartPosition(
+                    windowItems,
+                    slice.activeIndexInWindow,
+                    startPosMs.coerceAtLeast(0L),
+                )
             )
         }
 
@@ -974,6 +1164,9 @@ class PlaybackService : MediaLibraryService() {
             .setIsBrowsable(false)
             .setIsPlayable(true)
             .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+        if (song.durationMs > 0) {
+            builder.setDurationMs(song.durationMs.toLong())
+        }
         com.music.spotui.util.ArtworkHelper.attachArtwork(
             builder, this, song.coverUri, song.id.toString(), song.url
         )
@@ -996,22 +1189,80 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // The MediaLibraryService and MediaSession manage the foreground service lifecycle
-        // and notification presentation via MediaNotificationProvider. Returning START_STICKY
-        // prevents a transient process/service recreation from stopping active background playback.
+        if (intent != null && intent.action == Intent.ACTION_MEDIA_BUTTON) {
+            if (WidgetMediaIntents.isSkipFirst(intent)) {
+                if (currentSongState.queue.value.isNotEmpty() && (SongPlayer.exoPlayer?.mediaItemCount ?: 0) > 0) {
+                    SongPlayer.next(applicationContext)
+                } else {
+                    resumeFromPersistence(skipFirst = true)
+                }
+                return START_STICKY
+            }
+            val keyEvent = intent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
+            if (intent.getBooleanExtra(WidgetMediaIntents.EXTRA_FROM_WIDGET_RELAY, false)) {
+                if (keyEvent != null && keyEvent.action == KeyEvent.ACTION_DOWN) {
+                    when (keyEvent.keyCode) {
+                        KeyEvent.KEYCODE_MEDIA_PAUSE, KeyEvent.KEYCODE_MEDIA_STOP -> SongPlayer.pause()
+                        KeyEvent.KEYCODE_MEDIA_PLAY -> {
+                            if (currentSongState.queue.value.isEmpty() || (SongPlayer.exoPlayer?.mediaItemCount ?: 0) == 0) {
+                                resumeFromPersistence(skipFirst = false)
+                            } else {
+                                SongPlayer.play()
+                            }
+                        }
+                        KeyEvent.KEYCODE_MEDIA_NEXT -> SongPlayer.next(applicationContext)
+                        KeyEvent.KEYCODE_MEDIA_PREVIOUS -> SongPlayer.previous(applicationContext)
+                        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> SongPlayer.togglePlay()
+                    }
+                    scheduleIdleStopCheck()
+                }
+                return START_STICKY
+            }
+            // Direct foreground start from home-screen widget (e.g. Play when idle-stopped or dead)
+            if (keyEvent != null && keyEvent.action == KeyEvent.ACTION_DOWN &&
+                (keyEvent.keyCode == KeyEvent.KEYCODE_MEDIA_PLAY || keyEvent.keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+            ) {
+                if (currentSongState.queue.value.isEmpty() || (SongPlayer.exoPlayer?.mediaItemCount ?: 0) == 0) {
+                    resumeFromPersistence(skipFirst = false)
+                } else {
+                    SongPlayer.play()
+                }
+                scheduleIdleStopCheck()
+                super.onStartCommand(intent, flags, startId)
+                return START_STICKY
+            }
+        }
+        // Return START_STICKY to prevent transient service recreation from interrupting active playback.
         super.onStartCommand(intent, flags, startId)
         return START_STICKY
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // Do not stop the service when the task is dismissed. During a normal background
-        // transition ExoPlayer can briefly report !isPlaying while buffering or resolving the
-        // next stream; stopping on that transient state tears down the MediaSession and audio.
-        // Media3 will manage the service normally after the user pauses/stops playback.
+        // Keep playing seamlessly in background if playback is active or resolving a track.
+        // Stop cleanly if playback is paused/idle so the notification isn't left orphaned.
+        val p = mediaSession?.player
+        val keepAlive = p?.playWhenReady == true ||
+            SongPlayer.isResolvingTrack ||
+            SpotifyWebPlayer.isPlaying
+        if (!keepAlive) {
+            widgetDebouncer?.reset()
+            widgetSink?.serviceStopped()
+            PlaybackSessionBus.onServiceStopping()
+            stopSelf()
+        }
         super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
+        idleStopJob?.cancel()
+        idleStopJob = null
+        MediaCommandDispatcher.stop()
+        WidgetActionRouter.onToggleLike = null
+        widgetDebouncer?.reset()
+        widgetDebouncer = null
+        widgetSink?.serviceStopped()
+        PlaybackSessionBus.onServiceStopping()
+
         runCatching { smartUnplugHandler?.unregister() }
         smartUnplugHandler = null
         runCatching { serviceScope.cancel() }

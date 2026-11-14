@@ -569,3 +569,26 @@ fun setMiniPlayerProgressVisible(c: Context, v: Boolean) {
 fun isSearchExplicitFilter(c: Context): Boolean = prefs(c).getBoolean(KEY_SEARCH_EXPLICIT_FILTER, false)
 fun setSearchExplicitFilter(c: Context, v: Boolean) =
     prefs(c).edit().putBoolean(KEY_SEARCH_EXPLICIT_FILTER, v).apply()
+
+private const val KEY_ADVANCED_SETTINGS_ENABLED = "ui_advanced_settings_enabled"
+private const val KEY_AUDIO_OFFLOAD_ENABLED = "playback_audio_offload_enabled"
+private const val KEY_BATTERY_PROMPT_DISMISSED = "oneui_battery_prompt_dismissed"
+
+fun isAdvancedSettingsEnabled(c: Context): Boolean =
+    prefs(c).getBoolean(KEY_ADVANCED_SETTINGS_ENABLED, false)
+
+fun setAdvancedSettingsEnabled(c: Context, enabled: Boolean) =
+    prefs(c).edit().putBoolean(KEY_ADVANCED_SETTINGS_ENABLED, enabled).apply()
+
+fun isAudioOffloadEnabled(c: Context): Boolean =
+    prefs(c).getBoolean(KEY_AUDIO_OFFLOAD_ENABLED, true)
+
+fun setAudioOffloadEnabled(c: Context, enabled: Boolean) =
+    prefs(c).edit().putBoolean(KEY_AUDIO_OFFLOAD_ENABLED, enabled).apply()
+
+fun isBatteryPromptDismissed(c: Context): Boolean =
+    prefs(c).getBoolean(KEY_BATTERY_PROMPT_DISMISSED, false)
+
+fun setBatteryPromptDismissed(c: Context, dismissed: Boolean) =
+    prefs(c).edit().putBoolean(KEY_BATTERY_PROMPT_DISMISSED, dismissed).apply()
+

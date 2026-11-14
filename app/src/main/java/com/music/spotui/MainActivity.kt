@@ -16,12 +16,8 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
-import androidx.media3.session.MediaController
-import androidx.media3.session.SessionToken
-import com.google.common.util.concurrent.ListenableFuture
-import com.music.spotui.di.SongPlayer
 import com.music.spotui.util.AppDiagnostics
-import com.music.spotui.ui.notification.PlaybackService
+import com.music.spotui.ui.notification.MediaSessionController
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.music.spotui.ui.theme.SpotuiTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -29,8 +25,6 @@ import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-
-    private var controllerFuture: ListenableFuture<MediaController>? = null
 
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op */ }
@@ -41,12 +35,9 @@ class MainActivity : ComponentActivity() {
         AppDiagnostics.info("MainActivity", "onCreate")
         runCatching { this.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) }
 
-        // Connect a controller to bootstrap the MediaSessionService: this brings up
-        // the system media notification and keeps playback alive in the background.
-        runCatching {
-            val token = SessionToken(this, ComponentName(this, PlaybackService::class.java))
-            controllerFuture = MediaController.Builder(this, token).buildAsync()
-        }.onFailure { AppDiagnostics.warning("MediaController", "Session controller bootstrap failed", it) }
+        // Connect MediaSessionController via SessionToken + MediaController.Builder.buildAsync():
+        // bootstraps the MediaLibraryService, system media notification, and One UI Now Bar cleanly.
+        MediaSessionController.connect(this)
 
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
@@ -68,6 +59,9 @@ class MainActivity : ComponentActivity() {
 
                 // Default link handler prompt: helps user enable open.spotify.com defaults.
                 com.music.spotui.ui.components.DefaultAppPrompt()
+
+                // Background battery optimization exemption prompt for One UI / OEM stability.
+                com.music.spotui.ui.components.BatteryOptimizationPrompt()
 
                 // Surfaces the latest crash stack trace if the previous session crashed.
                 com.music.spotui.ui.components.CrashReportPrompt()
@@ -141,12 +135,9 @@ class MainActivity : ComponentActivity() {
         AppDiagnostics.info("MainActivity", "onDestroy")
         runCatching { com.music.spotui.di.SpotifyWebPlayer.release() }
             .onFailure { AppDiagnostics.warning("SpotifyWebPlayer", "Release failed", it) }
-        // The MediaLibraryService owns the active engine and notification. Releasing
-        // SongPlayer here also runs when Android destroys or recreates the UI activity,
-        // which abruptly stops otherwise healthy background playback. Only the UI-side
+        // The MediaLibraryService owns the active engine and notification. Only the UI-side
         // controller connection is released here; the service releases its own resources.
-        controllerFuture?.let { MediaController.releaseFuture(it) }
-        controllerFuture = null
+        MediaSessionController.disconnect()
         super.onDestroy()
     }
 }

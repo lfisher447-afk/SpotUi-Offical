@@ -27,13 +27,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,10 +48,10 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Alignment
@@ -66,9 +71,11 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.music.spotui.ui.components.AiMusicInsightsSheet
 import com.bumptech.glide.integration.compose.ExperimentalGlideComposeApi
@@ -98,8 +105,8 @@ import com.music.spotui.ui.components.SwipeToPlayNextWrapper
 
 @Composable
 fun SearchScreen(navController: NavController, searchFocusTrigger: Int = 0) {
-    val searchViewModel : SearchViewModel = hiltViewModel()
-    val results by searchViewModel.results.collectAsState()
+    val searchViewModel: SearchViewModel = hiltViewModel()
+    val results by searchViewModel.results.collectAsStateWithLifecycle()
 
     // Results are live search hits (or empty); never gate the search UI on them.
     val searchResults = (results as? Response.Success)?.data ?: SearchResults()
@@ -123,6 +130,8 @@ fun SumUpSearchScreen(
     searchFocusTrigger: Int = 0,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val playerViewModel: PlayerViewModel = hiltViewModel()
 
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     var text by remember {
@@ -205,10 +214,10 @@ fun SumUpSearchScreen(
             .statusBarsPadding()
 
     ){
-        item{
+        item(key = "search_top_bar") {
             SearchTopBar()
         }
-        stickyHeader {
+        stickyHeader(key = "search_sticky_header") {
             SearchStickyBar(
                 text,
                 onFocusChange = { isTextFieldFocused = it },
@@ -219,7 +228,78 @@ fun SumUpSearchScreen(
             }
         }
 
-        item {
+        val trimmedQuery = text.trim()
+        val looksLikeSupportedUrl = trimmedQuery.startsWith("http", ignoreCase = true) ||
+            trimmedQuery.startsWith("spotify:", ignoreCase = true) ||
+            trimmedQuery.contains("open.spotify.com/", ignoreCase = true) ||
+            trimmedQuery.contains("youtu.be/", ignoreCase = true) ||
+            trimmedQuery.contains("youtube.com/", ignoreCase = true)
+
+        if (looksLikeSupportedUrl) {
+            item(key = "search_open_link_banner") {
+                Surface(
+                    color = Color(0xFF172722),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .testTag("search_open_link_card")
+                        .clickable {
+                            focusManager.clearFocus()
+                            com.music.spotui.util.DeepLinkHandler.processUri(
+                                uri = android.net.Uri.parse(trimmedQuery),
+                                context = context,
+                                navController = navController,
+                                playerViewModel = playerViewModel,
+                                scope = scope,
+                            )
+                        },
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(AppPalette.copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Link,
+                                contentDescription = "Open link",
+                                tint = AppPalette,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Open Spotify / YouTube Link Directly",
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                text = trimmedQuery,
+                                color = Color(0xFFA2D2B6),
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = AppPalette,
+                        )
+                    }
+                }
+            }
+        }
+
+        item(key = "search_ai_grounding_card") {
             // AI Search Grounding Card
             Surface(
                 color = Color(0xFF1F1F2A),
@@ -275,12 +355,65 @@ fun SumUpSearchScreen(
         }
 
         if (text.isBlank()) {
+            item(key = "search_trending_queries") {
+                val quickQueries = remember {
+                    listOf("Lo-Fi Beats", "Synthwave", "Top Hits", "Acoustic", "Workout Mix", "Late Night Drive", "Indie Chill")
+                }
+                Column(modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 4.dp)) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.TrendingUp,
+                            contentDescription = null,
+                            tint = AppPalette,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "Quick Searches",
+                            color = Color(0xFFD0D4E0),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    LazyRow(
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(items = quickQueries, key = { it }) { suggestion ->
+                            Box(
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .clip(RoundedCornerShape(24.dp))
+                                    .background(Color(0xFF1E202B))
+                                    .clickable {
+                                        text = suggestion
+                                        searchActive = true
+                                        searchViewModel.search(suggestion)
+                                    }
+                                    .testTag("search_quick_${suggestion.lowercase().replace(' ', '_')}")
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = suggestion,
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
             if ((isTextFieldFocused || searchActive) && recents.isNotEmpty()) {
                 item(key = "recent_header") {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp, 16.dp, 16.dp, 4.dp),
+                            .padding(16.dp, 12.dp, 8.dp, 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
@@ -290,21 +423,25 @@ fun SumUpSearchScreen(
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                         )
-                        Text(
-                            "Clear",
-                            color = Color(0xFFB3B3B3),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
+                        Box(
                             modifier = Modifier
-                                .testTag("search_clear_recents_button")
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null,
-                                ) {
+                                .heightIn(min = 48.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
                                     com.music.spotui.data.preferences.clearRecentItems(context)
                                     recents = emptyList()
-                                },
-                        )
+                                }
+                                .testTag("search_clear_recents_button")
+                                .padding(horizontal = 12.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                "Clear",
+                                color = Color(0xFFB3B3B3),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
                     }
                 }
                 items(
@@ -314,6 +451,7 @@ fun SumUpSearchScreen(
                     val item = recents[i]
                     RecentItemRow(
                         item = item,
+                        index = i,
                         onClick = {
                             when (item.type) {
                                 "song" -> {
@@ -364,49 +502,62 @@ fun SumUpSearchScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     SearchCategoryFilter.entries.forEach { cat ->
                         val selected = selectedCategory == cat
                         Box(
                             modifier = Modifier
-                                .heightIn(min = 40.dp)
-                                .clip(RoundedCornerShape(20.dp))
+                                .heightIn(min = 48.dp)
+                                .clip(RoundedCornerShape(24.dp))
                                 .background(if (selected) AppPalette else Color(0xFF1F2029))
                                 .clickable { selectedCategory = cat }
                                 .testTag("search_filter_${cat.name.lowercase()}")
-                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
                                 cat.label,
                                 color = if (selected) Color.Black else Color.White,
-                                fontSize = 12.sp,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                             )
                         }
                     }
                     Box(
                         modifier = Modifier
-                            .heightIn(min = 40.dp)
-                            .clip(RoundedCornerShape(20.dp))
+                            .heightIn(min = 48.dp)
+                            .clip(RoundedCornerShape(24.dp))
                             .background(if (explicitOnly) Color(0xFFE57373) else Color(0xFF1F2029))
                             .clickable {
                                 explicitOnly = !explicitOnly
                                 com.music.spotui.data.preferences.setSearchExplicitFilter(context, explicitOnly)
                             }
                             .testTag("search_filter_explicit_only")
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
                             if (explicitOnly) "Explicit Only ✓" else "Explicit Only",
                             color = if (explicitOnly) Color.Black else Color.White,
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                         )
                     }
+                }
+            }
+
+            if (searchedList.isNotEmpty() || results.artists.isNotEmpty() || results.albums.isNotEmpty() || results.shows.isNotEmpty()) {
+                item(key = "search_result_summary") {
+                    Text(
+                        text = "${searchedList.size} songs • ${results.artists.size} artists • ${results.albums.size} albums" +
+                            if (results.shows.isNotEmpty()) " • ${results.shows.size} podcasts" else "",
+                        color = Color(0xFF9AA1B2),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
                 }
             }
 
@@ -572,6 +723,7 @@ private fun SongsModel.toRecentItem() = com.music.spotui.data.preferences.Recent
 @Composable
 fun RecentItemRow(
     item: com.music.spotui.data.preferences.RecentItem,
+    index: Int,
     onClick: () -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -583,7 +735,7 @@ fun RecentItemRow(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
             ) { onClick() }
-            .padding(16.dp, 8.dp),
+            .padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
     ) {
         GlideImage(
             modifier = Modifier
@@ -593,7 +745,7 @@ fun RecentItemRow(
             contentScale = ContentScale.Crop,
             failure = placeholder(R.drawable.placeholder),
             loading = placeholder(R.drawable.placeholder),
-            contentDescription = "",
+            contentDescription = item.name,
         )
         Column(
             modifier = Modifier
@@ -610,17 +762,19 @@ fun RecentItemRow(
             }
             Text(text = subtitle, color = Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1)
         }
-        Icon(
-            imageVector = Icons.Default.Close,
-            tint = Color(0xFFB3B3B3),
+        IconButton(
+            onClick = onRemove,
             modifier = Modifier
-                .size(20.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                ) { onRemove() },
-            contentDescription = "Remove",
-        )
+                .size(48.dp)
+                .testTag("recent_remove_$index"),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Close,
+                tint = Color(0xFFB3B3B3),
+                modifier = Modifier.size(20.dp),
+                contentDescription = "Remove ${item.name}",
+            )
+        }
     }
 }
 
@@ -1016,49 +1170,83 @@ fun SearchStickyBar(
         }
     }
 
-    Row(verticalAlignment = Alignment.CenterVertically,
+    Surface(
+        color = Color(0xFFF3F5F9),
+        shape = RoundedCornerShape(14.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(10.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .height(55.dp)
-            .background(Color.White)
-            .padding(10.dp, 0.dp)
-    ){
-        Icon(
-            painterResource(id = R.drawable.ic_search_big),
-            tint = Color.Black,
-            contentDescription = "",
-            modifier = Modifier.clickable { focusRequester.requestFocus() }
-        )
-
-        TextField(
-            enabled = true,
-            modifier = Modifier
-                .onFocusChanged { onFocusChange(it.isFocused) }
-                .focusRequester(focusRequester),
-            value = text,
-            textStyle = TextStyle.Default.copy(fontSize = 16.sp, color = Color.Black, fontWeight = FontWeight(500)),
-            colors = TextFieldDefaults.colors(
-                unfocusedContainerColor = Color.Transparent,
-                disabledContainerColor = Color.Transparent,
-                focusedContainerColor = Color.Transparent,
-                disabledIndicatorColor = Color.Transparent,
-                focusedIndicatorColor = Color.Transparent,
-                unfocusedIndicatorColor = Color.Transparent,
-                cursorColor = Color.Black
-
-            ),
-            singleLine = true,
-            onValueChange = onTextChange,
-            placeholder = {
-                Text(
-                     textAlign = TextAlign.Center,
-                    fontWeight = FontWeight.Bold,
-                    text = "What do you want to listen to?"
-
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .heightIn(min = 54.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+        ) {
+            IconButton(
+                onClick = { focusRequester.requestFocus() },
+                modifier = Modifier.size(48.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    tint = Color(0xFF14161D),
+                    contentDescription = "Focus search",
+                    modifier = Modifier.size(22.dp),
                 )
             }
-        )
+
+            TextField(
+                enabled = true,
+                modifier = Modifier
+                    .weight(1f)
+                    .onFocusChanged { onFocusChange(it.isFocused) }
+                    .focusRequester(focusRequester)
+                    .testTag("search_query_input"),
+                value = text,
+                textStyle = TextStyle.Default.copy(
+                    fontSize = 15.sp,
+                    color = Color(0xFF14161D),
+                    fontWeight = FontWeight.Medium,
+                ),
+                colors = TextFieldDefaults.colors(
+                    unfocusedContainerColor = Color.Transparent,
+                    disabledContainerColor = Color.Transparent,
+                    focusedContainerColor = Color.Transparent,
+                    disabledIndicatorColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    cursorColor = Color(0xFF14161D),
+                ),
+                singleLine = true,
+                onValueChange = onTextChange,
+                placeholder = {
+                    Text(
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF5D6270),
+                        text = "Songs, artists, or Spotify/YT link…",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
+            )
+
+            if (text.isNotEmpty()) {
+                IconButton(
+                    onClick = {
+                        onTextChange("")
+                        focusRequester.requestFocus()
+                    },
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("search_clear_text_button"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        tint = Color(0xFF3E424D),
+                        contentDescription = "Clear query",
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+        }
     }
 }

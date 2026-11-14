@@ -254,11 +254,21 @@ object SongPlayer {
     @Volatile private var metaTitle: String = ""
     @Volatile private var metaArtist: String = ""
     @Volatile private var metaCover: String = ""
+    @Volatile private var metaAlbum: String = ""
+    @Volatile private var metaDurationMs: Long = 0L
 
-    fun setNowPlayingMeta(title: String, artist: String, coverUri: String) {
+    fun setNowPlayingMeta(
+        title: String,
+        artist: String,
+        coverUri: String,
+        album: String = "",
+        durationMs: Long = 0L,
+    ) {
         metaTitle = title
         metaArtist = artist
         metaCover = coverUri
+        metaAlbum = album
+        metaDurationMs = durationMs.coerceAtLeast(0L)
         refreshArtworkInBackground(currentMediaId, coverUri)
     }
 
@@ -522,11 +532,15 @@ object SongPlayer {
     }
 
     // Build a MediaItem carrying the current track's metadata so the system media
-    // notification (MediaSession) shows the right title / artist / artwork.
+    // notification (MediaSession) and One UI Now Bar show title / artist / album / duration / artwork.
     private fun buildMediaItem(streamUrl: String, mimeType: String? = null): MediaItem {
         val metadataBuilder = androidx.media3.common.MediaMetadata.Builder()
             .setTitle(metaTitle)
             .setArtist(metaArtist)
+            .setMediaType(androidx.media3.common.MediaMetadata.MEDIA_TYPE_MUSIC)
+            .setIsPlayable(true)
+        if (metaAlbum.isNotBlank()) metadataBuilder.setAlbumTitle(metaAlbum)
+        if (metaDurationMs > 0L) metadataBuilder.setDurationMs(metaDurationMs)
         val ctx = appCtx ?: com.music.spotui.MyApplication.instanceOrNull
         if (ctx != null) {
             com.music.spotui.util.ArtworkHelper.attachArtwork(
@@ -611,6 +625,8 @@ object SongPlayer {
                                 title = nextSong.title,
                                 artist = nextSong.singer,
                                 coverUri = nextSong.coverUri,
+                                album = nextSong.album,
+                                durationMs = nextSong.durationMs.toLong(),
                                 mediaId = "song/${nextSong.id}"
                             )
                             p.addMediaItem(nextItem)
@@ -630,11 +646,17 @@ object SongPlayer {
         title: String,
         artist: String,
         coverUri: String,
+        album: String = "",
+        durationMs: Long = 0L,
         mediaId: String? = null
     ): MediaItem {
         val metadataBuilder = androidx.media3.common.MediaMetadata.Builder()
             .setTitle(title)
             .setArtist(artist)
+            .setMediaType(androidx.media3.common.MediaMetadata.MEDIA_TYPE_MUSIC)
+            .setIsPlayable(true)
+        if (album.isNotBlank()) metadataBuilder.setAlbumTitle(album)
+        if (durationMs > 0L) metadataBuilder.setDurationMs(durationMs)
         val ctx = appCtx ?: com.music.spotui.MyApplication.instanceOrNull
         if (ctx != null) {
             com.music.spotui.util.ArtworkHelper.attachArtwork(
@@ -2065,8 +2087,26 @@ object SongPlayer {
                 val pitch = com.music.spotui.data.preferences.getPlaybackPitchPref(context)
                 it.playbackParameters = androidx.media3.common.PlaybackParameters(speed, pitch)
                 it.skipSilenceEnabled = com.music.spotui.data.preferences.isSkipSilenceEnabled(context)
+                applyAudioOffloadPolicy(context, it)
             }
         return PlayerPipeline(p, dsp, filter, spatial)
+    }
+
+    private fun applyAudioOffloadPolicy(context: Context, exo: ExoPlayer) {
+        val offloadEnabled = com.music.spotui.data.preferences.isAudioOffloadEnabled(context)
+        val mode = if (offloadEnabled) {
+            androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED
+        } else {
+            androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED
+        }
+        val prefs = androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences.Builder()
+            .setAudioOffloadMode(mode)
+            .setIsGaplessSupportRequired(true)
+            .setIsSpeedChangeSupportRequired(true)
+            .build()
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setAudioOffloadPreferences(prefs)
+            .build()
     }
 
     private fun applySoftwareDsp(
@@ -2152,6 +2192,14 @@ object SongPlayer {
         val effectiveFocus = mode != com.music.spotui.data.preferences.AudioFocusMode.MIX_IGNORE_FOCUS
         scope.launch(Dispatchers.Main) {
             player?.setAudioAttributes(buildAudioAttributes(), effectiveFocus)
+        }
+    }
+
+    /** Updates Media3 hardware AudioOffloadPreferences dynamically. */
+    fun refreshAudioOffloadPolicy(context: Context) {
+        val appContext = context.applicationContext
+        scope.launch(Dispatchers.Main) {
+            player?.let { applyAudioOffloadPolicy(appContext, it) }
         }
     }
 

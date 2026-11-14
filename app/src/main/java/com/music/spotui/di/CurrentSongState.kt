@@ -4,7 +4,11 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import com.music.spotui.data.entity.SongsModel
+import com.music.spotui.playback.QueueWindow
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -61,9 +65,17 @@ class CurrentSongState @Inject constructor(
     private val _queue: MutableState<List<SongsModel>> = mutableStateOf(emptyList())
     val queue: State<List<SongsModel>> get() = _queue
 
+    private val _fullQueueIds = MutableStateFlow<List<String>>(emptyList())
+    val fullQueueIds: StateFlow<List<String>> = _fullQueueIds.asStateFlow()
+
+    /** Bounded slice (<= 500 tracks) safe to publish over Media3 / SystemUI / Bluetooth IPC. */
+    fun windowedQueue(maxItems: Int = QueueWindow.MAX_PLAYER_ITEMS): QueueWindow.Slice =
+        QueueWindow.slice(_queue.value, _songIndex.value, maxItems)
+
     fun updateQueue(songs: List<SongsModel>) {
         val sanitized = com.music.spotui.engine.QueueSanitizerWorker.sanitizeQueue(songs)
         _queue.value = sanitized
+        _fullQueueIds.value = sanitized.map { it.spotifyTrackId.ifBlank { it.id.toString() } }
         // Seed the lossless resolver: map each track's play query → its Spotify id so
         // SongPlayer can resolve a FLAC stream from a play site that only has the query.
         SongPlayer.registerLossless(sanitized.map { it.url to it.spotifyTrackId })
@@ -311,10 +323,17 @@ class CurrentSongState @Inject constructor(
         _songIndex.value = songIndex
         _songId.value = songId
         // Feed the system media notification (MediaSession) with the current track.
-        SongPlayer.setNowPlayingMeta(title, singer, coverUri)
+        val queueTrack = _queue.value.firstOrNull { it.id == songId }
+        SongPlayer.setNowPlayingMeta(
+            title = title,
+            artist = singer,
+            coverUri = coverUri,
+            album = album,
+            durationMs = (queueTrack?.durationMs ?: 0).toLong(),
+        )
         // Persist the current track so a fresh launch can restore the session.
         if (playingState && title.isNotBlank()) {
-            _queue.value.firstOrNull { it.id == songId }?.let { track ->
+            queueTrack?.let { track ->
                 com.music.spotui.data.preferences.saveLastPlayback(
                     context, track)
             }

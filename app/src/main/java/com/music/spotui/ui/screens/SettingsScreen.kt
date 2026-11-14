@@ -138,6 +138,8 @@ import com.music.spotui.data.preferences.setSkipSilenceEnabled
 import com.music.spotui.data.preferences.setStreamBypassProxyEnabled
 import com.music.spotui.data.preferences.setWebClientPoTokenEnabled
 import com.music.spotui.data.preferences.setYoutubeCookie
+import com.music.spotui.data.preferences.isAdvancedSettingsEnabled
+import com.music.spotui.data.preferences.setAdvancedSettingsEnabled
 import com.music.spotui.data.update.UpdateChecker
 import com.music.spotui.ui.components.DefaultAppPrompt
 import com.music.spotui.util.DefaultLinkHelper
@@ -157,6 +159,7 @@ import com.music.spotui.util.AppDiagnostics
 fun SettingsScreen(navController: NavController) {
     val context = LocalContext.current
 
+    var advancedSettingsEnabled by remember { mutableStateOf(isAdvancedSettingsEnabled(context)) }
     var wifiQ by remember { mutableStateOf(getWifiQuality(context)) }
     var cellQ by remember { mutableStateOf(getCellularQuality(context)) }
     var dlQ by remember { mutableStateOf(getDownloadQuality(context)) }
@@ -572,6 +575,87 @@ fun SettingsScreen(navController: NavController) {
                 Spacer(Modifier.height(8.dp))
             }
 
+            // Master Advanced Settings Toggle Card
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 64.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(if (advancedSettingsEnabled) Color(0xFF1A2520) else Color(0xFF1A1A20))
+                    .border(
+                        width = 1.dp,
+                        color = if (advancedSettingsEnabled) AppPalette.copy(alpha = 0.6f) else Color(0xFF2D2E38),
+                        shape = RoundedCornerShape(14.dp),
+                    )
+                    .clickable {
+                        val next = !advancedSettingsEnabled
+                        advancedSettingsEnabled = next
+                        setAdvancedSettingsEnabled(context, next)
+                    }
+                    .testTag("advanced_settings_toggle")
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "Advanced Settings",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (advancedSettingsEnabled) AppPalette else Color(0xFF2D2E38))
+                                .padding(horizontal = 8.dp, vertical = 2.dp),
+                        ) {
+                            Text(
+                                text = if (advancedSettingsEnabled) "ON" else "OFF",
+                                color = if (advancedSettingsEnabled) Color.Black else Color(0xFFB3B3B3),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = if (advancedSettingsEnabled) {
+                            "Showing 7-Band EQ, Lossless Priority, Network/DoH, MrBean, Theme Studio & Diagnostics"
+                        } else {
+                            "Tap to unlock Studio DSP, Lossless Mirrors, Network Tuning, Themes & Health Scanner"
+                        },
+                        color = Color(0xFFB3B3B3),
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                    )
+                }
+                Switch(
+                    checked = advancedSettingsEnabled,
+                    onCheckedChange = { enabled ->
+                        advancedSettingsEnabled = enabled
+                        setAdvancedSettingsEnabled(context, enabled)
+                    },
+                    modifier = Modifier.testTag("advanced_settings_switch"),
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = AppPalette,
+                        uncheckedThumbColor = Color(0xFFB3B3B3),
+                        uncheckedTrackColor = Color(0xFF333333),
+                    ),
+                )
+            }
+
+            Spacer(Modifier.height(14.dp))
+
+            AnimatedVisibility(
+                visible = advancedSettingsEnabled,
+                enter = expandVertically(),
+                exit = shrinkVertically(),
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
             CollapsibleSettingsSection(
                 title = "One UI & Android 16 System Integration",
                 subtitle = "Predictive back gestures, squircle geometry, edge-to-edge, and battery guard",
@@ -1956,6 +2040,8 @@ fun SettingsScreen(navController: NavController) {
                 preloadNextStream = it
                 setPreloadEnabled(context, it)
             }
+                }
+            }
 
             Spacer(Modifier.height(12.dp))
             SectionTitle("Audio quality")
@@ -2004,6 +2090,12 @@ fun SettingsScreen(navController: NavController) {
                 onSelectTimeout = { dlLosslessTimeout = it; setDownloadLosslessTimeout(context, it) },
             ) { dlQ = it; setDownloadQuality(context, it) }
 
+            AnimatedVisibility(
+                visible = advancedSettingsEnabled,
+                enter = expandVertically(),
+                exit = shrinkVertically(),
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
             Spacer(Modifier.height(8.dp))
             LosslessProviderSection(
                 onOpenProviderStatusDialog = {
@@ -2117,6 +2209,8 @@ fun SettingsScreen(navController: NavController) {
                     navController.navigate(com.music.spotui.ui.navigation.Routes.DeveloperConsole.route)
                 },
             )
+                }
+            }
 
             Spacer(Modifier.height(12.dp))
             SectionTitle("Crossfade")
@@ -2325,6 +2419,12 @@ fun SettingsScreen(navController: NavController) {
                     modifier = Modifier.size(20.dp)
                 )
             }
+            AnimatedVisibility(
+                visible = advancedSettingsEnabled,
+                enter = expandVertically(),
+                exit = shrinkVertically(),
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
             Spacer(Modifier.height(12.dp))
             SectionTitle("Backup & Restore")
 
@@ -2546,6 +2646,8 @@ fun SettingsScreen(navController: NavController) {
                     tint = AppPalette,
                     modifier = Modifier.size(20.dp)
                 )
+            }
+                }
             }
 
             Spacer(Modifier.height(12.dp))

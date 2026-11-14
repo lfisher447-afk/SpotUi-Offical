@@ -125,9 +125,15 @@ dependencies {
 
     //coroutines
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.coroutines.guava)
+    testImplementation(libs.kotlinx.coroutines.test)
 
     //await
     implementation(libs.kotlinx.coroutines.play.services)
+
+    // Jetpack Glance Home Screen Widgets
+    implementation(libs.androidx.glance.appwidget)
+    implementation(libs.androidx.glance.material3)
 
     //glide
     implementation(libs.compose)
@@ -148,6 +154,7 @@ dependencies {
     implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media3.datasource.okhttp)
     implementation(libs.androidx.media3.exoplayer.workmanager)
+    implementation("androidx.concurrent:concurrent-futures-ktx:1.2.0")
     implementation(libs.androidx.work.runtime.ktx)
 
     //okhttp + timber (used by the ported YouTube streaming flow)

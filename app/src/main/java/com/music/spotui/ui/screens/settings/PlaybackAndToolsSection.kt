@@ -38,6 +38,7 @@ import com.music.spotui.data.preferences.BufferProfile
 import com.music.spotui.data.preferences.getAudioFocusMode
 import com.music.spotui.data.preferences.getBufferProfile
 import com.music.spotui.data.preferences.getSeekStepSeconds
+import com.music.spotui.data.preferences.isAudioOffloadEnabled
 import com.music.spotui.data.preferences.isAutoResumeOnBluetooth
 import com.music.spotui.data.preferences.isAutoSkipUnavailable
 import com.music.spotui.data.preferences.isAutoplayRadioEnabled
@@ -48,6 +49,7 @@ import com.music.spotui.data.preferences.isPauseOnUnplugEnabled
 import com.music.spotui.data.preferences.isPauseOnZeroVolume
 import com.music.spotui.data.preferences.isSpectrumVisualizerEnabled
 import com.music.spotui.data.preferences.setAudioFocusMode
+import com.music.spotui.data.preferences.setAudioOffloadEnabled
 import com.music.spotui.data.preferences.setAutoResumeOnBluetooth
 import com.music.spotui.data.preferences.setAutoSkipUnavailable
 import com.music.spotui.data.preferences.setAutoplayRadioEnabled
@@ -78,6 +80,7 @@ fun PlaybackAndToolsSection(
     var autoSkipError by remember { mutableStateOf(isAutoSkipUnavailable(context)) }
     var fadeInPlay by remember { mutableStateOf(isFadeInOnPlay(context)) }
     var floatAudio by remember { mutableStateOf(isFloatAudioOutput(context)) }
+    var audioOffload by remember { mutableStateOf(isAudioOffloadEnabled(context)) }
     var seekStepSec by remember { mutableStateOf(getSeekStepSeconds(context)) }
     var spectrumVisualizer by remember { mutableStateOf(isSpectrumVisualizerEnabled(context)) }
     var miniPlayerProgress by remember { mutableStateOf(isMiniPlayerProgressVisible(context)) }
@@ -253,6 +256,16 @@ fun PlaybackAndToolsSection(
             setFloatAudioOutput(context, it)
         }
         EngineToggleRow(
+            title = "Hardware Audio Offload (Gapless + Speed)",
+            subtitle = "Uses low-power Media3 DSP offload with gapless and speed support when available",
+            checked = audioOffload,
+            tag = "audio_offload_switch",
+        ) {
+            audioOffload = it
+            setAudioOffloadEnabled(context, it)
+            SongPlayer.refreshAudioOffloadPolicy(context)
+        }
+        EngineToggleRow(
             title = "Spectrum Visualizer Overlay",
             subtitle = "Display reactive spectrum bars inside Now Playing UI",
             checked = spectrumVisualizer,
@@ -423,6 +436,60 @@ fun PlaybackAndToolsSection(
                         .heightIn(min = 48.dp)
                         .testTag("queue_trim_played_button"),
                 ) { Text("Trim Played", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+            }
+        }
+
+        // Home Screen Widgets Pinning Card (Android 8+)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFF22222B))
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Home Screen Widgets", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "Add interactive Glance Now Playing widgets (2×2 Compact or 4×2 Full Bar with artwork & favorites) directly to your launcher.",
+                color = Color(0xFFB3B3B3),
+                fontSize = 11.sp,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    onClick = {
+                        val awm = android.appwidget.AppWidgetManager.getInstance(context)
+                        val comp = com.music.spotui.widget.GlanceWidgetUpdater.compactComponent(context)
+                        if (awm.isRequestPinAppWidgetSupported) {
+                            awm.requestPinAppWidget(comp, null, null)
+                        } else {
+                            Toast.makeText(context, "Add Spotui Mini Player via your launcher's widget picker.", Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E303C), contentColor = Color.White),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .testTag("widget_pin_compact_button"),
+                ) { Text("Pin 2×2 Mini", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                Button(
+                    onClick = {
+                        val awm = android.appwidget.AppWidgetManager.getInstance(context)
+                        val comp = com.music.spotui.widget.GlanceWidgetUpdater.expandedComponent(context)
+                        if (awm.isRequestPinAppWidgetSupported) {
+                            awm.requestPinAppWidget(comp, null, null)
+                        } else {
+                            Toast.makeText(context, "Add Spotui Now Playing via your launcher's widget picker.", Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AppPalette, contentColor = Color.Black),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .testTag("widget_pin_expanded_button"),
+                ) { Text("Pin 4×2 Full", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
             }
         }
 

@@ -69,8 +69,14 @@ import com.music.spotui.ui.viewmodel.PlayerViewModel
 fun QueueScreen(navController: NavController) {
     val playerViewModel: PlayerViewModel = hiltViewModel()
     val context = LocalContext.current
-    val queue by playerViewModel.queue
+    val rawQueue by playerViewModel.queue
     val currentId = playerViewModel.currentSongId.value
+    val queue = remember(rawQueue, currentId) {
+        com.music.spotui.playback.LogicalQueueDisplay.compute(
+            logicalQueue = rawQueue,
+            currentSongId = currentId,
+        )
+    }
     val curIdx = queue.indexOfFirst { it.id == currentId }.coerceAtLeast(0)
     val upcoming = if (queue.isNotEmpty()) queue.drop(curIdx + 1) else emptyList()
     val current = queue.getOrNull(curIdx)

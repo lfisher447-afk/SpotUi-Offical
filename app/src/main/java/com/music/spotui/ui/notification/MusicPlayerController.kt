@@ -37,7 +37,6 @@ import com.bumptech.glide.integration.compose.ExperimentalGlideComposeApi
 import com.bumptech.glide.integration.compose.GlideImage
 import com.bumptech.glide.integration.compose.placeholder
 import com.music.spotui.R
-import com.music.spotui.di.SongPlayer
 import com.music.spotui.ui.screens.CustomSlider
 import java.util.Locale
 
@@ -55,7 +54,7 @@ fun MusicPlayerController(
     currentPositionMs: Long = 0L,
     durationMs: Long = 0L,
     onAddClick: () -> Unit = {},
-    onSeek: (Long) -> Unit = { SongPlayer.seekTo(it) },
+    onSeek: (Long) -> Unit = { MediaSessionController.seekTo(it) },
 ) {
     val surfaceColor = MaterialTheme.colorScheme.surfaceContainerHigh
     val onSurface = MaterialTheme.colorScheme.onSurface
