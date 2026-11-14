@@ -76,7 +76,7 @@ class MainActivity : ComponentActivity() {
         // setContent only if explicitly enabled in preferences.
         if (com.music.spotui.data.preferences.isWebPlaybackEnabled(this)) {
             runCatching {
-                com.music.spotui.di.SpotifyWebPlayer.attach(this)
+                com.music.spotui.di.SpotifyWebPlayer.attach(applicationContext)
             }.onFailure { AppDiagnostics.error("SpotifyWebPlayer", "Web player attach failed", it) }
         }
 
@@ -137,10 +137,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         AppDiagnostics.info("MainActivity", "onDestroy")
-        runCatching { com.music.spotui.di.SpotifyWebPlayer.release() }
-            .onFailure { AppDiagnostics.warning("SpotifyWebPlayer", "Release failed", it) }
-        // The MediaLibraryService owns the active engine and notification. Only the UI-side
-        // controller connection is released here; the service releases its own resources.
+        // The MediaLibraryService owns the active engine, SpotifyWebPlayer WebView, and
+        // notification. Only the UI-side controller connection is released here.
         MediaSessionController.disconnect()
         super.onDestroy()
     }

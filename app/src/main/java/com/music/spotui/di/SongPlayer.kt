@@ -280,6 +280,46 @@ object SongPlayer {
         playWhenResolved = shouldPlay
     }
 
+    /** True when the bound queue has a track to advance to (next item, repeat-one, or repeat-all). */
+    fun hasUpcomingQueueTrack(): Boolean {
+        val state = boundState ?: return false
+        val q = state.queue.value
+        if (q.isEmpty()) return false
+        return when (state.repeat.value) {
+            RepeatMode.ONE, RepeatMode.ALL -> true
+            RepeatMode.OFF -> {
+                val curId = state.songId.value
+                val curIdx = q.indexOfFirst { it.id == curId }
+                    .let { if (it >= 0) it else state.songIndex.value }
+                curIdx in 0 until q.lastIndex
+            }
+        }
+    }
+
+    /** Updates active query/metadata state after ExoPlayer gaplessly auto-advances to a queued item. */
+    fun onAutoAdvanced(
+        songUrl: String,
+        mediaId: String,
+        title: String,
+        artist: String,
+        coverUri: String,
+        album: String,
+        durationMs: Long,
+    ) {
+        currentRequest = songUrl
+        loadedQuery = songUrl
+        currentMediaId = mediaId
+        playWhenResolved = true
+        isResolvingTrack = false
+        setNowPlayingMeta(
+            title = title,
+            artist = artist,
+            coverUri = coverUri,
+            album = album,
+            durationMs = durationMs,
+        )
+    }
+
     fun setNowPlayingMeta(
         title: String,
         artist: String,
@@ -420,6 +460,7 @@ object SongPlayer {
         playWhenResolved = true
         lastPlaybackError = null
         isResolvingTrack = true
+        lastPreQueueTriggerQuery = null
         abLoopStartMs = -1L
         abLoopEndMs = -1L
         // Remember the play-query so history can replay this track on tap.
@@ -643,15 +684,25 @@ object SongPlayer {
                 val nextUrl = resolveStreamUrl(nextSong.url, appContext) ?: return@launch
                 val sanitizedUrl = com.music.spotui.util.StreamSanitizer.sanitizeStreamUrl(nextUrl)
                 val crossfadeMs = com.music.spotui.data.preferences.getCrossfadeMs(appContext)
-                val gaplessEnabled = com.music.spotui.data.preferences.isGaplessPlaybackEnabled(appContext)
-                val transitionOwned = crossfadeMs > 0 || gaplessEnabled
 
-                if (transitionOwned) {
+                if (crossfadeMs > 0) {
+                    // Explicit multi-second crossfade uses a secondary ExoPlayer; warm intro cache.
                     cacheIntro(sanitizedUrl, appContext)
                 } else {
                     withContext(Dispatchers.Main) {
                         val p = player ?: return@withContext
-                        if (p.mediaItemCount <= 1) {
+                        // Trim already-played items far behind the active index to keep timeline compact.
+                        while (p.currentMediaItemIndex > 1) {
+                            p.removeMediaItem(0)
+                        }
+                        val nextMediaId = "song/${nextSong.id}"
+                        val nextIdxInPlayer = p.currentMediaItemIndex + 1
+                        val existingNextId = if (nextIdxInPlayer in 0 until p.mediaItemCount) {
+                            p.getMediaItemAt(nextIdxInPlayer).mediaId
+                        } else {
+                            null
+                        }
+                        if (p.currentMediaItemIndex >= p.mediaItemCount - 1) {
                             val nextItem = buildMediaItemForTrack(
                                 streamUrl = sanitizedUrl,
                                 mimeType = streamMimeType(sanitizedUrl),
@@ -660,10 +711,23 @@ object SongPlayer {
                                 coverUri = nextSong.coverUri,
                                 album = nextSong.album,
                                 durationMs = nextSong.durationMs.toLong(),
-                                mediaId = "song/${nextSong.id}"
+                                mediaId = nextMediaId
                             )
                             p.addMediaItem(nextItem)
                             Log.d(TAG, "Queued next track directly in ExoPlayer (${nextSong.title})")
+                        } else if (existingNextId != nextMediaId) {
+                            val nextItem = buildMediaItemForTrack(
+                                streamUrl = sanitizedUrl,
+                                mimeType = streamMimeType(sanitizedUrl),
+                                title = nextSong.title,
+                                artist = nextSong.singer,
+                                coverUri = nextSong.coverUri,
+                                album = nextSong.album,
+                                durationMs = nextSong.durationMs.toLong(),
+                                mediaId = nextMediaId
+                            )
+                            p.replaceMediaItem(nextIdxInPlayer, nextItem)
+                            Log.d(TAG, "Updated queued next track in ExoPlayer (${nextSong.title})")
                         }
                     }
                 }
@@ -2536,6 +2600,7 @@ object SongPlayer {
     /** (Re)start the loop that watches playback position, enforces A-B loop, zero-volume auto-pause,
      *  and fires a crossfade/gapless handoff as the current track approaches its end. */
     private var posSaveTick = 0
+    @Volatile private var lastPreQueueTriggerQuery: String? = null
 
     private fun startPositionWatch() {
         positionWatchJob?.cancel()
@@ -2588,18 +2653,26 @@ object SongPlayer {
 
                 if (isCrossfading) continue
                 val crossfadeMs = com.music.spotui.data.preferences.getCrossfadeMs(ctx)
-                val gaplessEnabled = com.music.spotui.data.preferences.isGaplessPlaybackEnabled(ctx)
-                val transitionMs = when {
-                    crossfadeMs > 0 -> crossfadeMs
-                    gaplessEnabled -> GAPLESS_HANDOFF_MS
-                    else -> 0
-                }
-                if (transitionMs <= 0) continue
                 val state = boundState ?: continue
                 if (state.repeat.value == RepeatMode.ONE) continue // repeat-one loops the same track
                 if (!playing || dur <= 0 || pos < 0) continue
-                if (pos >= dur - transitionMs) {
-                    triggerCrossfade(ctx, transitionMs, gaplessOnly = crossfadeMs <= 0)
+
+                if (crossfadeMs > 0) {
+                    if (pos >= dur - crossfadeMs) {
+                        triggerCrossfade(ctx, crossfadeMs, gaplessOnly = false)
+                    }
+                } else if (dur > 25_000L && pos >= dur - 20_000L) {
+                    // Ensure the upcoming track is resolved & queued in ExoPlayer ~20s prior
+                    // to track end so background track transitions occur gaplessly without
+                    // passing through STATE_ENDED while the screen is locked.
+                    val needsPreQueue = withContext(Dispatchers.Main) {
+                        p.currentMediaItemIndex >= p.mediaItemCount - 1
+                    }
+                    val curQuery = loadedQuery
+                    if (needsPreQueue && curQuery != null && curQuery != lastPreQueueTriggerQuery) {
+                        lastPreQueueTriggerQuery = curQuery
+                        preResolveAndQueueNextTrack(ctx)
+                    }
                 }
             }
         }

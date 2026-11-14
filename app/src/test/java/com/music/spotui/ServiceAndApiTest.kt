@@ -73,6 +73,24 @@ class ServiceAndApiTest {
         assertTrue(cmds.contains(androidx.media3.common.Player.COMMAND_GET_CURRENT_MEDIA_ITEM))
         assertTrue(cmds.contains(androidx.media3.common.Player.COMMAND_GET_TIMELINE))
 
+        val seenEvents = mutableSetOf<Int>()
+        var isPlayingCallbacks = 0
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                isPlayingCallbacks++
+            }
+
+            override fun onEvents(
+                player: androidx.media3.common.Player,
+                events: androidx.media3.common.Player.Events,
+            ) {
+                for (i in 0 until events.size()) {
+                    seenEvents.add(events.get(i))
+                }
+            }
+        }
+        sessionPlayer.addListener(listener)
+
         // Simulate track resolution before ExoPlayer has a stream URL loaded.
         com.music.spotui.di.SongPlayer.setNowPlayingMeta(
             title = "Blinding Lights",
@@ -91,14 +109,55 @@ class ServiceAndApiTest {
         assertEquals("Blinding Lights", sessionPlayer.mediaMetadata.title?.toString())
         assertEquals(androidx.media3.common.Player.STATE_BUFFERING, sessionPlayer.playbackState)
         assertTrue(sessionPlayer.playWhenReady)
+        assertFalse(sessionPlayer.isPlaying)
+        assertTrue(seenEvents.contains(androidx.media3.common.Player.EVENT_TIMELINE_CHANGED))
+        assertTrue(seenEvents.contains(androidx.media3.common.Player.EVENT_MEDIA_ITEM_TRANSITION))
+        assertTrue(seenEvents.contains(androidx.media3.common.Player.EVENT_MEDIA_METADATA_CHANGED))
+        assertTrue(seenEvents.contains(androidx.media3.common.Player.EVENT_PLAYBACK_STATE_CHANGED))
+        assertTrue(seenEvents.contains(androidx.media3.common.Player.EVENT_PLAY_WHEN_READY_CHANGED))
 
-        // Clearing resolution returns idle state safely when no stream is loaded.
+        // Clearing resolution returns idle state safely when no stream is loaded and queue is empty.
         com.music.spotui.di.SongPlayer.setResolvingStateForTest(false)
         PlaybackService.notifyPlaybackStateChanged(context)
         org.robolectric.shadows.ShadowLooper.idleMainLooper()
 
         assertEquals(androidx.media3.common.Player.STATE_IDLE, sessionPlayer.playbackState)
+        assertFalse(sessionPlayer.isPlaying)
+        assertTrue(isPlayingCallbacks >= 0)
+
+        // Verify onBind delegates MediaSessionService first and handles local bind action.
+        val mediaSessionBindIntent = android.content.Intent(
+            androidx.media3.session.MediaSessionService.SERVICE_INTERFACE
+        )
+        assertNotNull(service.onBind(mediaSessionBindIntent))
+        val localBindIntent = android.content.Intent(PlaybackService.ACTION_LOCAL_BIND)
+        assertTrue(service.onBind(localBindIntent) is PlaybackService.LocalBinder)
+
+        sessionPlayer.removeListener(listener)
         controller.destroy()
+    }
+
+    @Test
+    fun webMediaPlayer_refreshOffMainThread_postsSafelyToMainLooper() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val songState = com.music.spotui.di.CurrentSongState(context)
+        val webPlayer = com.music.spotui.ui.notification.WebMediaPlayer(
+            android.os.Looper.getMainLooper(),
+            songState,
+        ) {}
+        var thrown: Throwable? = null
+        val t = Thread {
+            try {
+                webPlayer.refresh()
+            } catch (e: Throwable) {
+                thrown = e
+            }
+        }
+        t.start()
+        t.join(2000L)
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
+        assertEquals(null, thrown)
+        webPlayer.release()
     }
 
     @Test

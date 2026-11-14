@@ -189,12 +189,22 @@ class PlaybackService : MediaLibraryService() {
                     val nextIdx = queue.indexOfFirst { it.id.toString() == cleanMediaId || "song/${it.id}" == mediaId }
                     if (nextIdx >= 0) {
                         val nextSong = queue[nextIdx]
+                        SongPlayer.onAutoAdvanced(
+                            songUrl = nextSong.url,
+                            mediaId = "song/${nextSong.id}",
+                            title = nextSong.title,
+                            artist = nextSong.singer,
+                            coverUri = nextSong.coverUri,
+                            album = nextSong.album,
+                            durationMs = nextSong.durationMs.toLong(),
+                        )
                         currentSongState.updateSongState(
                             nextSong.coverUri, nextSong.title, nextSong.singer, true,
                             nextSong.id, nextIdx, nextSong.album
                         )
                         // Trigger background pre-resolution for the following track (N+2)
                         SongPlayer.preResolveAndQueueNextTrack(applicationContext)
+                        syncSessionStateFromApp()
                     }
                 }
             }
@@ -384,6 +394,10 @@ class PlaybackService : MediaLibraryService() {
             )
 
             webPlayer = WebMediaPlayer(mainLooper, currentSongState) { forward -> advance(forward) }
+            if (com.music.spotui.data.preferences.isWebPlaybackEnabled(appCtx)) {
+                runCatching { SpotifyWebPlayer.attach(appCtx) }
+                    .onFailure { AppDiagnostics.warning("SpotifyWebPlayer", "Service web player attach failed", it) }
+            }
             val wrapped = createSessionPlayer(base).also { sessionPlayer = it }
 
             val session = MediaLibrarySession.Builder(this, wrapped, LibraryCallback())
@@ -680,6 +694,25 @@ class PlaybackService : MediaLibraryService() {
         if (forward) SongPlayer.next(applicationContext) else SongPlayer.previous(applicationContext)
     }
 
+    private val localBinder = LocalBinder()
+
+    inner class LocalBinder : android.os.Binder() {
+        fun getService(): PlaybackService = this@PlaybackService
+    }
+
+    override fun onBind(intent: Intent?): android.os.IBinder? {
+        // Always let MediaSessionService/MediaLibraryService handle MediaSession and MediaBrowser bindings first
+        val superBinder = super.onBind(intent)
+        if (superBinder != null) {
+            return superBinder
+        }
+        return if (intent?.action == ACTION_LOCAL_BIND) {
+            localBinder
+        } else {
+            null
+        }
+    }
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? =
         mediaSession
 
@@ -690,6 +723,7 @@ class PlaybackService : MediaLibraryService() {
         const val CHANNEL_ID = com.music.spotui.engine.MediaNotificationAdapter.CHANNEL_ID
         const val ACTION_ENSURE_FOREGROUND = "com.music.spotui.action.ENSURE_FOREGROUND"
         const val ACTION_REFRESH_NOTIFICATION = "com.music.spotui.action.REFRESH_NOTIFICATION"
+        const val ACTION_LOCAL_BIND = "com.music.spotui.action.LOCAL_BIND"
 
         private const val ROOT = "root"
         private const val NODE_LIKED = "liked"

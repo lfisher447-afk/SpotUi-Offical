@@ -125,6 +125,14 @@ class WebMediaPlayer(
         return Futures.immediateVoidFuture()
     }
 
+    private val mainHandler = android.os.Handler(Looper.getMainLooper())
+
     /** Called from the web-player poll to push fresh position/state to the session. */
-    fun refresh() = invalidateState()
+    fun refresh() {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            invalidateState()
+        } else {
+            mainHandler.post { invalidateState() }
+        }
+    }
 }

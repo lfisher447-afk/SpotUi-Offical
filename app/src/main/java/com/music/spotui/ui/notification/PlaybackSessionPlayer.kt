@@ -1,11 +1,15 @@
 package com.music.spotui.ui.notification
 
 import androidx.annotation.OptIn
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.DeviceInfo
 import androidx.media3.common.FlagSet
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
@@ -17,12 +21,14 @@ import java.util.concurrent.CopyOnWriteArraySet
 /**
  * Session-facing [ForwardingPlayer] over [SongPlayer]'s active [ExoPlayer].
  *
- * Keeps `session.player` in a valid, non-empty Media3 state while a track's stream
- * URL is resolving (`isResolvingTrack == true`, before ExoPlayer has a `MediaItem`):
- * exposes a single-item [PlaceholderTimeline] carrying the track's [MediaMetadata]
- * alongside `STATE_BUFFERING` + `playWhenReady = true`, and notifies all registered
- * [Player.Listener]s (including `MediaSession` and `MediaNotificationManager`) on
- * state/metadata changes so System UI and One UI never collapse to "Tap to resume".
+ * Maintains Android 17 / One UI 9 foreground continuity and consistent Media3
+ * session state across initial track resolution and track-to-track advances:
+ * - Never exposes `STATE_IDLE` or `STATE_ENDED` between queued tracks; transitions
+ *   straight from `STATE_READY` (track N) to `STATE_BUFFERING` (track N+1) with a
+ *   non-empty [PlaceholderTimeline] and `playWhenReady = true`.
+ * - Owns its [Player.Listener] dispatch so `MediaSession` and System UI never see
+ *   contradictory raw ExoPlayer events and always receive `onIsPlayingChanged` +
+ *   the required `Player.Events` flags.
  */
 @OptIn(UnstableApi::class)
 internal class PlaybackSessionPlayer(
@@ -36,50 +42,131 @@ internal class PlaybackSessionPlayer(
 
     private val listeners = CopyOnWriteArraySet<Player.Listener>()
 
-    private var lastReportedTimeline: Timeline = super.getCurrentTimeline()
-    private var lastReportedMediaItem: MediaItem? = super.getCurrentMediaItem()
-    private var lastReportedMetadata: MediaMetadata = super.getMediaMetadata()
-    private var lastReportedPlaybackState: Int = super.getPlaybackState()
-    private var lastReportedPlayWhenReady: Boolean = super.getPlayWhenReady()
+    private var lastReportedTimeline: Timeline = currentTimeline
+    private var lastReportedMediaItem: MediaItem? = currentMediaItem
+    private var lastReportedMetadata: MediaMetadata = mediaMetadata
+    private var lastReportedPlaybackState: Int = playbackState
+    private var lastReportedPlayWhenReady: Boolean = playWhenReady
+    private var lastReportedIsPlaying: Boolean = isPlaying
 
-    private val baseStateTracker = object : Player.Listener {
+    private val baseListener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
+            syncState(forwardedBaseEvents = if (isUsingPlaceholder()) null else events)
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            listeners.forEach { it.onPlayerError(error) }
+        }
+
+        override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
+            listeners.forEach { it.onPlaybackParametersChanged(playbackParameters) }
+        }
+
+        override fun onRepeatModeChanged(repeatMode: Int) {
+            listeners.forEach { it.onRepeatModeChanged(repeatMode) }
+        }
+
+        override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+            listeners.forEach { it.onShuffleModeEnabledChanged(shuffleModeEnabled) }
+        }
+
+        override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
+            listeners.forEach { it.onAvailableCommandsChanged(this@PlaybackSessionPlayer.availableCommands) }
+        }
+
+        override fun onAudioSessionIdChanged(audioSessionId: Int) {
+            listeners.forEach { it.onAudioSessionIdChanged(audioSessionId) }
+        }
+
+        override fun onAudioAttributesChanged(audioAttributes: AudioAttributes) {
+            listeners.forEach { it.onAudioAttributesChanged(audioAttributes) }
+        }
+
+        override fun onVolumeChanged(volume: Float) {
+            listeners.forEach { it.onVolumeChanged(volume) }
+        }
+
+        override fun onDeviceInfoChanged(deviceInfo: DeviceInfo) {
+            listeners.forEach { it.onDeviceInfoChanged(deviceInfo) }
+        }
+
+        override fun onDeviceVolumeChanged(volume: Int, muted: Boolean) {
+            listeners.forEach { it.onDeviceVolumeChanged(volume, muted) }
+        }
+
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo,
+            reason: Int,
+        ) {
             if (!isUsingPlaceholder()) {
-                lastReportedTimeline = currentTimeline
-                lastReportedMediaItem = currentMediaItem
-                lastReportedMetadata = mediaMetadata
-                lastReportedPlaybackState = playbackState
-                lastReportedPlayWhenReady = playWhenReady
+                listeners.forEach { it.onPositionDiscontinuity(oldPosition, newPosition, reason) }
             }
         }
     }
 
     init {
-        base.addListener(baseStateTracker)
+        base.addListener(baseListener)
     }
 
     fun releaseTracker() {
-        runCatching { wrappedPlayer.removeListener(baseStateTracker) }
+        runCatching { wrappedPlayer.removeListener(baseListener) }
         listeners.clear()
     }
 
     override fun addListener(listener: Player.Listener) {
         listeners.add(listener)
-        super.addListener(listener)
     }
 
     override fun removeListener(listener: Player.Listener) {
         listeners.remove(listener)
-        super.removeListener(listener)
     }
 
+    private fun wrappedPlayerMatchesCurrentSong(): Boolean {
+        val activeSongId = currentSongState.songId.value
+        if (activeSongId <= 0) return true
+        val wrappedId = wrappedPlayer.currentMediaItem?.mediaId ?: return false
+        return wrappedId == "song/$activeSongId"
+    }
+
+    private fun isTransitioningBetweenTracks(): Boolean =
+        SongPlayer.isResolvingTrack ||
+            (wrappedPlayer.playbackState == Player.STATE_ENDED &&
+                SongPlayer.shouldPlayWhenResolved() &&
+                SongPlayer.hasUpcomingQueueTrack())
+
     private fun isUsingPlaceholder(): Boolean {
-        if (!wrappedPlayer.currentTimeline.isEmpty) return false
-        return SongPlayer.isResolvingTrack || (SongPlayer.isPlaying() && !SongPlayer.webPlaybackActive())
+        if (SongPlayer.webPlaybackActive()) return false
+        val emptyTimeline = wrappedPlayer.currentTimeline.isEmpty
+        if (emptyTimeline && (SongPlayer.isResolvingTrack || SongPlayer.isPlaying())) {
+            return true
+        }
+        return isTransitioningBetweenTracks() && (
+            emptyTimeline ||
+                wrappedPlayer.playbackState == Player.STATE_IDLE ||
+                wrappedPlayer.playbackState == Player.STATE_ENDED ||
+                !wrappedPlayerMatchesCurrentSong()
+            )
+    }
+
+    private fun activeTrackTitle(): String {
+        val song = currentSongState.queue.value.firstOrNull { it.id == currentSongState.songId.value }
+            ?: currentSongState.queue.value.getOrNull(currentSongState.songIndex.value)
+        val snap = SongPlayer.nowPlayingMetaSnapshot()
+        return song?.title?.takeIf { it.isNotBlank() }
+            ?: currentSongState.title.value.takeIf { it.isNotBlank() }
+            ?: snap.title
+    }
+
+    private fun freshServiceMetadata(): MediaMetadata? {
+        val cached = metadataProvider() ?: return null
+        val expectedTitle = activeTrackTitle()
+        if (expectedTitle.isBlank()) return cached
+        return if (cached.title?.toString() == expectedTitle) cached else null
     }
 
     private fun placeholderMetadata(): MediaMetadata {
-        metadataProvider()?.let { return it }
+        freshServiceMetadata()?.let { return it }
         val song = currentSongState.queue.value.firstOrNull { it.id == currentSongState.songId.value }
             ?: currentSongState.queue.value.getOrNull(currentSongState.songIndex.value)
         val snap = SongPlayer.nowPlayingMetaSnapshot()
@@ -119,17 +206,18 @@ internal class PlaybackSessionPlayer(
             ?: currentSongState.queue.value.getOrNull(currentSongState.songIndex.value)
         val queueDur = song?.durationMs?.toLong() ?: 0L
         if (queueDur > 0L) return queueDur
-        return metadataProvider()?.durationMs?.takeIf { it > 0L }
+        return freshServiceMetadata()?.durationMs?.takeIf { it > 0L }
             ?: SongPlayer.nowPlayingMetaSnapshot().durationMs.takeIf { it > 0L }
             ?: 0L
     }
 
-    fun syncState() {
+    fun syncState(forwardedBaseEvents: Player.Events? = null) {
         val newTimeline = currentTimeline
         val newMediaItem = currentMediaItem
         val newMetadata = mediaMetadata
         val newPlaybackState = playbackState
         val newPlayWhenReady = playWhenReady
+        val newIsPlaying = isPlaying
 
         val flagsBuilder = FlagSet.Builder()
         var hasEvents = false
@@ -168,6 +256,22 @@ internal class PlaybackSessionPlayer(
             flagsBuilder.add(Player.EVENT_PLAY_WHEN_READY_CHANGED)
             listeners.forEach {
                 it.onPlayWhenReadyChanged(newPlayWhenReady, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
+            }
+        }
+        if (newIsPlaying != lastReportedIsPlaying) {
+            lastReportedIsPlaying = newIsPlaying
+            hasEvents = true
+            flagsBuilder.add(Player.EVENT_IS_PLAYING_CHANGED)
+            listeners.forEach { it.onIsPlayingChanged(newIsPlaying) }
+        }
+
+        if (forwardedBaseEvents != null) {
+            for (i in 0 until forwardedBaseEvents.size()) {
+                val flag = forwardedBaseEvents.get(i)
+                if (flag !in MANAGED_EVENT_FLAGS) {
+                    flagsBuilder.add(flag)
+                    hasEvents = true
+                }
             }
         }
 
@@ -213,11 +317,11 @@ internal class PlaybackSessionPlayer(
     }
 
     override fun getCurrentTimeline(): Timeline {
-        val baseTimeline = super.getCurrentTimeline()
-        if (!baseTimeline.isEmpty) return baseTimeline
-        if (!isUsingPlaceholder()) return baseTimeline
-        val meta = placeholderMetadata()
-        return PlaceholderTimeline(placeholderMediaItem(meta), placeholderDurationMs())
+        if (isUsingPlaceholder()) {
+            val meta = placeholderMetadata()
+            return PlaceholderTimeline(placeholderMediaItem(meta), placeholderDurationMs())
+        }
+        return super.getCurrentTimeline()
     }
 
     override fun getMediaItemCount(): Int =
@@ -256,27 +360,29 @@ internal class PlaybackSessionPlayer(
         if (isUsingPlaceholder()) 0L else super.getContentPosition()
 
     override fun getPlaybackState(): Int = when {
-        SongPlayer.isResolvingTrack -> STATE_BUFFERING
+        isTransitioningBetweenTracks() -> STATE_BUFFERING
         isUsingPlaceholder() -> STATE_BUFFERING
         else -> super.getPlaybackState()
     }
 
     override fun getPlayWhenReady(): Boolean =
-        if (SongPlayer.isResolvingTrack || isUsingPlaceholder()) {
+        if (isTransitioningBetweenTracks() || isUsingPlaceholder()) {
             SongPlayer.shouldPlayWhenResolved()
         } else {
             super.getPlayWhenReady()
         }
 
     override fun isPlaying(): Boolean =
-        if (isUsingPlaceholder()) {
-            false
-        } else {
-            super.isPlaying()
-        }
+        playbackState == Player.STATE_READY &&
+            playWhenReady &&
+            playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE
 
     override fun getMediaMetadata(): MediaMetadata =
-        metadataProvider() ?: if (isUsingPlaceholder()) placeholderMetadata() else super.getMediaMetadata()
+        if (isUsingPlaceholder()) {
+            placeholderMetadata()
+        } else {
+            freshServiceMetadata() ?: super.getMediaMetadata()
+        }
 
     override fun play() {
         SongPlayer.play()
@@ -390,5 +496,13 @@ internal class PlaybackSessionPlayer(
         const val PLACEHOLDER_MEDIA_ID = "spotui_resolving_track"
         val PLACEHOLDER_WINDOW_UID = Any()
         val PLACEHOLDER_PERIOD_UID = Any()
+        val MANAGED_EVENT_FLAGS = intArrayOf(
+            Player.EVENT_TIMELINE_CHANGED,
+            Player.EVENT_MEDIA_ITEM_TRANSITION,
+            Player.EVENT_MEDIA_METADATA_CHANGED,
+            Player.EVENT_PLAYBACK_STATE_CHANGED,
+            Player.EVENT_PLAY_WHEN_READY_CHANGED,
+            Player.EVENT_IS_PLAYING_CHANGED,
+        )
     }
 }

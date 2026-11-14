@@ -1,14 +1,13 @@
 package com.music.spotui.di
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.content.Context
 import android.util.Log
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.FrameLayout
 
 /**
  * Experimental "real Spotify" playback: rather than resolve a track from
@@ -86,15 +85,15 @@ object SpotifyWebPlayer {
         }
     }
 
-    /** Attach the hidden WebView to the activity window (media won't play detached). */
+    /** Attach the hidden WebView to an Application/Service context so Activity pause/destroy never suspends playback. */
     @SuppressLint("SetJavaScriptEnabled")
-    fun attach(activity: Activity) {
-        if (activity.isFinishing || activity.isDestroyed) return
+    fun attach(context: Context) {
+        val appContext = context.applicationContext
         if (webView != null) return
         try {
             // Lets `chrome://inspect` attach to the hidden player for diagnosis.
             runCatching { WebView.setWebContentsDebuggingEnabled(true) }
-            val wv = WebView(activity)
+            val wv = WebView(appContext)
             wv.settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
@@ -128,7 +127,7 @@ object SpotifyWebPlayer {
             // The login flow stores sp_dc in app prefs, NOT in this WebView's cookie
             // jar — so without this the web player loads logged-OUT and can't stream.
             // Seed the auth cookie for the Spotify domain before we load the page.
-            val spDc = com.music.spotui.data.api.SpotifySession.spDc(activity)
+            val spDc = com.music.spotui.data.api.SpotifySession.spDc(appContext)
             if (spDc.isNotBlank()) {
                 val attrs = "Domain=.spotify.com; Path=/; Secure"
                 cookies.setCookie("https://open.spotify.com", "sp_dc=$spDc; $attrs")
@@ -138,7 +137,6 @@ object SpotifyWebPlayer {
             } else {
                 Log.w(TAG, "no sp_dc — web player will be logged out (log in first)")
             }
-            val appContext = activity.applicationContext
             wv.webViewClient = object : WebViewClient() {
                 // Ad-free ("unlocked") playback, SpotiFuck-style: drop analytics and
                 // swap audio-ad streams for silence at the network layer, so the free
@@ -205,24 +203,19 @@ object SpotifyWebPlayer {
                     return true
                 }
             }
-            // Give it a real full-screen viewport so Spotify's responsive web player
-            // renders its full DOM incl. the Play button — a tiny/0-size view
-            // collapses the layout (innerWidth=0) and the controls never get
-            // created, and the track page won't even navigate. MATCH_PARENT gives a
-            // genuine size; translate it off-screen so it's invisible but attached
-            // (attachment is required for audio to play).
-            val params = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT,
-            )
-            if (wv.parent == null) {
-                activity.addContentView(wv, params)
-            }
-            wv.post { wv.translationX = wv.width.toFloat() + 2000f }
+            // Measure & lay out a virtual viewport without attaching to an Activity window
+            // so Spotify's responsive web player renders its DOM while staying immune to
+            // MainActivity lifecycle pauses/destroys on Android 17.
+            val widthSpec = View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY)
+            val heightSpec = View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY)
+            wv.measure(widthSpec, heightSpec)
+            wv.layout(0, 0, 1080, 1920)
+            wv.onResume()
+            wv.resumeTimers()
             wv.loadUrl("https://open.spotify.com/")
             webView = wv
             pollHandler.postDelayed(pollRunnable, 1000)
-            Log.d(TAG, "WebView attached")
+            Log.d(TAG, "WebView attached to application context")
         } catch (e: Throwable) {
             Log.e(TAG, "attach failed", e)
             com.music.spotui.util.AppDiagnostics.error("SpotifyWebPlayer", "attach failed", e)
@@ -271,6 +264,8 @@ object SpotifyWebPlayer {
         Log.d(TAG, "playUri($uri) activated=$activated commandReady=$commandReady")
         onStateChanged?.invoke()
         wv.post {
+            wv.onResume()
+            wv.resumeTimers()
             if (activated && commandReady) {
                 sendCommand(uri, path)
             } else {
