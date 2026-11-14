@@ -10,11 +10,16 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Release tag name for GitHub Releases tab (e.g. v2.1.7)'
+        description: 'Release tag name (leave blank to auto-use v<versionName> from app/build.gradle.kts)'
         required: false
-        default: 'v2.1.7'
+        default: ''
       prerelease:
         description: 'Mark release as pre-release'
+        type: boolean
+        required: false
+        default: false
+      skip_tests:
+        description: 'Skip unit tests for a faster manual release build'
         type: boolean
         required: false
         default: false
@@ -22,9 +27,82 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  GRADLE_OPTS: >-
+    -Dorg.gradle.jvmargs=-Xmx5120m -XX:+UseG1GC -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8
+    -Dkotlin.daemon.jvm.options=-Xmx2048m
+
 jobs:
-  build-release-apk:
+  unit-tests:
+    name: Unit Tests (:spotify, :innertube, :app)
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.skip_tests) }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Cache Robolectric & Maven artifacts
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-m2-robolectric-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-m2-robolectric-
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
+
+      - name: Prepare debug signing keystore
+        run: |
+          KEYSTORE_PATH="${{ github.workspace }}/debug.keystore"
+          BASE64_PATH="${{ github.workspace }}/debug.keystore.base64"
+          if [ ! -f "$KEYSTORE_PATH" ] && [ -f "$BASE64_PATH" ]; then
+            base64 -d "$BASE64_PATH" > "$KEYSTORE_PATH" || true
+          fi
+          if [ ! -f "$KEYSTORE_PATH" ]; then
+            keytool -genkey -v -keystore "$KEYSTORE_PATH" -alias androiddebugkey \
+              -keypass android -storepass android -keyalg RSA -keysize 2048 \
+              -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: Run unit tests across all modules
+        run: |
+          chmod +x gradlew
+          ./gradlew :spotify:test :innertube:testDebugUnitTest :app:testDebugUnitTest \
+            --no-daemon --parallel --build-cache --max-workers=4 --console=plain
+
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          retention-days: 7
+          path: |
+            spotify/build/reports/tests/
+            innertube/build/reports/tests/
+            app/build/reports/tests/
+
+  build-release-apk:
+    name: Build & Verify Release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      release_tag: ${{ steps.package.outputs.release_tag }}
+      version_name: ${{ steps.package.outputs.version_name }}
+      version_code: ${{ steps.package.outputs.version_code }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -37,62 +115,116 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
 
       - name: Prepare release signing keystore
         run: |
           KEYSTORE_PATH="${{ github.workspace }}/debug.keystore"
           BASE64_PATH="${{ github.workspace }}/debug.keystore.base64"
-          if [ ! -f "$KEYSTORE_PATH" ]; then
-            if [ -f "$BASE64_PATH" ]; then
-              base64 -d "$BASE64_PATH" > "$KEYSTORE_PATH" || true
-            fi
+          if [ ! -f "$KEYSTORE_PATH" ] && [ -f "$BASE64_PATH" ]; then
+            base64 -d "$BASE64_PATH" > "$KEYSTORE_PATH" || true
           fi
           if [ ! -f "$KEYSTORE_PATH" ]; then
             echo "Generating fresh debug keystore via keytool..."
-            keytool -genkey -v -keystore "$KEYSTORE_PATH" -alias androiddebugkey -keypass android -storepass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+            keytool -genkey -v -keystore "$KEYSTORE_PATH" -alias androiddebugkey \
+              -keypass android -storepass android -keyalg RSA -keysize 2048 \
+              -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
           ls -lh "$KEYSTORE_PATH"
 
-      - name: Run unit tests across all modules
+      - name: Assemble Release APK
         run: |
           chmod +x gradlew
-          ./gradlew :spotify:test :innertube:testDebugUnitTest :app:testDebugUnitTest --no-daemon --max-workers=2
+          ./gradlew :app:assembleRelease \
+            --no-daemon --parallel --build-cache --max-workers=4 --console=plain
 
-      - name: Assemble Release APK
-        run: ./gradlew :app:assembleRelease --no-daemon --max-workers=2
-
-      - name: Package APK & SHA-256 checksum
+      - name: Verify APK signature, package & checksum
         id: package
         run: |
-          VERSION=$(grep -E 'versionName\s*=' app/build.gradle.kts | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')
-          TAG_NAME="${{ github.ref_name }}"
+          VERSION_NAME=$(grep -E 'versionName\s*=' app/build.gradle.kts | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')
+          VERSION_CODE=$(grep -E 'versionCode\s*=' app/build.gradle.kts | head -n1 | sed -E 's/[^0-9]*([0-9]+).*/\1/')
+
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.release_tag }}" ]; then
             TAG_NAME="${{ inputs.release_tag }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG_NAME="${{ github.ref_name }}"
+          else
+            TAG_NAME="v${VERSION_NAME}"
           fi
+
+          RAW_APK="app/build/outputs/apk/release/app-release.apk"
+          if [ ! -f "$RAW_APK" ]; then
+            echo "Error: Release APK not found at $RAW_APK" >&2
+            exit 1
+          fi
+
+          APKSIGNER=$(ls -1 "${ANDROID_HOME:-/usr/local/lib/android/sdk}"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -n1 || true)
+          SIGNER_INFO="apksigner not found on runner (skipped)"
+          if [ -n "$APKSIGNER" ] && [ -x "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --verbose "$RAW_APK"
+            SIGNER_INFO=$("$APKSIGNER" verify --print-certs "$RAW_APK" | head -n 4)
+          fi
+
           mkdir -p dist
-          cp app/build/outputs/apk/release/app-release.apk "dist/SpotUI-v${VERSION}-release.apk"
-          (cd dist && sha256sum "SpotUI-v${VERSION}-release.apk" > "SpotUI-v${VERSION}-release.apk.sha256")
-          echo "apk_path=dist/SpotUI-v${VERSION}-release.apk" >> "$GITHUB_OUTPUT"
-          echo "sha_path=dist/SpotUI-v${VERSION}-release.apk.sha256" >> "$GITHUB_OUTPUT"
+          APK_NAME="SpotUI-v${VERSION_NAME}-release.apk"
+          cp "$RAW_APK" "dist/${APK_NAME}"
+          (cd dist && sha256sum "${APK_NAME}" > "${APK_NAME}.sha256")
+          SHA256_HASH=$(cut -d' ' -f1 "dist/${APK_NAME}.sha256")
+          APK_SIZE=$(du -h "dist/${APK_NAME}" | cut -f1)
+
           echo "release_tag=${TAG_NAME}" >> "$GITHUB_OUTPUT"
-          ls -lh dist/
+          echo "version_name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## SpotUI Release Build Summary"
+            echo "| Property | Value |"
+            echo "| --- | --- |"
+            echo "| Version | \`v${VERSION_NAME}\` (\`${VERSION_CODE}\`) |"
+            echo "| Release Tag | \`${TAG_NAME}\` |"
+            echo "| APK File | \`${APK_NAME}\` (${APK_SIZE}) |"
+            echo "| SHA-256 | \`${SHA256_HASH}\` |"
+            echo ""
+            echo "<details><summary>APK Signing Details</summary>"
+            echo ""
+            echo "\`\`\`"
+            echo "${SIGNER_INFO}"
+            echo "\`\`\`"
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload APK build artifact
         uses: actions/upload-artifact@v4
         with:
           name: SpotUI-release-apk
+          retention-days: 30
           path: |
             dist/*.apk
             dist/*.sha256
 
+  publish-release:
+    name: Publish GitHub Release
+    needs: [unit-tests, build-release-apk]
+    if: >-
+      always() &&
+      needs.build-release-apk.result == 'success' &&
+      (needs.unit-tests.result == 'success' || needs.unit-tests.result == 'skipped') &&
+      (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Download packaged APK artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: SpotUI-release-apk
+          path: dist
+
       - name: Publish to GitHub Releases
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.package.outputs.release_tag }}
-          name: SpotUI ${{ steps.package.outputs.release_tag }}
+          tag_name: ${{ needs.build-release-apk.outputs.release_tag }}
+          name: SpotUI ${{ needs.build-release-apk.outputs.release_tag }}
           prerelease: ${{ inputs.prerelease || false }}
           generate_release_notes: true
-          files: |
-            ${{ steps.package.outputs.apk_path }}
-            ${{ steps.package.outputs.sha_path }}
+          files: dist/*
