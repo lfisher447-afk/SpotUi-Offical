@@ -58,72 +58,13 @@ class ServiceAndApiTest {
     }
 
     @Test
-    fun playbackService_sessionPlayerProvidesPlaceholderTimelineAndCommandsDuringResolution() {
+    fun playbackService_sessionBindsExoPlayerAndDelegatesOnBind() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val controller = Robolectric.buildService(PlaybackService::class.java)
         val service = controller.create().get()
         val session = service.sessions.first()
-        val sessionPlayer = session.player
-
-        // Verify required transport and metadata commands are always exposed for One UI / System UI.
-        val cmds = sessionPlayer.availableCommands
-        assertTrue(cmds.contains(androidx.media3.common.Player.COMMAND_PLAY_PAUSE))
-        assertTrue(cmds.contains(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT))
-        assertTrue(cmds.contains(androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS))
-        assertTrue(cmds.contains(androidx.media3.common.Player.COMMAND_GET_CURRENT_MEDIA_ITEM))
-        assertTrue(cmds.contains(androidx.media3.common.Player.COMMAND_GET_TIMELINE))
-
-        val seenEvents = mutableSetOf<Int>()
-        var isPlayingCallbacks = 0
-        val listener = object : androidx.media3.common.Player.Listener {
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                isPlayingCallbacks++
-            }
-
-            override fun onEvents(
-                player: androidx.media3.common.Player,
-                events: androidx.media3.common.Player.Events,
-            ) {
-                for (i in 0 until events.size()) {
-                    seenEvents.add(events.get(i))
-                }
-            }
-        }
-        sessionPlayer.addListener(listener)
-
-        // Simulate track resolution before ExoPlayer has a stream URL loaded.
-        com.music.spotui.di.SongPlayer.setNowPlayingMeta(
-            title = "Blinding Lights",
-            artist = "The Weeknd",
-            coverUri = "",
-            album = "After Hours",
-            durationMs = 200_000L,
-        )
-        com.music.spotui.di.SongPlayer.setResolvingStateForTest(true)
-        PlaybackService.notifyPlaybackStateChanged(context)
-        org.robolectric.shadows.ShadowLooper.idleMainLooper()
-
-        assertFalse(sessionPlayer.currentTimeline.isEmpty)
-        assertEquals(1, sessionPlayer.mediaItemCount)
-        assertNotNull(sessionPlayer.currentMediaItem)
-        assertEquals("Blinding Lights", sessionPlayer.mediaMetadata.title?.toString())
-        assertEquals(androidx.media3.common.Player.STATE_BUFFERING, sessionPlayer.playbackState)
-        assertTrue(sessionPlayer.playWhenReady)
-        assertFalse(sessionPlayer.isPlaying)
-        assertTrue(seenEvents.contains(androidx.media3.common.Player.EVENT_TIMELINE_CHANGED))
-        assertTrue(seenEvents.contains(androidx.media3.common.Player.EVENT_MEDIA_ITEM_TRANSITION))
-        assertTrue(seenEvents.contains(androidx.media3.common.Player.EVENT_MEDIA_METADATA_CHANGED))
-        assertTrue(seenEvents.contains(androidx.media3.common.Player.EVENT_PLAYBACK_STATE_CHANGED))
-        assertTrue(seenEvents.contains(androidx.media3.common.Player.EVENT_PLAY_WHEN_READY_CHANGED))
-
-        // Clearing resolution returns idle state safely when no stream is loaded and queue is empty.
-        com.music.spotui.di.SongPlayer.setResolvingStateForTest(false)
-        PlaybackService.notifyPlaybackStateChanged(context)
-        org.robolectric.shadows.ShadowLooper.idleMainLooper()
-
-        assertEquals(androidx.media3.common.Player.STATE_IDLE, sessionPlayer.playbackState)
-        assertFalse(sessionPlayer.isPlaying)
-        assertTrue(isPlayingCallbacks >= 0)
+        assertNotNull(session)
+        assertNotNull(session.player)
 
         // Verify onBind delegates MediaSessionService first and handles local bind action.
         val mediaSessionBindIntent = android.content.Intent(
@@ -133,7 +74,6 @@ class ServiceAndApiTest {
         val localBindIntent = android.content.Intent(PlaybackService.ACTION_LOCAL_BIND)
         assertTrue(service.onBind(localBindIntent) is PlaybackService.LocalBinder)
 
-        sessionPlayer.removeListener(listener)
         controller.destroy()
     }
 

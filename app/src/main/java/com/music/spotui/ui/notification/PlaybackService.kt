@@ -95,7 +95,6 @@ class PlaybackService : MediaLibraryService() {
     private val queueByTrackId = java.util.concurrent.ConcurrentHashMap<String, List<SongsModel>>()
     private val searchCache = java.util.concurrent.ConcurrentHashMap<String, List<SongsModel>>()
     private var webPlayer: WebMediaPlayer? = null
-    private var sessionPlayer: PlaybackSessionPlayer? = null
     private var showingWeb = false
     // Retry a transient stream/player failure once before skipping. The cap prevents an
     // unrecoverable source from looping forever while preserving playback on short URL/network hiccups.
@@ -394,20 +393,14 @@ class PlaybackService : MediaLibraryService() {
             )
 
             webPlayer = WebMediaPlayer(mainLooper, currentSongState) { forward -> advance(forward) }
-            if (com.music.spotui.data.preferences.isWebPlaybackEnabled(appCtx)) {
-                runCatching { SpotifyWebPlayer.attach(appCtx) }
-                    .onFailure { AppDiagnostics.warning("SpotifyWebPlayer", "Service web player attach failed", it) }
-            }
-            val wrapped = createSessionPlayer(base).also { sessionPlayer = it }
 
-            val session = MediaLibrarySession.Builder(this, wrapped, LibraryCallback())
+            val session = MediaLibrarySession.Builder(this, base, LibraryCallback())
                 .setSessionActivity(sessionActivity)
                 .build()
             mediaSession = session
             activeInstance = this
             addSession(session)
             syncSessionPlayer()
-            wrapped.syncState()
             PlaybackSessionBus.onServiceCreated()
 
             // Sync current song metadata to the MediaSession when track or metadata changes
@@ -431,11 +424,8 @@ class PlaybackService : MediaLibraryService() {
             // When a crossfade promotes a new ExoPlayer instance, re-bind the session to it
             // (runs on the main thread; setPlayer is the supported way to swap a session's player).
             SongPlayer.onPlayerSwapped = { newPlayer ->
-                sessionPlayer?.releaseTracker()
-                val nextWrapped = createSessionPlayer(newPlayer).also { sessionPlayer = it }
                 if (!showingWeb) {
-                    mediaSession?.player = nextWrapped
-                    nextWrapped.syncState()
+                    mediaSession?.player = newPlayer
                 }
                 newPlayer.addListener(playerListener)
             }
@@ -600,8 +590,6 @@ class PlaybackService : MediaLibraryService() {
         syncSessionPlayer()
         if (showingWeb) {
             webPlayer?.refresh()
-        } else {
-            sessionPlayer?.syncState()
         }
         runCatching { triggerNotificationUpdate() }
     }
@@ -618,9 +606,7 @@ class PlaybackService : MediaLibraryService() {
             wp.refresh()
         } else {
             val exo = SongPlayer.exoPlayer ?: return
-            val wrapped = sessionPlayer ?: createSessionPlayer(exo).also { sessionPlayer = it }
-            session.player = wrapped
-            wrapped.syncState()
+            session.player = exo
         }
         runCatching { triggerNotificationUpdate() }
     }
@@ -677,17 +663,7 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    private fun createSessionPlayer(base: Player): PlaybackSessionPlayer =
-        PlaybackSessionPlayer(
-            base = base,
-            currentSongState = currentSongState,
-            metadataProvider = { latestServiceMetadata },
-            isLikedProvider = { songId -> isCurrentSongLiked(songId) },
-            customLayoutUpdater = { liked, shuffled ->
-                mediaSession?.setCustomLayout(buildCustomLayout(liked, shuffled))
-            },
-            onAdvance = { forward -> advance(forward) },
-        )
+
 
     /** Advance the in-app queue one step in the given direction and start it. */
     private fun advance(forward: Boolean) {
@@ -1345,8 +1321,7 @@ class PlaybackService : MediaLibraryService() {
         runCatching { SongPlayer.exoPlayer?.removeListener(playerListener) }
         SongPlayer.onPlayerSwapped = null
         SpotifyWebPlayer.onStateChanged = null
-        runCatching { sessionPlayer?.releaseTracker() }
-        sessionPlayer = null
+
         runCatching { webPlayer?.release() }
         webPlayer = null
         // The player belongs to this MediaLibraryService, not the UI activity. Release it only
