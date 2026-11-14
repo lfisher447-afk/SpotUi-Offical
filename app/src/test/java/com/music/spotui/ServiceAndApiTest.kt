@@ -31,6 +31,29 @@ class ServiceAndApiTest {
         val controller = Robolectric.buildService(PlaybackService::class.java)
         val service = controller.create().get()
         assertNotNull(service)
+        assertTrue(service.sessions.isNotEmpty())
+        val nm = service.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            assertNotNull(nm.getNotificationChannel(PlaybackService.CHANNEL_ID))
+        }
+        controller.destroy()
+    }
+
+    @Test
+    fun playbackService_handlesEnsureForegroundAndRefreshActionsWithoutCrashing() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val ensureIntent = android.content.Intent(context, PlaybackService::class.java).apply {
+            action = PlaybackService.ACTION_ENSURE_FOREGROUND
+        }
+        val controller = Robolectric.buildService(PlaybackService::class.java, ensureIntent)
+        val service = controller.create().startCommand(0, 1).get()
+        assertNotNull(service)
+        assertTrue(service.sessions.isNotEmpty())
+
+        val refreshIntent = android.content.Intent(context, PlaybackService::class.java).apply {
+            action = PlaybackService.ACTION_REFRESH_NOTIFICATION
+        }
+        service.onStartCommand(refreshIntent, 0, 2)
         controller.destroy()
     }
 

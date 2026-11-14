@@ -407,6 +407,7 @@ object SongPlayer {
         // pausing here makes One UI Now Bar flash "Resume playback" mid-transition.
         runCatching {
             ensurePlayer(appContext)
+            com.music.spotui.ui.notification.PlaybackService.ensureStarted(appContext)
         }
 
         // Podcast episodes are encoded as "episode:<id>" queries — play them via the
@@ -452,6 +453,7 @@ object SongPlayer {
             val (wakeLock, wifiLock) = acquireResolveWakeLocks(appContext)
             try {
                 val rawStreamUrl = resolveStreamUrl(song, appContext, forPlayback = true) ?: run {
+                    isResolvingTrack = false
                     lastPlaybackError = "No stream found"
                     com.music.spotui.util.DevConsoleManager.logError("SongPlayer", "No stream found for request: $song")
                     if (currentRequest == song) withContext(Dispatchers.Main) {
@@ -464,6 +466,7 @@ object SongPlayer {
                         boundState?.updateResolveError("No stream found")
                     }
                     updateResolveStatus(false)
+                    com.music.spotui.ui.notification.PlaybackService.refreshNotification(appContext)
                     return@launch
                 }
                 val streamUrl = com.music.spotui.util.StreamSanitizer.sanitizeStreamUrl(rawStreamUrl)
@@ -505,6 +508,7 @@ object SongPlayer {
                     loadedQuery = song
                     isResolvingTrack = false
                     updateResolveStatus(false)
+                    com.music.spotui.ui.notification.PlaybackService.refreshNotification(appContext)
                     if (fadeIn && playWhenResolved) {
                         scope.launch(Dispatchers.Main) {
                             val steps = 8
@@ -520,10 +524,12 @@ object SongPlayer {
                 startPositionWatch()
                 preResolveAndQueueNextTrack(appContext)
             } catch (e: Exception) {
+                isResolvingTrack = false
                 Log.e(TAG, "playSong failed for query: $song", e)
                 lastPlaybackError = e.message ?: "Playback failed"
                 boundState?.updateResolveError(e.message ?: "Playback failed")
                 updateResolveStatus(false)
+                com.music.spotui.ui.notification.PlaybackService.refreshNotification(appContext)
             } finally {
                 isResolvingTrack = false
                 releaseResolveWakeLocks(wakeLock, wifiLock)
@@ -2237,6 +2243,7 @@ object SongPlayer {
     }
 
     fun play() {
+        appCtx?.let { com.music.spotui.ui.notification.PlaybackService.ensureStarted(it) }
         if (webPlaybackActive()) { SpotifyWebPlayer.resume(); return }
         playWhenResolved = true
         if (currentRequest.isNotBlank() && currentRequest != loadedQuery) {

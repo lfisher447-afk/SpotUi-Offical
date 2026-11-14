@@ -27,7 +27,11 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
 
     private val notificationPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op */ }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                com.music.spotui.ui.notification.PlaybackService.refreshNotification(this)
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?){
         val splashScreen = installSplashScreen()

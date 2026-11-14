@@ -29,7 +29,10 @@ class WidgetKeyRelay : BroadcastReceiver() {
         val appContext = context.applicationContext
         if (PlaybackSessionBus.sessionAlive.value) {
             runCatching {
-                appContext.startService(WidgetMediaIntents.relayToService(appContext, keyEvent.keyCode))
+                androidx.core.content.ContextCompat.startForegroundService(
+                    appContext,
+                    WidgetMediaIntents.relayToService(appContext, keyEvent.keyCode),
+                )
             }.onFailure { err ->
                 AppDiagnostics.warning("WidgetKeyRelay", "Failed to relay widget key ${keyEvent.keyCode}", err)
             }
