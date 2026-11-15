@@ -4,35 +4,89 @@ import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Looper
+import android.util.LruCache
 import androidx.media3.common.MediaMetadata
 import com.music.spotui.data.preferences.getDownloadedEntries
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 object ArtworkHelper {
+
+    private val artScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Bounded 8 MB in-memory LRU cache for extracted embedded cover bytes so main-thread
+    // metadata building never blocks on MediaMetadataRetriever disk I/O.
+    private val embeddedArtCache = object : LruCache<String, ByteArray>(8 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: ByteArray): Int = value.size.coerceAtLeast(1)
+    }
+
+    private val inFlightExtractions = ConcurrentHashMap.newKeySet<String>()
 
     private fun cleanSongId(songId: String?): String? =
         songId?.removePrefix("song/")?.removePrefix("playlist/")?.removePrefix("album/")?.trim()?.takeIf { it.isNotBlank() }
 
     /**
-     * Attaches the best available artwork (local downloaded cover file, embedded ID3 picture,
-     * Glide disk cache, or remote URI) to a [MediaMetadata.Builder] for system notifications.
+     * Canonical [MediaMetadata] factory shared by both [com.music.spotui.di.SongPlayer]
+     * and [com.music.spotui.ui.notification.PlaybackService] so Frame-0 MediaItems and
+     * service updates produce identical metadata objects.
+     */
+    fun buildTrackMetadata(
+        context: Context,
+        title: String,
+        artist: String,
+        album: String = "",
+        coverUri: String = "",
+        durationMs: Long = 0L,
+        songId: String? = null,
+        streamUrl: String? = null,
+        onAsyncArtReady: (() -> Unit)? = null,
+    ): MediaMetadata {
+        val builder = MediaMetadata.Builder()
+            .setTitle(title)
+            .setArtist(artist)
+            .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+            .setIsPlayable(true)
+        if (album.isNotBlank()) {
+            builder.setAlbumTitle(album)
+        }
+        if (durationMs > 0L) {
+            builder.setDurationMs(durationMs)
+        }
+        attachArtwork(
+            builder = builder,
+            context = context,
+            coverUri = coverUri,
+            songId = songId,
+            streamUrl = streamUrl,
+            onAsyncArtReady = onAsyncArtReady,
+        )
+        return builder.build()
+    }
+
+    /**
+     * Attaches the best available artwork (local downloaded cover file, memory-cached embedded ID3 picture,
+     * Glide disk cache, or remote URI) to a [MediaMetadata.Builder] for system notifications without
+     * running blocking I/O on the Main thread.
      */
     fun attachArtwork(
         builder: MediaMetadata.Builder,
         context: Context,
         coverUri: String,
         songId: String? = null,
-        streamUrl: String? = null
+        streamUrl: String? = null,
+        onAsyncArtReady: (() -> Unit)? = null,
     ): MediaMetadata.Builder {
+        val appContext = context.applicationContext
         val cleanCover = coverUri.trim()
         val cleanStream = streamUrl?.trim().orEmpty()
         val rawPath = if (cleanStream.startsWith("file://")) Uri.parse(cleanStream).path.orEmpty() else cleanStream
         val rawId = cleanSongId(songId)
 
-        val dir = File(context.filesDir, "downloads")
+        val dir = File(appContext.filesDir, "downloads")
 
         // 1. Check for a saved local download cover file by songId
         if (!rawId.isNullOrBlank()) {
@@ -48,7 +102,7 @@ object ArtworkHelper {
 
         // 2. Match by streamUrl / query / path in downloaded entries
         if (cleanStream.isNotBlank()) {
-            val dlEntries = runCatching { getDownloadedEntries(context) }.getOrDefault(emptyList())
+            val dlEntries = runCatching { getDownloadedEntries(appContext) }.getOrDefault(emptyList())
             val matchedEntry = dlEntries.firstOrNull { (song, path) ->
                 song.url == cleanStream || path == cleanStream || (rawPath.isNotBlank() && path == rawPath)
             }
@@ -57,28 +111,32 @@ object ArtworkHelper {
                 if (localCover.exists() && localCover.length() > 0) {
                     return builder.setArtworkUri(Uri.fromFile(localCover))
                 }
-                // Try eager cover cache for this downloaded song if not present
-                ensureDownloadedCover(context, matchedEntry.first)
+                ensureDownloadedCover(appContext, matchedEntry.first)
             }
         }
 
-        // 3. Check if streamUrl is a local audio file with embedded cover art
-        if (rawPath.isNotBlank() && (rawPath.startsWith("/") || cleanStream.startsWith("content:"))) {
-            val retriever = MediaMetadataRetriever()
-            try {
-                if (cleanStream.startsWith("content:")) {
-                    retriever.setDataSource(context, Uri.parse(cleanStream))
-                } else {
-                    retriever.setDataSource(rawPath)
+        // 3. Local audio / content URI embedded cover art (never run MediaMetadataRetriever on Main Thread)
+        val isLocalMedia = rawPath.isNotBlank() && (rawPath.startsWith("/") || cleanStream.startsWith("content:"))
+        if (isLocalMedia) {
+            val cacheKey = cleanStream.ifBlank { rawPath }
+            embeddedArtCache.get(cacheKey)?.let { cachedBytes ->
+                return builder.setArtworkData(cachedBytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+            }
+            if (Looper.myLooper() != Looper.getMainLooper()) {
+                extractEmbeddedArtSync(appContext, rawPath, cleanStream, cacheKey, rawId)?.let { extracted ->
+                    return builder.setArtworkData(extracted, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
                 }
-                val embedded = retriever.embeddedPicture
-                if (embedded != null && embedded.isNotEmpty()) {
-                    return builder.setArtworkData(embedded, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+            } else if (inFlightExtractions.add(cacheKey)) {
+                artScope.launch {
+                    try {
+                        val extracted = extractEmbeddedArtSync(appContext, rawPath, cleanStream, cacheKey, rawId)
+                        if (extracted != null) {
+                            onAsyncArtReady?.invoke()
+                        }
+                    } finally {
+                        inFlightExtractions.remove(cacheKey)
+                    }
                 }
-            } catch (e: Exception) {
-                // Ignore retriever failure for unparseable streams
-            } finally {
-                runCatching { retriever.release() }
             }
         }
 
@@ -87,11 +145,11 @@ object ArtworkHelper {
             return builder.setArtworkUri(Uri.parse(cleanCover))
         }
 
-        // 5. Check Glide disk cache safely (Glide submit().get() cannot run on main thread)
+        // 5. Check Glide disk cache safely off Main thread
         if (cleanCover.isNotBlank()) {
             if (Looper.myLooper() != Looper.getMainLooper()) {
                 val cachedFile = runCatching {
-                    com.bumptech.glide.Glide.with(context.applicationContext)
+                    com.bumptech.glide.Glide.with(appContext)
                         .downloadOnly()
                         .load(cleanCover)
                         .onlyRetrieveFromCache(true)
@@ -108,11 +166,42 @@ object ArtworkHelper {
                 }
             }
 
-            // 6. Fallback to remote URI
+            // 6. Fallback to remote URI (DefaultMediaNotificationProvider's BitmapLoader resolves it async)
             return builder.setArtworkUri(Uri.parse(cleanCover))
         }
 
         return builder
+    }
+
+    private fun extractEmbeddedArtSync(
+        context: Context,
+        rawPath: String,
+        cleanStream: String,
+        cacheKey: String,
+        rawId: String?,
+    ): ByteArray? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            if (cleanStream.startsWith("content:")) {
+                retriever.setDataSource(context, Uri.parse(cleanStream))
+            } else {
+                retriever.setDataSource(rawPath)
+            }
+            retriever.embeddedPicture?.takeIf { it.isNotEmpty() }?.also { bytes ->
+                embeddedArtCache.put(cacheKey, bytes)
+                if (!rawId.isNullOrBlank()) {
+                    val dir = File(context.filesDir, "downloads").apply { mkdirs() }
+                    val dest = File(dir, "${rawId}_cover.jpg")
+                    if (!dest.exists()) {
+                        runCatching { dest.writeBytes(bytes) }
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            null
+        } finally {
+            runCatching { retriever.release() }
+        }
     }
 
     /** Ensure a downloaded song has its cover image cached/saved locally to disk. */
@@ -123,7 +212,7 @@ object ArtworkHelper {
         if (coverFile.exists() && coverFile.length() > 0) return
 
         val appContext = context.applicationContext
-        CoroutineScope(Dispatchers.IO).launch {
+        artScope.launch {
             val file = runCatching {
                 com.bumptech.glide.Glide.with(appContext)
                     .downloadOnly()

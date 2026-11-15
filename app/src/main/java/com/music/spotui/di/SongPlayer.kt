@@ -55,6 +55,8 @@ object SongPlayer {
     private val sourceCache = java.util.concurrent.ConcurrentHashMap<String, String>()
     // Cache of resolved YouTube video candidates keyed by the play query
     private val videoCandidatesCache = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
+    // Coalesces concurrent network resolutions for the same song query (e.g. ExoPlayer loader + preResolve).
+    private val inFlightResolves = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.CompletableDeferred<String?>>()
 
     // ── Lossless (SpotiFLAC) ──
     // When enabled, playback first tries to resolve a lossless FLAC stream (Tidal/
@@ -513,11 +515,40 @@ object SongPlayer {
         return null
     }
 
+    private fun nextTrackForQueueLookahead(): Pair<com.music.spotui.data.entity.SongsModel, String>? {
+        val state = boundState ?: return null
+        if (state.repeat.value == RepeatMode.ONE) return null
+        val q = state.queue.value
+        if (q.size <= 1) return null
+        val curId = state.songId.value
+        val curIdx = q.indexOfFirst { it.id == curId }
+            .let { if (it >= 0) it else state.songIndex.value }
+            .coerceIn(0, q.lastIndex)
+        val nextIdx = when {
+            curIdx < q.lastIndex -> curIdx + 1
+            state.repeat.value == RepeatMode.ALL -> 0
+            else -> return null
+        }
+        val nextSong = q[nextIdx]
+        return nextSong to "song/${nextSong.id}"
+    }
+
+    private fun resolveUriForQuery(song: String): String =
+        android.net.Uri.Builder()
+            .scheme("spotui")
+            .authority("resolve")
+            .appendQueryParameter("q", song)
+            .build()
+            .toString()
+
     fun playSong(song: String, context: Context, mediaId: String? = null) {
         val appContext = context.applicationContext
         appCtx = appContext
         currentRequest = song
-        currentMediaId = mediaId
+        val inferredMediaId = mediaId
+            ?: boundState?.queue?.value?.firstOrNull { it.url == song }?.let { "song/${it.id}" }
+            ?: boundState?.songId?.value?.takeIf { it > 0 }?.let { "song/$it" }
+        currentMediaId = inferredMediaId
         playWhenResolved = true
         lastPlaybackError = null
         isResolvingTrack = true
@@ -564,8 +595,10 @@ object SongPlayer {
                     com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(appContext)
                     scope.launch {
                         delay(1500)
-                        updateResolveStatus(false)
-                        com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(appContext)
+                        if (currentRequest == song) {
+                            updateResolveStatus(false)
+                            com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(appContext)
+                        }
                     }
                     return@runOnMain
                 }
@@ -590,14 +623,8 @@ object SongPlayer {
                     ),
                 )
             } else {
-                val resolveUri = android.net.Uri.Builder()
-                    .scheme("spotui")
-                    .authority("resolve")
-                    .appendQueryParameter("q", song)
-                    .build()
-                    .toString()
                 updateResolveStatus(true, "Resolving audio stream...")
-                buildMediaItem(resolveUri, null)
+                buildMediaItem(resolveUriForQuery(song), null)
             }
 
             val p = player ?: return@runOnMain
@@ -609,7 +636,42 @@ object SongPlayer {
             }
             restoreQuery = null
 
-            p.setMediaItem(initialItem, startPosMs)
+            val crossfadeMs = com.music.spotui.data.preferences.getCrossfadeMs(appContext)
+            val lookahead = if (crossfadeMs <= 0) nextTrackForQueueLookahead() else null
+            if (lookahead != null && (youtubeEnabled || losslessStreaming || streamCache.containsKey(lookahead.first.url))) {
+                val (nextSong, nextMediaId) = lookahead
+                val cachedNext = streamCache[nextSong.url]?.let {
+                    com.music.spotui.util.StreamSanitizer.sanitizeStreamUrl(it)
+                }
+                val nextUri = cachedNext ?: resolveUriForQuery(nextSong.url)
+                val nextMime = if (cachedNext != null) {
+                    streamMimeType(
+                        cachedNext,
+                        source = sourceCache[nextSong.url] ?: "",
+                        quality = qualityCache[nextSong.url] ?: "",
+                    )
+                } else {
+                    null
+                }
+                val nextItem = buildMediaItemForTrack(
+                    streamUrl = nextUri,
+                    mimeType = nextMime,
+                    title = nextSong.title,
+                    artist = nextSong.singer,
+                    coverUri = nextSong.coverUri,
+                    album = nextSong.album,
+                    durationMs = nextSong.durationMs.toLong(),
+                    mediaId = nextMediaId,
+                )
+                p.setMediaItems(listOf(initialItem, nextItem), 0, startPosMs)
+            } else {
+                p.setMediaItem(initialItem, startPosMs)
+            }
+            p.repeatMode = if (boundState?.repeat?.value == RepeatMode.ONE) {
+                Player.REPEAT_MODE_ONE
+            } else {
+                Player.REPEAT_MODE_OFF
+            }
             p.prepare()
             com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(
                 appContext, currentDspProcessor, currentSpatialProcessor
@@ -639,20 +701,33 @@ object SongPlayer {
     // Build a MediaItem carrying the current track's metadata so the system media
     // notification (MediaSession) and One UI Now Bar show title / artist / album / duration / artwork.
     private fun buildMediaItem(streamUrl: String, mimeType: String? = null): MediaItem {
-        val metadataBuilder = androidx.media3.common.MediaMetadata.Builder()
-            .setTitle(metaTitle)
-            .setArtist(metaArtist)
-            .setMediaType(androidx.media3.common.MediaMetadata.MEDIA_TYPE_MUSIC)
-            .setIsPlayable(true)
-        if (metaAlbum.isNotBlank()) metadataBuilder.setAlbumTitle(metaAlbum)
-        if (metaDurationMs > 0L) metadataBuilder.setDurationMs(metaDurationMs)
         val ctx = appCtx ?: com.music.spotui.MyApplication.instanceOrNull
-        if (ctx != null) {
-            com.music.spotui.util.ArtworkHelper.attachArtwork(
-                metadataBuilder, ctx, metaCover, currentMediaId, streamUrl
+        val metadata = if (ctx != null) {
+            com.music.spotui.util.ArtworkHelper.buildTrackMetadata(
+                context = ctx,
+                title = metaTitle,
+                artist = metaArtist,
+                album = metaAlbum,
+                coverUri = metaCover,
+                durationMs = metaDurationMs,
+                songId = currentMediaId,
+                streamUrl = streamUrl,
+                onAsyncArtReady = {
+                    appCtx?.let { mainHandler.post { com.music.spotui.ui.notification.PlaybackService.refreshNotification(it) } }
+                },
             )
+        } else {
+            androidx.media3.common.MediaMetadata.Builder()
+                .setTitle(metaTitle)
+                .setArtist(metaArtist)
+                .setMediaType(androidx.media3.common.MediaMetadata.MEDIA_TYPE_MUSIC)
+                .setIsPlayable(true)
+                .apply {
+                    if (metaAlbum.isNotBlank()) setAlbumTitle(metaAlbum)
+                    if (metaDurationMs > 0L) setDurationMs(metaDurationMs)
+                }
+                .build()
         }
-        val metadata = metadataBuilder.build()
         return MediaItem.Builder()
             .apply { currentMediaId?.let { setMediaId(it) } }
             .setUri(streamUrl)
@@ -734,11 +809,13 @@ object SongPlayer {
                         }
                         val nextMediaId = "song/${nextSong.id}"
                         val nextIdxInPlayer = p.currentMediaItemIndex + 1
-                        val existingNextId = if (nextIdxInPlayer in 0 until p.mediaItemCount) {
-                            p.getMediaItemAt(nextIdxInPlayer).mediaId
+                        val existingNextItem = if (nextIdxInPlayer in 0 until p.mediaItemCount) {
+                            p.getMediaItemAt(nextIdxInPlayer)
                         } else {
                             null
                         }
+                        val existingNextId = existingNextItem?.mediaId
+                        val existingNextScheme = existingNextItem?.localConfiguration?.uri?.scheme
                         val nextSource = sourceCache[nextSong.url] ?: ""
                         val nextQuality = qualityCache[nextSong.url] ?: ""
                         val nextMime = streamMimeType(sanitizedUrl, source = nextSource, quality = nextQuality)
@@ -755,7 +832,10 @@ object SongPlayer {
                             )
                             p.addMediaItem(nextItem)
                             Log.d(TAG, "Queued next track directly in ExoPlayer (${nextSong.title})")
-                        } else if (existingNextId != nextMediaId) {
+                        } else if (
+                            existingNextId != nextMediaId ||
+                            (existingNextScheme == "spotui" && nextMime == androidx.media3.common.MimeTypes.APPLICATION_MPD)
+                        ) {
                             val nextItem = buildMediaItemForTrack(
                                 streamUrl = sanitizedUrl,
                                 mimeType = nextMime,
@@ -787,20 +867,30 @@ object SongPlayer {
         durationMs: Long = 0L,
         mediaId: String? = null
     ): MediaItem {
-        val metadataBuilder = androidx.media3.common.MediaMetadata.Builder()
-            .setTitle(title)
-            .setArtist(artist)
-            .setMediaType(androidx.media3.common.MediaMetadata.MEDIA_TYPE_MUSIC)
-            .setIsPlayable(true)
-        if (album.isNotBlank()) metadataBuilder.setAlbumTitle(album)
-        if (durationMs > 0L) metadataBuilder.setDurationMs(durationMs)
         val ctx = appCtx ?: com.music.spotui.MyApplication.instanceOrNull
-        if (ctx != null) {
-            com.music.spotui.util.ArtworkHelper.attachArtwork(
-                metadataBuilder, ctx, coverUri, mediaId, streamUrl
+        val metadata = if (ctx != null) {
+            com.music.spotui.util.ArtworkHelper.buildTrackMetadata(
+                context = ctx,
+                title = title,
+                artist = artist,
+                album = album,
+                coverUri = coverUri,
+                durationMs = durationMs,
+                songId = mediaId,
+                streamUrl = streamUrl,
             )
+        } else {
+            androidx.media3.common.MediaMetadata.Builder()
+                .setTitle(title)
+                .setArtist(artist)
+                .setMediaType(androidx.media3.common.MediaMetadata.MEDIA_TYPE_MUSIC)
+                .setIsPlayable(true)
+                .apply {
+                    if (album.isNotBlank()) setAlbumTitle(album)
+                    if (durationMs > 0L) setDurationMs(durationMs)
+                }
+                .build()
         }
-        val metadata = metadataBuilder.build()
         return MediaItem.Builder()
             .apply { mediaId?.let { setMediaId(it) } }
             .setUri(streamUrl)
@@ -1119,6 +1209,47 @@ object SongPlayer {
             }
             return android.net.Uri.fromFile(java.io.File(path)).toString()
         }
+        // Coalesce concurrent network resolutions for the same song query so ExoPlayer loader +
+        // preResolve/prefetch never kick off duplicate SpotiFLAC/YouTube resolution chains.
+        inFlightResolves[song]?.let { existing ->
+            val joined = runCatching { existing.await() }.getOrNull()
+            if (forPlayback && joined != null) {
+                currentSource = sourceCache[song] ?: currentSource
+                currentQuality = qualityCache[song] ?: currentQuality
+                updateResolveStatus(false)
+            }
+            return joined
+        }
+
+        val deferred = kotlinx.coroutines.CompletableDeferred<String?>()
+        val winner = inFlightResolves.putIfAbsent(song, deferred)
+        if (winner != null) {
+            val joined = runCatching { winner.await() }.getOrNull()
+            if (forPlayback && joined != null) {
+                currentSource = sourceCache[song] ?: currentSource
+                currentQuality = qualityCache[song] ?: currentQuality
+                updateResolveStatus(false)
+            }
+            return joined
+        }
+
+        return try {
+            resolveStreamUrlNetwork(song, appContext, forPlayback).also { resolved ->
+                deferred.complete(resolved)
+            }
+        } catch (t: Throwable) {
+            deferred.complete(null)
+            throw t
+        } finally {
+            inFlightResolves.remove(song, deferred)
+        }
+    }
+
+    private suspend fun resolveStreamUrlNetwork(
+        song: String,
+        appContext: Context,
+        forPlayback: Boolean,
+    ): String? {
         // Quality for the current network (Wi-Fi vs cellular), from Settings.
         val quality = com.music.spotui.data.preferences.currentStreamingQuality(appContext)
         // ── Parallel resolution ──

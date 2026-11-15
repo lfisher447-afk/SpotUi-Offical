@@ -23,7 +23,9 @@ import kotlinx.coroutines.launch
 
 data class MediaControllerSnapshot(
     val connected: Boolean = false,
+    val mediaId: String = "",
     val isPlaying: Boolean = false,
+    val isBuffering: Boolean = false,
     val playbackState: Int = Player.STATE_IDLE,
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,
@@ -170,7 +172,9 @@ object MediaSessionController {
         val meta: MediaMetadata = player.mediaMetadata
         _state.value = MediaControllerSnapshot(
             connected = true,
+            mediaId = player.currentMediaItem?.mediaId.orEmpty(),
             isPlaying = player.isPlaying,
+            isBuffering = player.playbackState == Player.STATE_BUFFERING,
             playbackState = player.playbackState,
             positionMs = player.currentPosition.coerceAtLeast(0L),
             durationMs = player.duration.coerceAtLeast(0L),

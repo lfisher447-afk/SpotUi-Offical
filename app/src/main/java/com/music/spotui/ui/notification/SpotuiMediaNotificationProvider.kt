@@ -27,7 +27,7 @@ class SpotuiMediaNotificationProvider(
 
     private val appContext = context.applicationContext
 
-    private val delegate = object : DefaultMediaNotificationProvider(
+    private inner class DelegateProvider : DefaultMediaNotificationProvider(
         appContext,
         NotificationIdProvider { PlaybackService.NOTIFICATION_ID },
         PlaybackService.CHANNEL_ID,
@@ -37,7 +37,7 @@ class SpotuiMediaNotificationProvider(
             setSmallIcon(R.drawable.ic_spotui_notification)
         }
 
-        override fun getMediaButtons(
+        public override fun getMediaButtons(
             session: MediaSession,
             playerCommands: Player.Commands,
             customLayout: ImmutableList<CommandButton>,
@@ -76,6 +76,16 @@ class SpotuiMediaNotificationProvider(
             }
         }
     }
+
+    private val delegate = DelegateProvider()
+
+    internal fun resolveMediaButtons(
+        session: MediaSession,
+        playerCommands: Player.Commands,
+        customLayout: ImmutableList<CommandButton>,
+        showPauseButton: Boolean,
+    ): ImmutableList<CommandButton> =
+        delegate.getMediaButtons(session, playerCommands, customLayout, showPauseButton)
 
     override fun createNotification(
         mediaSession: MediaSession,

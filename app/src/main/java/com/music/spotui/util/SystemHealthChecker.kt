@@ -196,14 +196,32 @@ object SystemHealthChecker {
         )
 
     private fun checkMediaSession(telemetry: SongPlayer.PlayerTelemetry): HealthCheckResult {
+        val activeService = com.music.spotui.ui.notification.ServiceSessionHolder.activeService()
+        val hasForeground = activeService?.hasPromotedForeground == true
+        val resumable = com.music.spotui.ui.notification.ServiceSessionHolder.isResumable(SongPlayer.exoPlayer)
+        val statusSuffix = "FG=$hasForeground · Resumable=$resumable"
         return when {
+            activeService != null && !hasForeground && telemetry.playbackState != Player.STATE_IDLE -> HealthCheckResult(
+                id = "media_session",
+                title = "Media3 Session & Audio Focus",
+                category = "Playback",
+                severity = CheckSeverity.WARNING,
+                summary = "Session #${telemetry.sessionId} · Foreground promotion pending",
+                detail = "Service bound without foreground notification ($statusSuffix).",
+                fixLabel = "Promote Foreground",
+                autoFix = { ctx ->
+                    com.music.spotui.ui.notification.PlaybackService.ensureStarted(ctx)
+                    com.music.spotui.ui.notification.PlaybackService.refreshNotification(ctx)
+                    "Promoted PlaybackService to foreground and refreshed Media3 notification."
+                },
+            )
             telemetry.sessionId > 0 -> HealthCheckResult(
                 id = "media_session",
                 title = "Media3 Session & Audio Focus",
                 category = "Playback",
                 severity = CheckSeverity.OK,
                 summary = "Active audio session #${telemetry.sessionId}",
-                detail = "Media3 controller session bound and forwarding state cleanly.",
+                detail = "Media3 controller session bound and forwarding state cleanly ($statusSuffix).",
             )
             telemetry.playbackState == Player.STATE_IDLE -> HealthCheckResult(
                 id = "media_session",
@@ -211,7 +229,7 @@ object SystemHealthChecker {
                 category = "Playback",
                 severity = CheckSeverity.WARNING,
                 summary = "Idle (no active track loaded)",
-                detail = "Audio session allocates on first track start. Tap Refresh once playback starts.",
+                detail = "Audio session allocates on first track start ($statusSuffix). Tap Refresh once playback starts.",
                 fixLabel = "Sync Focus Policy",
                 autoFix = { ctx ->
                     SongPlayer.refreshAudioFocusPolicy(ctx)
@@ -224,11 +242,12 @@ object SystemHealthChecker {
                 category = "Playback",
                 severity = CheckSeverity.FAIL,
                 summary = "Session ID missing during playback",
-                detail = "ExoPlayer reported state=${telemetry.playbackState} with sessionId=${telemetry.sessionId}.",
+                detail = "ExoPlayer reported state=${telemetry.playbackState} with sessionId=${telemetry.sessionId} ($statusSuffix).",
                 fixLabel = "Rebind Effects & Focus",
                 autoFix = { ctx ->
                     SongPlayer.refreshAudioFocusPolicy(ctx)
                     SongPlayer.refreshAudioEffects(ctx)
+                    com.music.spotui.ui.notification.PlaybackService.refreshNotification(ctx)
                     "Re-applied audio focus and DSP session bindings."
                 },
             )
@@ -343,14 +362,19 @@ object SystemHealthChecker {
 
     private fun checkBatteryAndWakeLock(context: Context): HealthCheckResult {
         val exempt = BatteryOptimizationHelper.isIgnoringBatteryOptimization(context)
+        val hasForeground = com.music.spotui.ui.notification.ServiceSessionHolder.activeService()?.hasPromotedForeground == true
         return if (exempt) {
             HealthCheckResult(
                 id = "battery_opt",
                 title = "Background Battery & WakeLock",
                 category = "System",
                 severity = CheckSeverity.OK,
-                summary = "Unrestricted (Exempt from Doze)",
-                detail = "OS will not throttle Media3 service or next-track resolution in background.",
+                summary = if (hasForeground) {
+                    "Unrestricted · WIU foreground active"
+                } else {
+                    "Unrestricted (Exempt from Doze)"
+                },
+                detail = "OS will not throttle Media3 service or next-track resolution in background (FG=$hasForeground).",
             )
         } else {
             HealthCheckResult(

@@ -113,6 +113,12 @@ class PlaybackService : MediaLibraryService() {
                 SongPlayer.onPlayerStateSettled(playbackState)
             }
             currentSongState.updateBufferingState(playbackState == Player.STATE_BUFFERING || SongPlayer.isResolvingTrack)
+            if (playbackState == Player.STATE_ENDED ||
+                playbackState == Player.STATE_IDLE ||
+                playbackState == Player.STATE_READY
+            ) {
+                scheduleIdleStopCheck()
+            }
             if (playbackState == Player.STATE_ENDED) {
                 if (SongPlayer.isCrossfadeActive() || SongPlayer.isResolvingTrack) {
                     return
@@ -121,7 +127,13 @@ class PlaybackService : MediaLibraryService() {
                 if (p != null) {
                     val duration = p.duration
                     val position = p.currentPosition
-                    if (duration <= 0 || position < duration - 6000) {
+                    // Ignore only obviously bogus 0ms endings on long known-duration tracks;
+                    // allow unknown durations (C.TIME_UNSET <= 0) and VBR header drift to advance.
+                    if (duration > 15_000L && position <= 500L) {
+                        AppDiagnostics.warning(
+                            "PlaybackService",
+                            "Ignoring premature STATE_ENDED at ${position}ms/${duration}ms",
+                        )
                         return
                     }
                 }
@@ -225,6 +237,7 @@ class PlaybackService : MediaLibraryService() {
             // updatePlayingState internally guards against stale callbacks: when ExoPlayer
             // reports "playing" after the user already paused, it's dropped.
             if (!showingWeb) currentSongState.updatePlayingState(isPlaying)
+            scheduleIdleStopCheck()
         }
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
@@ -360,6 +373,11 @@ class PlaybackService : MediaLibraryService() {
             // Let the player advance the in-app queue itself during a crossfade.
             SongPlayer.bindState(currentSongState)
             val base = SongPlayer.exoPlayer ?: return
+            base.repeatMode = if (currentSongState.repeat.value == RepeatMode.ONE) {
+                Player.REPEAT_MODE_ONE
+            } else {
+                Player.REPEAT_MODE_OFF
+            }
             base.addListener(playerListener)
 
             // Tapping the notification opens the app (back on the Now Playing screen).
@@ -401,10 +419,31 @@ class PlaybackService : MediaLibraryService() {
                     }
             }
 
+            // Keep native ExoPlayer single-track loop synchronized with RepeatMode.ONE so
+            // background single-track repeats never hit STATE_ENDED or drop WIU privileges.
+            serviceScope.launch {
+                snapshotFlow { currentSongState.repeat.value }
+                    .distinctUntilChanged()
+                    .collect { mode ->
+                        if (!showingWeb) {
+                            SongPlayer.exoPlayer?.repeatMode = if (mode == RepeatMode.ONE) {
+                                Player.REPEAT_MODE_ONE
+                            } else {
+                                Player.REPEAT_MODE_OFF
+                            }
+                        }
+                    }
+            }
+
             // When a crossfade promotes a new ExoPlayer instance, re-bind the session to it
             // (runs on the main thread; setPlayer is the supported way to swap a session's player).
             SongPlayer.onPlayerSwapped = { newPlayer ->
                 if (!showingWeb) {
+                    newPlayer.repeatMode = if (currentSongState.repeat.value == RepeatMode.ONE) {
+                        Player.REPEAT_MODE_ONE
+                    } else {
+                        Player.REPEAT_MODE_OFF
+                    }
                     mediaSession?.player = newPlayer
                 }
                 newPlayer.addListener(playerListener)
@@ -526,37 +565,32 @@ class PlaybackService : MediaLibraryService() {
         val durationMs = song?.durationMs ?: 0
         if (title.isBlank() && song == null) return
 
-        val metadataBuilder = MediaMetadata.Builder()
-            .setTitle(title)
-            .setArtist(artist)
-            .setAlbumTitle(album)
-            .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-            .setIsPlayable(true)
-        if (durationMs > 0) {
-            metadataBuilder.setDurationMs(durationMs.toLong())
-        }
-
-        com.music.spotui.util.ArtworkHelper.attachArtwork(
-            metadataBuilder,
-            this,
-            coverUri,
-            (song?.id ?: currentSongState.songId.value).toString(),
-            song?.url ?: currentSongState.songUrl.value,
+        val songId = (song?.id ?: currentSongState.songId.value).toString()
+        val meta = com.music.spotui.util.ArtworkHelper.buildTrackMetadata(
+            context = this,
+            title = title,
+            artist = artist,
+            album = album,
+            coverUri = coverUri,
+            durationMs = durationMs.toLong(),
+            songId = songId,
+            streamUrl = song?.url ?: currentSongState.songUrl.value,
+            onAsyncArtReady = {
+                mainHandler.post { refreshNotification(applicationContext) }
+            },
         )
-
-        val meta = metadataBuilder.build()
         latestServiceMetadata = meta
         ServiceSessionHolder.updateMetadata(meta)
 
         // Propagate metadata onto the active ExoPlayer MediaItem only when a real
-        // stream URI (localConfiguration != null) is already loaded so Media3 fires
-        // onMediaMetadataChanged and updates the system media card without touching
-        // URI-less items.
+        // resolved stream URI (not a pending spotui:// resolve item) is loaded so Media3
+        // fires onMediaMetadataChanged without disturbing stream resolution.
         val player = SongPlayer.exoPlayer
         if (!showingWeb && player != null && player.mediaItemCount > 0) {
             val idx = player.currentMediaItemIndex
             val currentItem = if (idx in 0 until player.mediaItemCount) player.getMediaItemAt(idx) else null
-            if (currentItem?.localConfiguration != null && currentItem.mediaMetadata != meta) {
+            val scheme = currentItem?.localConfiguration?.uri?.scheme
+            if (currentItem?.localConfiguration != null && scheme != "spotui" && currentItem.mediaMetadata != meta) {
                 player.replaceMediaItem(idx, currentItem.buildUpon().setMediaMetadata(meta).build())
             }
         }
@@ -1229,22 +1263,21 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun playable(song: SongsModel): MediaItem {
-        val builder = MediaMetadata.Builder()
-            .setTitle(song.title)
-            .setArtist(song.singer)
-            .setAlbumTitle(song.album)
+        val meta = com.music.spotui.util.ArtworkHelper.buildTrackMetadata(
+            context = this,
+            title = song.title,
+            artist = song.singer,
+            album = song.album,
+            coverUri = song.coverUri,
+            durationMs = song.durationMs.toLong(),
+            songId = song.id.toString(),
+            streamUrl = song.url,
+        ).buildUpon()
             .setIsBrowsable(false)
-            .setIsPlayable(true)
-            .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-        if (song.durationMs > 0) {
-            builder.setDurationMs(song.durationMs.toLong())
-        }
-        com.music.spotui.util.ArtworkHelper.attachArtwork(
-            builder, this, song.coverUri, song.id.toString(), song.url
-        )
+            .build()
         return MediaItem.Builder()
             .setMediaId("song/${song.id}")
-            .setMediaMetadata(builder.build())
+            .setMediaMetadata(meta)
             .build()
     }
 

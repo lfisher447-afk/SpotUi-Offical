@@ -340,4 +340,138 @@ class ServiceAndApiTest {
             )
         )
     }
+
+    @Test
+    fun songPlayer_queuesFrameZeroLookaheadAndSyncsRepeatOne() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prevYt = com.music.spotui.di.SongPlayer.youtubeEnabled
+        val prevLossless = com.music.spotui.di.SongPlayer.losslessStreaming
+        val prevWeb = com.music.spotui.di.SongPlayer.webPlayerEnabled
+        val prevCrossfade = com.music.spotui.data.preferences.getCrossfadeMs(context)
+        try {
+            com.music.spotui.di.SongPlayer.youtubeEnabled = false
+            com.music.spotui.di.SongPlayer.losslessStreaming = false
+            com.music.spotui.di.SongPlayer.webPlayerEnabled = false
+            com.music.spotui.data.preferences.setCrossfadeMs(context, 0)
+
+            val track1 = com.music.spotui.data.entity.SongsModel(
+                id = 101,
+                title = "Track One",
+                album = "Album A",
+                singer = "Artist One",
+                coverUri = "",
+                url = "spotify:track:t1|Track One Artist One",
+                durationMs = 200_000,
+            )
+            val track2 = com.music.spotui.data.entity.SongsModel(
+                id = 102,
+                title = "Track Two",
+                album = "Album A",
+                singer = "Artist Two",
+                coverUri = "",
+                url = "spotify:track:t2|Track Two Artist Two",
+                durationMs = 210_000,
+            )
+            val songState = com.music.spotui.di.CurrentSongState(context)
+            songState.updateQueue(listOf(track1, track2))
+            songState.updateRepeatState(com.music.spotui.di.RepeatMode.ONE)
+            songState.updateSongState(
+                track1.coverUri, track1.title, track1.singer, true,
+                track1.id, 0, track1.album,
+            )
+            com.music.spotui.di.SongPlayer.bindState(songState)
+            com.music.spotui.di.SongPlayer.playSong(track1.url, context, "song/${track1.id}")
+            org.robolectric.shadows.ShadowLooper.idleMainLooper()
+
+            val p = com.music.spotui.di.SongPlayer.exoPlayer!!
+            assertEquals(2, p.mediaItemCount)
+            assertEquals("song/101", p.getMediaItemAt(0).mediaId)
+            assertEquals("song/102", p.getMediaItemAt(1).mediaId)
+            assertTrue(p.hasNextMediaItem())
+            assertTrue(p.isCommandAvailable(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT))
+            assertEquals(androidx.media3.common.Player.REPEAT_MODE_ONE, p.repeatMode)
+        } finally {
+            com.music.spotui.di.SongPlayer.release()
+            com.music.spotui.data.preferences.setCrossfadeMs(context, prevCrossfade)
+            com.music.spotui.di.SongPlayer.youtubeEnabled = prevYt
+            com.music.spotui.di.SongPlayer.losslessStreaming = prevLossless
+            com.music.spotui.di.SongPlayer.webPlayerEnabled = prevWeb
+        }
+    }
+
+    @Test
+    fun artworkHelper_buildTrackMetadata_omitsBlankAlbumAndNonPositiveDuration() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val metaMinimal = com.music.spotui.util.ArtworkHelper.buildTrackMetadata(
+            context = context,
+            title = "Midnight",
+            artist = "M83",
+            album = "   ",
+            coverUri = "",
+            durationMs = 0L,
+            songId = "song/99",
+            streamUrl = "/nonexistent/local/audio.flac",
+        )
+        assertEquals("Midnight", metaMinimal.title?.toString())
+        assertEquals("M83", metaMinimal.artist?.toString())
+        assertEquals(null, metaMinimal.albumTitle)
+        assertEquals(null, metaMinimal.durationMs)
+        assertEquals(true, metaMinimal.isPlayable)
+
+        val metaFull = com.music.spotui.util.ArtworkHelper.buildTrackMetadata(
+            context = context,
+            title = "City",
+            artist = "M83",
+            album = "Hurry Up",
+            coverUri = "https://example.com/cover.jpg",
+            durationMs = 243_000L,
+            songId = "song/100",
+        )
+        assertEquals("Hurry Up", metaFull.albumTitle?.toString())
+        assertEquals(243_000L, metaFull.durationMs)
+        assertEquals("https://example.com/cover.jpg", metaFull.artworkUri?.toString())
+    }
+
+    @Test
+    fun notificationProvider_augmentsNextPrevWhenMultiTrackQueueActive() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prevYt = com.music.spotui.di.SongPlayer.youtubeEnabled
+        val prevLossless = com.music.spotui.di.SongPlayer.losslessStreaming
+        val prevWeb = com.music.spotui.di.SongPlayer.webPlayerEnabled
+        try {
+            com.music.spotui.di.SongPlayer.youtubeEnabled = false
+            com.music.spotui.di.SongPlayer.losslessStreaming = false
+            com.music.spotui.di.SongPlayer.webPlayerEnabled = false
+
+            val track1 = com.music.spotui.data.entity.SongsModel(1, "A", "Alb", "Art", "", "u1")
+            val track2 = com.music.spotui.data.entity.SongsModel(2, "B", "Alb", "Art", "", "u2")
+            val songState = com.music.spotui.di.CurrentSongState(context)
+            songState.updateQueue(listOf(track1, track2))
+            com.music.spotui.di.SongPlayer.bindState(songState)
+
+            val controller = Robolectric.buildService(PlaybackService::class.java)
+            val service = controller.create().get()
+            val session = service.sessions.first()
+            val provider = com.music.spotui.ui.notification.SpotuiMediaNotificationProvider(context)
+            val baseCommands = androidx.media3.common.Player.Commands.Builder()
+                .add(androidx.media3.common.Player.COMMAND_PLAY_PAUSE)
+                .build()
+            val buttons = provider.resolveMediaButtons(
+                session,
+                baseCommands,
+                com.google.common.collect.ImmutableList.of(),
+                true,
+            )
+            val playerCommands = buttons.map { it.playerCommand }.toSet()
+            assertTrue(playerCommands.contains(androidx.media3.common.Player.COMMAND_PLAY_PAUSE))
+            assertTrue(playerCommands.contains(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT))
+            assertTrue(playerCommands.contains(androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS))
+            controller.destroy()
+        } finally {
+            com.music.spotui.di.SongPlayer.release()
+            com.music.spotui.di.SongPlayer.youtubeEnabled = prevYt
+            com.music.spotui.di.SongPlayer.losslessStreaming = prevLossless
+            com.music.spotui.di.SongPlayer.webPlayerEnabled = prevWeb
+        }
+    }
 }
