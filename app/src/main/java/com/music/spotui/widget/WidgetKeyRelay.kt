@@ -28,13 +28,31 @@ class WidgetKeyRelay : BroadcastReceiver() {
 
         val appContext = context.applicationContext
         if (PlaybackSessionBus.sessionAlive.value) {
+            val relayIntent = WidgetMediaIntents.relayToService(appContext, keyEvent.keyCode)
             runCatching {
-                androidx.core.content.ContextCompat.startForegroundService(
-                    appContext,
-                    WidgetMediaIntents.relayToService(appContext, keyEvent.keyCode),
-                )
+                androidx.core.content.ContextCompat.startForegroundService(appContext, relayIntent)
             }.onFailure { err ->
-                AppDiagnostics.warning("WidgetKeyRelay", "Failed to relay widget key ${keyEvent.keyCode}", err)
+                AppDiagnostics.warning("WidgetKeyRelay", "FGS relay failed for key ${keyEvent.keyCode}; attempting fallback", err)
+                val dispatchedInProcess = com.music.spotui.ui.notification.ServiceSessionHolder.activeService() != null &&
+                    mapKeyCodeToCommand(keyEvent.keyCode)?.also { cmd ->
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            com.music.spotui.playback.MediaCommandDispatcher.dispatchMediaCommand(cmd)
+                        }
+                    } != null
+                if (!dispatchedInProcess) {
+                    val startedRegular = runCatching { appContext.startService(relayIntent) != null }.getOrDefault(false)
+                    if (!startedRegular) {
+                        val pendingResult = goAsync()
+                        relayScope.launch {
+                            try {
+                                NowPlayingWidgetStateStore.markStopped(appContext)
+                                GlanceWidgetUpdater.refreshAll(appContext)
+                            } finally {
+                                pendingResult.finish()
+                            }
+                        }
+                    }
+                }
             }
             return
         }
@@ -49,6 +67,16 @@ class WidgetKeyRelay : BroadcastReceiver() {
                 pendingResult.finish()
             }
         }
+    }
+
+    internal fun mapKeyCodeToCommand(keyCode: Int): com.music.spotui.playback.MediaCommand? = when (keyCode) {
+        KeyEvent.KEYCODE_MEDIA_NEXT -> com.music.spotui.playback.MediaCommand.Next
+        KeyEvent.KEYCODE_MEDIA_PREVIOUS -> com.music.spotui.playback.MediaCommand.Previous
+        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> com.music.spotui.playback.MediaCommand.PlayPause
+        KeyEvent.KEYCODE_MEDIA_PLAY -> com.music.spotui.playback.MediaCommand.Play
+        KeyEvent.KEYCODE_MEDIA_PAUSE -> com.music.spotui.playback.MediaCommand.Pause
+        KeyEvent.KEYCODE_MEDIA_STOP -> com.music.spotui.playback.MediaCommand.Stop
+        else -> null
     }
 
     companion object {

@@ -122,8 +122,14 @@ fun DeveloperConsoleScreen(navController: NavController) {
     var latestCrashText by remember { mutableStateOf<String?>(null) }
     var hasCrashReports by remember { mutableStateOf(CrashHandler.hasCrashReport(context)) }
 
-    fun triggerScan() {
+    fun triggerScan(userInitiated: Boolean = false) {
         if (isScanning) return
+        val remaining = SystemHealthChecker.remainingCooldownMs()
+        if (userInitiated && remaining > 0L) {
+            val sec = ((remaining + 999L) / 1000L).coerceAtLeast(1L)
+            Toast.makeText(context, "Diagnostics refreshed recently (${sec}s cooldown)", Toast.LENGTH_SHORT).show()
+            return
+        }
         isScanning = true
         scope.launch {
             healthReport = SystemHealthChecker.runFullScan(context)
@@ -245,7 +251,7 @@ fun DeveloperConsoleScreen(navController: NavController) {
                     report = healthReport,
                     isScanning = isScanning,
                     fixingId = fixingId,
-                    onRescan = { triggerScan() },
+                    onRescan = { triggerScan(userInitiated = true) },
                     onFix = { check ->
                         val fix = check.autoFix ?: return@HealthScannerTab
                         fixingId = check.id

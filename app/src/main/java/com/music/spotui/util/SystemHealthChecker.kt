@@ -62,6 +62,8 @@ data class HealthScanReport(
  */
 object SystemHealthChecker {
 
+    const val SCAN_COOLDOWN_MS = 10_000L
+
     private val pingClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(4, TimeUnit.SECONDS)
@@ -70,7 +72,39 @@ object SystemHealthChecker {
             .build()
     }
 
-    suspend fun runFullScan(context: Context): HealthScanReport = withContext(Dispatchers.IO) {
+    @Volatile
+    private var lastScanCompletedAtMs: Long = 0L
+
+    @Volatile
+    private var cachedReport: HealthScanReport? = null
+
+    fun remainingCooldownMs(nowMs: Long = System.currentTimeMillis()): Long {
+        val elapsed = nowMs - lastScanCompletedAtMs
+        return if (cachedReport != null && elapsed in 0 until SCAN_COOLDOWN_MS) {
+            SCAN_COOLDOWN_MS - elapsed
+        } else {
+            0L
+        }
+    }
+
+    internal fun resetCooldownForTest() {
+        lastScanCompletedAtMs = 0L
+        cachedReport = null
+    }
+
+    suspend fun runFullScan(
+        context: Context,
+        nowMs: Long = System.currentTimeMillis(),
+        skipNetworkProbesForTest: Boolean = false,
+    ): HealthScanReport = withContext(Dispatchers.IO) {
+        val prev = cachedReport
+        if (prev != null && (nowMs - lastScanCompletedAtMs) in 0 until SCAN_COOLDOWN_MS) {
+            DevConsoleManager.logInfo(
+                "HealthScanner",
+                "Returning cached 18-point report (${remainingCooldownMs(nowMs) / 1000 + 1}s cooldown remaining)",
+            )
+            return@withContext prev
+        }
         val appCtx = context.applicationContext
         val start = System.currentTimeMillis()
         val liveTelemetry = withContext(Dispatchers.Main) { SongPlayer.telemetrySnapshot(appCtx) }
@@ -86,10 +120,38 @@ object SystemHealthChecker {
                 async { checkDnsAndProxy(appCtx) },
                 async { checkSpotifySession(appCtx) },
                 async { checkYouTubeInnerTubeSession() },
-                async { checkDeezerAccount(appCtx) },
-                async { checkCustomMirror(appCtx) },
-                async { checkLosslessMirrors(appCtx) },
-                async { checkLrclibLyrics() },
+                async {
+                    if (skipNetworkProbesForTest) {
+                        offlineSkippedCheck("deezer_auth", "Deezer HiFi ARL & Direct Cdn", "Accounts")
+                    } else {
+                        kotlinx.coroutines.withTimeoutOrNull(4_500L) { checkDeezerAccount(appCtx) }
+                            ?: timeoutCheck("deezer_auth", "Deezer HiFi ARL & Direct Cdn", "Accounts")
+                    }
+                },
+                async {
+                    if (skipNetworkProbesForTest) {
+                        offlineSkippedCheck("custom_mirror", "Custom Lossless Mirror", "Lossless")
+                    } else {
+                        kotlinx.coroutines.withTimeoutOrNull(4_500L) { checkCustomMirror(appCtx) }
+                            ?: timeoutCheck("custom_mirror", "Custom Lossless Mirror", "Lossless")
+                    }
+                },
+                async {
+                    if (skipNetworkProbesForTest) {
+                        offlineSkippedCheck("lossless_mirrors", "Lossless Providers & Cooldowns", "Lossless")
+                    } else {
+                        kotlinx.coroutines.withTimeoutOrNull(4_500L) { checkLosslessMirrors(appCtx) }
+                            ?: timeoutCheck("lossless_mirrors", "Lossless Providers & Cooldowns", "Lossless")
+                    }
+                },
+                async {
+                    if (skipNetworkProbesForTest) {
+                        offlineSkippedCheck("lrclib", "LRCLIB Synced Lyrics Endpoint", "Services")
+                    } else {
+                        kotlinx.coroutines.withTimeoutOrNull(4_500L) { checkLrclibLyrics() }
+                            ?: timeoutCheck("lrclib", "LRCLIB Synced Lyrics Endpoint", "Services")
+                    }
+                },
                 async { checkOrphanedDownloads(appCtx) },
                 async { checkMediaCache(appCtx) },
                 async { checkCrashReports(appCtx) },
@@ -104,11 +166,34 @@ object SystemHealthChecker {
                 "${results.count { it.severity == CheckSeverity.FAIL }} FAIL",
         )
         HealthScanReport(
-            timestampMs = System.currentTimeMillis(),
+            timestampMs = nowMs,
             durationMs = elapsed,
             checks = results,
-        )
+        ).also {
+            cachedReport = it
+            lastScanCompletedAtMs = nowMs
+        }
     }
+
+    private fun timeoutCheck(id: String, title: String, category: String): HealthCheckResult =
+        HealthCheckResult(
+            id = id,
+            title = title,
+            category = category,
+            severity = CheckSeverity.WARNING,
+            summary = "Probe timed out (>4.5s)",
+            detail = "Network endpoint did not respond within the scan budget.",
+        )
+
+    private fun offlineSkippedCheck(id: String, title: String, category: String): HealthCheckResult =
+        HealthCheckResult(
+            id = id,
+            title = title,
+            category = category,
+            severity = CheckSeverity.OK,
+            summary = "Skipped in offline test mode",
+            detail = "Deterministic offline health verification.",
+        )
 
     private fun checkMediaSession(telemetry: SongPlayer.PlayerTelemetry): HealthCheckResult {
         return when {

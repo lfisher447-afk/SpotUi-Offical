@@ -72,14 +72,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Experimental Spotify web-player engine: attach its hidden WebView AFTER
-        // setContent only if explicitly enabled in preferences.
-        if (com.music.spotui.data.preferences.isWebPlaybackEnabled(this)) {
-            runCatching {
-                com.music.spotui.di.SpotifyWebPlayer.attach(applicationContext)
-            }.onFailure { AppDiagnostics.error("SpotifyWebPlayer", "Web player attach failed", it) }
-        }
-
         // Perform background auto-backup if a backup directory is configured.
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             runCatching { com.music.spotui.util.BackupHelper.performAutoBackup(applicationContext) }

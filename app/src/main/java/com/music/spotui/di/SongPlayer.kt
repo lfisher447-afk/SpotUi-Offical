@@ -248,6 +248,26 @@ object SongPlayer {
     @Volatile private var loadedQuery: String? = null
     @Volatile private var playWhenResolved = true
 
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    private fun runOnMain(block: () -> Unit) {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            block()
+        } else {
+            mainHandler.post(block)
+        }
+    }
+
+    internal class DashRedirectException(val manifestUrl: String) :
+        java.io.IOException("Redirecting stream to DASH manifest: $manifestUrl")
+
+    internal fun onPlayerStateSettled(playbackState: Int) {
+        if (playbackState == Player.STATE_READY || playbackState == Player.STATE_ENDED) {
+            isResolvingTrack = false
+            updateResolveStatus(false)
+        }
+    }
+
     // Latest track metadata (title / artist / cover URL) so the MediaItem we build
     // carries it into the system media notification. Set via [setNowPlayingMeta]
     // (driven by CurrentSongState) just before / as playback starts.
@@ -311,6 +331,8 @@ object SongPlayer {
         currentMediaId = mediaId
         playWhenResolved = true
         isResolvingTrack = false
+        sourceCache[songUrl]?.let { currentSource = it }
+        qualityCache[songUrl]?.let { currentQuality = it }
         setNowPlayingMeta(
             title = title,
             artist = artist,
@@ -318,6 +340,13 @@ object SongPlayer {
             album = album,
             durationMs = durationMs,
         )
+    }
+
+    @androidx.annotation.VisibleForTesting
+    internal fun setCachedStreamForTest(song: String, url: String, source: String, quality: String) {
+        streamCache[song] = url
+        sourceCache[song] = source
+        qualityCache[song] = quality
     }
 
     fun setNowPlayingMeta(
@@ -452,6 +481,38 @@ object SongPlayer {
         return true
     }
 
+    private fun fastLocalOrCachedStream(song: String, appContext: Context): String? {
+        if (song.startsWith("content://", ignoreCase = true) || song.startsWith("file://", ignoreCase = true)) {
+            currentSource = "Local Audio"
+            currentQuality = song.substringAfterLast('.', "").uppercase().takeIf { it.length in 2..5 } ?: "LOCAL"
+            return song
+        }
+        streamCache[song]?.let { cached ->
+            currentSource = sourceCache[song] ?: "YouTube"
+            currentQuality = qualityCache[song] ?: ""
+            return cached
+        }
+        com.music.spotui.data.preferences.getCachedStream(appContext, song)?.let { (url, source, quality) ->
+            streamCache[song] = url
+            sourceCache[song] = source
+            qualityCache[song] = quality
+            currentSource = source
+            currentQuality = quality
+            return url
+        }
+        alternativeStreamForPlayback(song, appContext)?.takeIf { it.isLocal }?.let { alt ->
+            currentSource = "Alternative file"
+            currentQuality = alt.label.substringAfterLast('.', "").uppercase().takeIf { it.length in 2..5 }.orEmpty()
+            return alt.value
+        }
+        com.music.spotui.data.preferences.downloadedPathForQuery(appContext, song)?.let { path ->
+            currentSource = "Downloaded"
+            currentQuality = path.substringAfterLast('.', "").uppercase()
+            return android.net.Uri.fromFile(java.io.File(path)).toString()
+        }
+        return null
+    }
+
     fun playSong(song: String, context: Context, mediaId: String? = null) {
         val appContext = context.applicationContext
         appCtx = appContext
@@ -465,143 +526,113 @@ object SongPlayer {
         abLoopEndMs = -1L
         // Remember the play-query so history can replay this track on tap.
         boundState?.setSongUrl(song)
-        // A manual play (tap / next / prev) supersedes any in-flight crossfade.
-        cancelCrossfade()
-        // Keep the existing player state undisturbed while resolving the next stream;
-        // pausing here makes One UI Now Bar flash "Resume playback" mid-transition.
-        runCatching {
+
+        runOnMain {
+            if (currentRequest != song) return@runOnMain
+            // A manual play (tap / next / prev) supersedes any in-flight crossfade.
+            cancelCrossfade()
             ensurePlayer(appContext)
-            com.music.spotui.ui.notification.PlaybackService.ensureStarted(appContext)
-        }
+            // Lazy-initialize SpotifyWebPlayer only if a track is explicitly eligible to route there.
+            val downloadedPath = com.music.spotui.data.preferences.downloadedPathForQuery(appContext, song)
+            val webEnabled = webPlayerEnabled && com.music.spotui.data.preferences.isWebPlaybackEnabled(appContext)
+            if (webEnabled && (song.startsWith("episode:") || downloadedPath == null)) {
+                runCatching { SpotifyWebPlayer.attach(appContext) }
+            }
 
-        // Podcast episodes are encoded as "episode:<id>" queries — play them via the
-        // Spotify web player's episode page (same engine as tracks).
-        if (song.startsWith("episode:") && webPlayerEnabled && SpotifyWebPlayer.canPlay &&
-            com.music.spotui.data.preferences.isWebPlaybackEnabled(appContext)
-        ) {
-            isResolvingTrack = false
-            runCatching { player?.pause() }
-            currentSource = "Spotify"
-            currentQuality = ""
-            SpotifyWebPlayer.playEpisode(song.removePrefix("episode:"))
-            com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(appContext)
-            return
-        }
-
-        // Downloaded tracks ALWAYS play the local file — even with Spotify web
-        // playback on. (Web is now the default and used to run first, so a
-        // downloaded track streamed from Spotify instead of playing offline.)
-        val downloadedPath = com.music.spotui.data.preferences.downloadedPathForQuery(appContext, song)
-        if (downloadedPath == null && webPlayerEnabled &&
-            // Experimental: stream through Spotify's own web player (real Spotify audio,
-            // no bypass) when enabled AND the device WebView has Widevine. Otherwise
-            // fall through to the normal YouTube/FLAC engine so playback is never silent.
-            com.music.spotui.data.preferences.isWebPlaybackEnabled(appContext) &&
-            SpotifyWebPlayer.canPlay
-        ) {
-            val spotifyId = trackIdRegistry[song] ?: spotifyTrackIdForPlayback(song)
-            if (spotifyId != null) {
+            if (song.startsWith("episode:") && webEnabled && SpotifyWebPlayer.canPlay) {
                 isResolvingTrack = false
                 runCatching { player?.pause() }
                 currentSource = "Spotify"
                 currentQuality = ""
-                updateResolveStatus(true, "Loading Spotify track...")
-                SpotifyWebPlayer.play(spotifyId)
+                updateResolveStatus(false)
+                com.music.spotui.ui.notification.PlaybackService.ensureStarted(appContext)
+                SpotifyWebPlayer.playEpisode(song.removePrefix("episode:"))
                 com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(appContext)
-                scope.launch {
-                    delay(1500)
-                    updateResolveStatus(false)
-                    com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(appContext)
-                }
-                return
+                return@runOnMain
             }
-            Log.w(TAG, "web playback on but no Spotify id for query: $song — using fallback engine")
-        }
-        scope.launch {
-            val (wakeLock, wifiLock) = acquireResolveWakeLocks(appContext)
-            try {
-                val rawStreamUrl = resolveStreamUrl(song, appContext, forPlayback = true) ?: run {
+
+            if (downloadedPath == null && webEnabled && SpotifyWebPlayer.canPlay) {
+                val spotifyId = trackIdRegistry[song] ?: spotifyTrackIdForPlayback(song)
+                if (spotifyId != null) {
                     isResolvingTrack = false
-                    lastPlaybackError = "No stream found"
-                    com.music.spotui.util.DevConsoleManager.logError("SongPlayer", "No stream found for request: $song")
-                    if (currentRequest == song) withContext(Dispatchers.Main) {
-                        android.widget.Toast.makeText(
-                            appContext, "No stream found",
-                            android.widget.Toast.LENGTH_SHORT,
-                        ).show()
-                    }
-                    if (boundState?.resolveError?.value == null) {
-                        boundState?.updateResolveError("No stream found")
-                    }
-                    updateResolveStatus(false)
-                    com.music.spotui.ui.notification.PlaybackService.refreshNotification(appContext)
-                    return@launch
-                }
-                val streamUrl = com.music.spotui.util.StreamSanitizer.sanitizeStreamUrl(rawStreamUrl)
-                com.music.spotui.util.DevConsoleManager.logInfo("SongPlayer", "Resolved & sanitized stream from $currentSource [$currentQuality]")
-                com.music.spotui.util.DevConsoleManager.updateDiagnostics {
-                    copy(
-                        activeSource = currentSource,
-                        currentQuality = currentQuality,
-                        isBuffering = true
-                    )
-                }
-                // A newer tap superseded this one while we were resolving — drop it.
-                if (currentRequest != song) {
-                    com.music.spotui.util.DevConsoleManager.logCollision("SongPlayer", "Playback request collision: superseded by newer tap")
-                    updateResolveStatus(false)
-                    return@launch
-                }
-                val fadeIn = com.music.spotui.data.preferences.isFadeInOnPlay(appContext)
-                withContext(Dispatchers.Main) {
-                    if (currentRequest != song) {
+                    runCatching { player?.pause() }
+                    currentSource = "Spotify"
+                    currentQuality = ""
+                    updateResolveStatus(true, "Loading Spotify track...")
+                    com.music.spotui.ui.notification.PlaybackService.ensureStarted(appContext)
+                    SpotifyWebPlayer.play(spotifyId)
+                    com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(appContext)
+                    scope.launch {
+                        delay(1500)
                         updateResolveStatus(false)
-                        return@withContext
+                        com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(appContext)
                     }
-                    ensurePlayer(appContext)
-                    val p = player ?: return@withContext
-                    p.setMediaItem(buildMediaItem(streamUrl, streamMimeType(streamUrl)))
-                    p.prepare()
-                    com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(
-                        appContext, currentDspProcessor, currentSpatialProcessor
-                    )
-                    com.music.spotui.audio.AudioEffectController.attach(appContext, p.audioSessionId)
-                    // Restored or quality-restarted session: continue from saved position.
-                    if (song == restoreQuery && restorePositionMs > 0) {
-                        p.seekTo(restorePositionMs)
-                    }
-                    restoreQuery = null
-                    p.volume = if (fadeIn && playWhenResolved) 0.15f else 1f
-                    p.playWhenReady = playWhenResolved
-                    loadedQuery = song
-                    isResolvingTrack = false
-                    updateResolveStatus(false)
-                    com.music.spotui.ui.notification.PlaybackService.refreshNotification(appContext)
-                    if (fadeIn && playWhenResolved) {
-                        scope.launch(Dispatchers.Main) {
-                            val steps = 8
-                            for (i in 1..steps) {
-                                delay(20L)
-                                if (player === p && !isCrossfading) {
-                                    p.volume = 0.15f + (0.85f * (i.toFloat() / steps))
-                                }
-                            }
+                    return@runOnMain
+                }
+                Log.w(TAG, "web playback on but no Spotify id for query: $song — using fallback engine")
+            }
+
+            // Immediately queue a real MediaItem with full MediaMetadata onto ExoPlayer on frame 0 so
+            // currentTimeline is non-empty and state enters STATE_BUFFERING (never STATE_IDLE while
+            // ResolvingDataSource resolves uncached streams on ExoPlayer's background loader thread).
+            val fastUrl = fastLocalOrCachedStream(song, appContext)
+            val initialItem = if (fastUrl != null) {
+                val cleanUrl = com.music.spotui.util.StreamSanitizer.sanitizeStreamUrl(fastUrl)
+                loadedQuery = song
+                isResolvingTrack = false
+                updateResolveStatus(false)
+                buildMediaItem(
+                    cleanUrl,
+                    streamMimeType(
+                        cleanUrl,
+                        source = sourceCache[song] ?: currentSource,
+                        quality = qualityCache[song] ?: currentQuality,
+                    ),
+                )
+            } else {
+                val resolveUri = android.net.Uri.Builder()
+                    .scheme("spotui")
+                    .authority("resolve")
+                    .appendQueryParameter("q", song)
+                    .build()
+                    .toString()
+                updateResolveStatus(true, "Resolving audio stream...")
+                buildMediaItem(resolveUri, null)
+            }
+
+            val p = player ?: return@runOnMain
+            val fadeIn = com.music.spotui.data.preferences.isFadeInOnPlay(appContext)
+            val startPosMs = if (song == restoreQuery && restorePositionMs > 0L) {
+                restorePositionMs
+            } else {
+                androidx.media3.common.C.TIME_UNSET
+            }
+            restoreQuery = null
+
+            p.setMediaItem(initialItem, startPosMs)
+            p.prepare()
+            com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(
+                appContext, currentDspProcessor, currentSpatialProcessor
+            )
+            com.music.spotui.audio.AudioEffectController.attach(appContext, p.audioSessionId)
+            p.volume = if (fadeIn && playWhenResolved) 0.15f else 1f
+            p.playWhenReady = playWhenResolved
+            com.music.spotui.ui.notification.PlaybackService.ensureStarted(appContext)
+            com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(appContext)
+
+            if (fadeIn && playWhenResolved) {
+                scope.launch(Dispatchers.Main) {
+                    val steps = 8
+                    for (i in 1..steps) {
+                        delay(20L)
+                        if (player === p && !isCrossfading) {
+                            p.volume = 0.15f + (0.85f * (i.toFloat() / steps))
                         }
                     }
                 }
-                startPositionWatch()
-                preResolveAndQueueNextTrack(appContext)
-            } catch (e: Exception) {
-                isResolvingTrack = false
-                Log.e(TAG, "playSong failed for query: $song", e)
-                lastPlaybackError = e.message ?: "Playback failed"
-                boundState?.updateResolveError(e.message ?: "Playback failed")
-                updateResolveStatus(false)
-                com.music.spotui.ui.notification.PlaybackService.refreshNotification(appContext)
-            } finally {
-                isResolvingTrack = false
-                releaseResolveWakeLocks(wakeLock, wifiLock)
             }
+            startPositionWatch()
+            preResolveAndQueueNextTrack(appContext)
         }
     }
 
@@ -634,19 +665,25 @@ object SongPlayer {
     }
 
     /** MIME hint for a resolved stream: DASH manifest, single-file FLAC, MP3, or none. */
-    private fun streamMimeType(streamUrl: String): String? {
+    internal fun streamMimeType(
+        streamUrl: String,
+        source: String = currentSource,
+        quality: String = currentQuality,
+    ): String? {
         val bare = streamUrl.substringBefore('?').lowercase()
+        val isGoogleVideo = bare.contains("googlevideo.com") || bare.contains("youtube.com")
         return when {
             streamUrl.startsWith("data:application/dash+xml") ||
                 bare.endsWith(".mpd") || streamUrl.contains("manifest.tidal.com") || streamUrl.contains("/manifests/") ->
                 androidx.media3.common.MimeTypes.APPLICATION_MPD
             streamUrl.startsWith("deezer://") ->
-                if (currentQuality.contains("FLAC", ignoreCase = true)) {
+                if (quality.contains("FLAC", ignoreCase = true) || streamUrl.contains("quality=9")) {
                     androidx.media3.common.MimeTypes.AUDIO_FLAC
                 } else {
                     androidx.media3.common.MimeTypes.AUDIO_MPEG
                 }
-            bare.endsWith(".flac") || (currentSource.startsWith("Lossless") && currentQuality.contains("FLAC", ignoreCase = true)) ->
+            bare.endsWith(".flac") -> androidx.media3.common.MimeTypes.AUDIO_FLAC
+            !isGoogleVideo && source.startsWith("Lossless") && quality.contains("FLAC", ignoreCase = true) ->
                 androidx.media3.common.MimeTypes.AUDIO_FLAC
             else -> null
         }
@@ -702,10 +739,13 @@ object SongPlayer {
                         } else {
                             null
                         }
+                        val nextSource = sourceCache[nextSong.url] ?: ""
+                        val nextQuality = qualityCache[nextSong.url] ?: ""
+                        val nextMime = streamMimeType(sanitizedUrl, source = nextSource, quality = nextQuality)
                         if (p.currentMediaItemIndex >= p.mediaItemCount - 1) {
                             val nextItem = buildMediaItemForTrack(
                                 streamUrl = sanitizedUrl,
-                                mimeType = streamMimeType(sanitizedUrl),
+                                mimeType = nextMime,
                                 title = nextSong.title,
                                 artist = nextSong.singer,
                                 coverUri = nextSong.coverUri,
@@ -718,7 +758,7 @@ object SongPlayer {
                         } else if (existingNextId != nextMediaId) {
                             val nextItem = buildMediaItemForTrack(
                                 streamUrl = sanitizedUrl,
-                                mimeType = streamMimeType(sanitizedUrl),
+                                mimeType = nextMime,
                                 title = nextSong.title,
                                 artist = nextSong.singer,
                                 coverUri = nextSong.coverUri,
@@ -859,6 +899,103 @@ object SongPlayer {
             upstream
         }
         return com.music.spotui.deezer.DeezerAwareDataSourceFactory(cachedOrUpstream)
+    }
+
+    /**
+     * Wraps [cacheDataSourceFactory] in Media3's [androidx.media3.datasource.ResolvingDataSource.Factory]
+     * so synthetic `spotui://resolve?q=...` MediaItems resolve lazily on ExoPlayer's background loader
+     * thread while keeping the active timeline non-empty and state at STATE_BUFFERING on frame 0.
+     */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private fun resolvingDataSourceFactory(context: Context): androidx.media3.datasource.DataSource.Factory {
+        val appContext = context.applicationContext
+        val upstreamFactory = cacheDataSourceFactory(appContext)
+        return androidx.media3.datasource.ResolvingDataSource.Factory(
+            upstreamFactory,
+            androidx.media3.datasource.ResolvingDataSource.Resolver { dataSpec ->
+                val uri = dataSpec.uri
+                if (uri.scheme != "spotui" || uri.host != "resolve") {
+                    return@Resolver dataSpec
+                }
+                val query = uri.getQueryParameter("q") ?: currentRequest
+                if (query.isBlank()) {
+                    throw java.io.IOException("Missing stream resolve query")
+                }
+                val (wakeLock, wifiLock) = acquireResolveWakeLocks(appContext)
+                try {
+                    val isCurrent = currentRequest == query
+                    val rawUrl = kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                        resolveStreamUrl(query, appContext, forPlayback = isCurrent)
+                    } ?: throw java.io.IOException("No stream found for $query").also {
+                        if (currentRequest == query) {
+                            isResolvingTrack = false
+                            lastPlaybackError = "No stream found"
+                            com.music.spotui.util.DevConsoleManager.logError("SongPlayer", "No stream found for request: $query")
+                            mainHandler.post {
+                                android.widget.Toast.makeText(
+                                    appContext,
+                                    "No stream found",
+                                    android.widget.Toast.LENGTH_SHORT,
+                                ).show()
+                                if (boundState?.resolveError?.value == null) {
+                                    boundState?.updateResolveError("No stream found")
+                                }
+                                updateResolveStatus(false)
+                                com.music.spotui.ui.notification.PlaybackService.refreshNotification(appContext)
+                            }
+                        }
+                    }
+
+                    val streamUrl = com.music.spotui.util.StreamSanitizer.sanitizeStreamUrl(rawUrl)
+                    val resolvedSrc = sourceCache[query] ?: if (currentRequest == query) currentSource else ""
+                    val resolvedQual = qualityCache[query] ?: if (currentRequest == query) currentQuality else ""
+                    val mimeType = streamMimeType(streamUrl, source = resolvedSrc, quality = resolvedQual)
+                    if (currentRequest == query) {
+                        loadedQuery = query
+                        isResolvingTrack = false
+                        com.music.spotui.util.DevConsoleManager.logInfo("SongPlayer", "Resolved & sanitized stream from $currentSource [$currentQuality]")
+                        com.music.spotui.util.DevConsoleManager.updateDiagnostics {
+                            copy(
+                                activeSource = currentSource,
+                                currentQuality = currentQuality,
+                                isBuffering = true,
+                            )
+                        }
+                        mainHandler.post {
+                            updateResolveStatus(false)
+                            com.music.spotui.ui.notification.PlaybackService.refreshNotification(appContext)
+                        }
+                    }
+
+                    if (mimeType == androidx.media3.common.MimeTypes.APPLICATION_MPD) {
+                        streamCache[query] = streamUrl
+                        mainHandler.post {
+                            val p = player
+                            if (p != null && currentRequest == query) {
+                                val idx = p.currentMediaItemIndex
+                                val item = if (idx in 0 until p.mediaItemCount) p.getMediaItemAt(idx) else null
+                                if (item?.localConfiguration?.uri?.scheme == "spotui") {
+                                    val dashItem = buildMediaItem(streamUrl, androidx.media3.common.MimeTypes.APPLICATION_MPD)
+                                    val pos = p.currentPosition.coerceAtLeast(0L)
+                                    p.replaceMediaItem(idx, dashItem)
+                                    if (pos > 0L) p.seekTo(pos)
+                                    p.prepare()
+                                    p.playWhenReady = playWhenResolved
+                                }
+                            }
+                        }
+                        throw DashRedirectException(streamUrl)
+                    }
+
+                    dataSpec.buildUpon()
+                        .setUri(android.net.Uri.parse(streamUrl))
+                        .setKey(null)
+                        .build()
+                } finally {
+                    releaseResolveWakeLocks(wakeLock, wifiLock)
+                }
+            },
+        )
     }
 
     /** Pre-cache the first [PRELOAD_BYTES] of [url] into the media cache (http(s) only). */
@@ -1101,10 +1238,10 @@ object SongPlayer {
                         boundState?.updateResolveDetailNote(note)
                         updateResolveStatus(false)
                     }
+                    sourceCache[song] = labelSource
+                    qualityCache[song] = flacQuality
                     if (!flacResult.track.url.startsWith("deezer://")) {
                         streamCache[song] = flacResult.track.url
-                        sourceCache[song] = labelSource
-                        qualityCache[song] = flacQuality
                     }
                     ytDeferred?.cancelAndJoin()
                     return flacResult.track.url
@@ -2172,7 +2309,7 @@ object SongPlayer {
         val p = ExoPlayer.Builder(context)
             .setLoadControl(loadControl)
             .setMediaSourceFactory(
-                androidx.media3.exoplayer.source.DefaultMediaSourceFactory(cacheDataSourceFactory(context)),
+                androidx.media3.exoplayer.source.DefaultMediaSourceFactory(resolvingDataSourceFactory(context)),
             )
             .setRenderersFactory(renderers)
             .setAudioAttributes(buildAudioAttributes(), effectiveFocus)
@@ -2504,6 +2641,9 @@ object SongPlayer {
     fun release() {
         positionWatchJob?.cancel()
         cancelCrossfade()
+        isResolvingTrack = false
+        playWhenResolved = true
+        updateResolveStatus(false)
         com.music.spotui.audio.AudioEffectController.release()
         player?.release()
         player = null
@@ -2723,7 +2863,12 @@ object SongPlayer {
                     secondaryDspProcessor = pipeline.dsp
                     secondaryPlayerFilter = pipeline.filter
                     secondarySpatialProcessor = pipeline.spatial
-                    sp.setMediaItem(buildMediaItem(sanitizedNext, streamMimeType(sanitizedNext)))
+                    val nextMime = streamMimeType(
+                        sanitizedNext,
+                        source = sourceCache[nextSong.url] ?: currentSource,
+                        quality = qualityCache[nextSong.url] ?: currentQuality,
+                    )
+                    sp.setMediaItem(buildMediaItem(sanitizedNext, nextMime))
                     sp.prepare()
                     sp.volume = 0f
                     sp.playWhenReady = true

@@ -65,6 +65,8 @@ class ServiceAndApiTest {
         val session = service.sessions.first()
         assertNotNull(session)
         assertNotNull(session.player)
+        assertEquals(service, com.music.spotui.ui.notification.ServiceSessionHolder.activeService())
+        assertEquals(session, com.music.spotui.ui.notification.ServiceSessionHolder.session)
 
         // Verify onBind delegates MediaSessionService first and handles local bind action.
         val mediaSessionBindIntent = android.content.Intent(
@@ -75,6 +77,182 @@ class ServiceAndApiTest {
         assertTrue(service.onBind(localBindIntent) is PlaybackService.LocalBinder)
 
         controller.destroy()
+        assertEquals(null, com.music.spotui.ui.notification.ServiceSessionHolder.activeService())
+    }
+
+    @Test
+    fun playbackService_immediateForegroundPromotionAndDismissHandling() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val ensureIntent = android.content.Intent(context, PlaybackService::class.java).apply {
+            action = PlaybackService.ACTION_ENSURE_FOREGROUND
+        }
+        val controller = Robolectric.buildService(PlaybackService::class.java, ensureIntent)
+        val service = controller.create().startCommand(0, 1).get()
+
+        assertTrue(service.hasPromotedForeground)
+        val shadowService = org.robolectric.Shadows.shadowOf(service)
+        assertEquals(PlaybackService.NOTIFICATION_ID, shadowService.lastForegroundNotificationId)
+        assertNotNull(shadowService.lastForegroundNotification)
+
+        val dismissIntent = android.content.Intent(context, PlaybackService::class.java).apply {
+            action = PlaybackService.ACTION_MEDIA_NOTIFICATION_DISMISSED
+        }
+        service.onStartCommand(dismissIntent, 0, 2)
+        assertFalse(service.hasPromotedForeground)
+        controller.destroy()
+    }
+
+    @Test
+    fun mediaNotificationProvider_attachesDismissPendingIntent() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val provider = com.music.spotui.ui.notification.SpotuiMediaNotificationProvider(context)
+        val raw = android.app.Notification.Builder(context, PlaybackService.CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_spotui_notification)
+            .setContentTitle("Test Track")
+            .build()
+        val mediaNotification = androidx.media3.session.MediaNotification(PlaybackService.NOTIFICATION_ID, raw)
+        val decorated = provider.decorate(mediaNotification)
+        assertNotNull(decorated.notification.deleteIntent)
+        val shadowPending = org.robolectric.Shadows.shadowOf(decorated.notification.deleteIntent)
+        assertEquals(
+            PlaybackService.ACTION_MEDIA_NOTIFICATION_DISMISSED,
+            shadowPending.savedIntent.action,
+        )
+        assertEquals(
+            PlaybackService::class.java.name,
+            shadowPending.savedIntent.component?.className,
+        )
+    }
+
+    @Test
+    fun songPlayer_queuesImmediateMediaItemWithMetadataOnFrameZero() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prevYt = com.music.spotui.di.SongPlayer.youtubeEnabled
+        val prevLossless = com.music.spotui.di.SongPlayer.losslessStreaming
+        val prevWeb = com.music.spotui.di.SongPlayer.webPlayerEnabled
+        try {
+            com.music.spotui.di.SongPlayer.youtubeEnabled = false
+            com.music.spotui.di.SongPlayer.losslessStreaming = false
+            com.music.spotui.di.SongPlayer.webPlayerEnabled = false
+
+            val songState = com.music.spotui.di.CurrentSongState(context)
+            com.music.spotui.di.SongPlayer.bindState(songState)
+            com.music.spotui.di.SongPlayer.setNowPlayingMeta(
+                title = "Test Song",
+                artist = "Test Artist",
+                coverUri = "",
+                album = "Test Album",
+                durationMs = 180_000L,
+            )
+            com.music.spotui.di.SongPlayer.playSong("spotify:track:test123|Test Song Test Artist", context, "song/42")
+            org.robolectric.shadows.ShadowLooper.idleMainLooper()
+
+            val p = com.music.spotui.di.SongPlayer.exoPlayer
+            assertNotNull(p)
+            assertTrue(p!!.mediaItemCount > 0)
+            assertFalse(p.currentTimeline.isEmpty)
+            assertEquals("Test Song", p.currentMediaItem?.mediaMetadata?.title?.toString())
+            assertEquals("Test Artist", p.currentMediaItem?.mediaMetadata?.artist?.toString())
+            assertTrue(p.playWhenReady)
+            assertTrue(com.music.spotui.ui.notification.ServiceSessionHolder.isResumable(p))
+        } finally {
+            com.music.spotui.di.SongPlayer.release()
+            com.music.spotui.di.SongPlayer.youtubeEnabled = prevYt
+            com.music.spotui.di.SongPlayer.losslessStreaming = prevLossless
+            com.music.spotui.di.SongPlayer.webPlayerEnabled = prevWeb
+        }
+    }
+
+    @Test
+    fun songPlayer_streamMimeType_isolatesTrackSourcesAcrossTransitions() {
+        val ytUrl = "https://rr3---sn-ab5l6nzl.googlevideo.com/videoplayback?id=123"
+        // Even if global/stale state still says Lossless FLAC from track N, YouTube track N+1 must NOT get AUDIO_FLAC.
+        assertEquals(
+            null,
+            com.music.spotui.di.SongPlayer.streamMimeType(
+                ytUrl,
+                source = "Lossless • Tidal",
+                quality = "FLAC 16-bit",
+            ),
+        )
+        assertEquals(
+            androidx.media3.common.MimeTypes.AUDIO_FLAC,
+            com.music.spotui.di.SongPlayer.streamMimeType(
+                "https://cdn.example.com/stream?token=abc",
+                source = "Lossless • Qobuz",
+                quality = "FLAC 24-bit",
+            ),
+        )
+        assertEquals(
+            androidx.media3.common.MimeTypes.APPLICATION_MPD,
+            com.music.spotui.di.SongPlayer.streamMimeType(
+                "https://manifest.tidal.com/manifests/track123",
+                source = "Lossless • Tidal",
+                quality = "FLAC 16-bit",
+            ),
+        )
+        assertEquals(
+            androidx.media3.common.MimeTypes.AUDIO_FLAC,
+            com.music.spotui.di.SongPlayer.streamMimeType(
+                "deezer://track/1?quality=9",
+                source = "Lossless • Deezer",
+                quality = "FLAC 16-bit",
+            ),
+        )
+        assertEquals(
+            androidx.media3.common.MimeTypes.AUDIO_MPEG,
+            com.music.spotui.di.SongPlayer.streamMimeType(
+                "deezer://track/1?quality=3",
+                source = "Deezer Direct",
+                quality = "MP3 320 kbps",
+            ),
+        )
+    }
+
+    @Test
+    fun widgetKeyRelay_mapsMediaKeyCodesToCommands() {
+        val relay = com.music.spotui.widget.WidgetKeyRelay()
+        assertEquals(
+            com.music.spotui.playback.MediaCommand.Next,
+            relay.mapKeyCodeToCommand(android.view.KeyEvent.KEYCODE_MEDIA_NEXT),
+        )
+        assertEquals(
+            com.music.spotui.playback.MediaCommand.Previous,
+            relay.mapKeyCodeToCommand(android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS),
+        )
+        assertEquals(
+            com.music.spotui.playback.MediaCommand.PlayPause,
+            relay.mapKeyCodeToCommand(android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE),
+        )
+        assertEquals(
+            com.music.spotui.playback.MediaCommand.Play,
+            relay.mapKeyCodeToCommand(android.view.KeyEvent.KEYCODE_MEDIA_PLAY),
+        )
+        assertEquals(
+            com.music.spotui.playback.MediaCommand.Pause,
+            relay.mapKeyCodeToCommand(android.view.KeyEvent.KEYCODE_MEDIA_PAUSE),
+        )
+    }
+
+    @Test
+    fun systemHealthChecker_enforcesTenSecondCooldown() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        com.music.spotui.util.SystemHealthChecker.resetCooldownForTest()
+        val t0 = 1_000_000L
+        val first = com.music.spotui.util.SystemHealthChecker.runFullScan(
+            context,
+            nowMs = t0,
+            skipNetworkProbesForTest = true,
+        )
+        assertEquals(18, first.checks.size)
+        assertTrue(com.music.spotui.util.SystemHealthChecker.remainingCooldownMs(t0 + 2_000L) > 0L)
+        val cached = com.music.spotui.util.SystemHealthChecker.runFullScan(
+            context,
+            nowMs = t0 + 2_000L,
+            skipNetworkProbesForTest = true,
+        )
+        assertEquals(first.timestampMs, cached.timestampMs)
+        assertEquals(0L, com.music.spotui.util.SystemHealthChecker.remainingCooldownMs(t0 + 11_000L))
     }
 
     @Test

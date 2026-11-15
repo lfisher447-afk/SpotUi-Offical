@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -96,6 +97,9 @@ class PlaybackService : MediaLibraryService() {
     private val searchCache = java.util.concurrent.ConcurrentHashMap<String, List<SongsModel>>()
     private var webPlayer: WebMediaPlayer? = null
     private var showingWeb = false
+    @Volatile
+    internal var hasPromotedForeground = false
+        private set
     // Retry a transient stream/player failure once before skipping. The cap prevents an
     // unrecoverable source from looping forever while preserving playback on short URL/network hiccups.
     private val retryCountByQuery = java.util.concurrent.ConcurrentHashMap<String, Int>()
@@ -105,6 +109,9 @@ class PlaybackService : MediaLibraryService() {
 
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_READY || playbackState == Player.STATE_ENDED) {
+                SongPlayer.onPlayerStateSettled(playbackState)
+            }
             currentSongState.updateBufferingState(playbackState == Player.STATE_BUFFERING || SongPlayer.isResolvingTrack)
             if (playbackState == Player.STATE_ENDED) {
                 if (SongPlayer.isCrossfadeActive() || SongPlayer.isResolvingTrack) {
@@ -221,6 +228,12 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            val isDashRedirect = generateSequence<Throwable>(error) { it.cause }
+                .any { it is SongPlayer.DashRedirectException }
+            if (isDashRedirect) {
+                android.util.Log.d("PlaybackService", "Ignoring synthetic DashRedirectException during MPD handoff")
+                return
+            }
             android.util.Log.e("PlaybackService", "Player error during playback: ${error.message}", error)
             val queue = currentSongState.queue.value
             val curId = currentSongState.songId.value
@@ -333,50 +346,16 @@ class PlaybackService : MediaLibraryService() {
             }
 
             com.music.spotui.engine.MediaNotificationAdapter.ensureChannel(this)
+            setListener(object : Listener {
+                override fun onForegroundServiceStartNotAllowedException() {
+                    AppDiagnostics.warning(
+                        "PlaybackService",
+                        "OS blocked foreground promotion from background; session stays bound",
+                    )
+                }
+            })
             setShowNotificationForIdlePlayer(SHOW_NOTIFICATION_FOR_IDLE_PLAYER_AFTER_STOP_OR_ERROR)
-
-            // Order notification buttons: [favorite | prev | play/pause | next | shuffle]
-            val notificationProvider = object : DefaultMediaNotificationProvider(
-                this,
-                DefaultMediaNotificationProvider.NotificationIdProvider { NOTIFICATION_ID },
-                CHANNEL_ID,
-                R.string.playback_notification_channel_name,
-            ) {
-                init {
-                    setSmallIcon(R.drawable.ic_spotui_notification)
-                }
-
-                override fun getMediaButtons(
-                    session: MediaSession,
-                    playerCommands: Player.Commands,
-                    customLayout: ImmutableList<CommandButton>,
-                    showPauseButton: Boolean
-                ): ImmutableList<CommandButton> {
-                    return runCatching {
-                        val base =
-                            super.getMediaButtons(session, playerCommands, customLayout, showPauseButton)
-                        val favoriteBtn = base.find { it.sessionCommand?.customAction == ACTION_FAVORITE }
-                        val shuffleBtn = base.find { it.sessionCommand?.customAction == ACTION_SHUFFLE }
-                        val transport = base.filterNotNull().filter {
-                            val act = it.sessionCommand?.customAction
-                            act != ACTION_FAVORITE &&
-                                act != ACTION_SHUFFLE &&
-                                act != ACTION_REPEAT &&
-                                act != ACTION_CLOSE &&
-                                act != "ACTION_NONE"
-                        }
-                        val builder = ImmutableList.builder<CommandButton>()
-                        favoriteBtn?.let { builder.add(it) }
-                        builder.addAll(transport)
-                        shuffleBtn?.let { builder.add(it) }
-                        builder.build()
-                    }.getOrElse {
-                        runCatching { super.getMediaButtons(session, playerCommands, customLayout, showPauseButton) }
-                            .getOrDefault(ImmutableList.of())
-                    }
-                }
-            }
-            setMediaNotificationProvider(notificationProvider)
+            setMediaNotificationProvider(SpotuiMediaNotificationProvider(this))
 
             // Let the player advance the in-app queue itself during a crossfade.
             SongPlayer.bindState(currentSongState)
@@ -399,6 +378,7 @@ class PlaybackService : MediaLibraryService() {
                 .build()
             mediaSession = session
             activeInstance = this
+            ServiceSessionHolder.attach(this, session)
             addSession(session)
             syncSessionPlayer()
             PlaybackSessionBus.onServiceCreated()
@@ -566,6 +546,7 @@ class PlaybackService : MediaLibraryService() {
 
         val meta = metadataBuilder.build()
         latestServiceMetadata = meta
+        ServiceSessionHolder.updateMetadata(meta)
 
         // Propagate metadata onto the active ExoPlayer MediaItem only when a real
         // stream URI (localConfiguration != null) is already loaded so Media3 fires
@@ -591,7 +572,10 @@ class PlaybackService : MediaLibraryService() {
         if (showingWeb) {
             webPlayer?.refresh()
         }
-        runCatching { triggerNotificationUpdate() }
+        val activePlayer = mediaSession?.player
+        if (showingWeb || (activePlayer != null && activePlayer.mediaItemCount > 0)) {
+            runCatching { triggerNotificationUpdate() }
+        }
     }
 
     /** Point the media session at whichever engine is currently producing audio. */
@@ -700,16 +684,17 @@ class PlaybackService : MediaLibraryService() {
         const val ACTION_ENSURE_FOREGROUND = "com.music.spotui.action.ENSURE_FOREGROUND"
         const val ACTION_REFRESH_NOTIFICATION = "com.music.spotui.action.REFRESH_NOTIFICATION"
         const val ACTION_LOCAL_BIND = "com.music.spotui.action.LOCAL_BIND"
+        const val ACTION_MEDIA_NOTIFICATION_DISMISSED = "com.music.spotui.action.MEDIA_NOTIFICATION_DISMISSED"
 
         private const val ROOT = "root"
         private const val NODE_LIKED = "liked"
         private const val NODE_DOWNLOADS = "downloads"
         private const val NODE_PLAYLISTS = "playlists"
         private const val NODE_ALBUMS = "albums"
-        private const val ACTION_FAVORITE = "ACTION_FAVORITE"
-        private const val ACTION_SHUFFLE = "ACTION_SHUFFLE"
-        private const val ACTION_REPEAT = "ACTION_REPEAT"
-        private const val ACTION_CLOSE = "ACTION_CLOSE"
+        internal const val ACTION_FAVORITE = "ACTION_FAVORITE"
+        internal const val ACTION_SHUFFLE = "ACTION_SHUFFLE"
+        internal const val ACTION_REPEAT = "ACTION_REPEAT"
+        internal const val ACTION_CLOSE = "ACTION_CLOSE"
         private const val IDLE_STOP_TIMEOUT_MS = 5 * 60_000L
 
         @Volatile
@@ -719,11 +704,15 @@ class PlaybackService : MediaLibraryService() {
 
         fun ensureStarted(context: Context) {
             val appContext = context.applicationContext
-            activeInstance?.let { service ->
+            val existing = activeInstance
+            if (existing != null) {
                 if (Looper.myLooper() == Looper.getMainLooper()) {
-                    service.syncSessionStateFromApp()
+                    existing.syncSessionStateFromApp()
                 } else {
-                    mainHandler.post { service.syncSessionStateFromApp() }
+                    mainHandler.post { existing.syncSessionStateFromApp() }
+                }
+                if (existing.hasPromotedForeground) {
+                    return
                 }
             }
             val intent = Intent(appContext, PlaybackService::class.java).apply {
@@ -886,12 +875,46 @@ class PlaybackService : MediaLibraryService() {
                 .add(SessionCommand(ACTION_REPEAT, Bundle.EMPTY))
                 .add(SessionCommand(ACTION_CLOSE, Bundle.EMPTY))
                 .build()
+            val playerCommands = baseResult.availablePlayerCommands.buildUpon()
+                .add(Player.COMMAND_SEEK_TO_NEXT)
+                .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+                .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                .build()
 
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(sessionCommands)
-                .setAvailablePlayerCommands(baseResult.availablePlayerCommands)
+                .setAvailablePlayerCommands(playerCommands)
                 .setCustomLayout(buildCustomLayout())
                 .build()
+        }
+
+        @Suppress("OVERRIDE_DEPRECATION")
+        override fun onPlayerCommandRequest(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            playerCommand: Int,
+        ): Int {
+            when (playerCommand) {
+                Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> {
+                    if (currentSongState.queue.value.isNotEmpty() && (SongPlayer.exoPlayer?.mediaItemCount ?: 0) > 0) {
+                        SongPlayer.next(applicationContext)
+                    } else {
+                        resumeFromPersistence(skipFirst = true)
+                    }
+                    scheduleIdleStopCheck()
+                    return SessionResult.RESULT_INFO_SKIPPED
+                }
+                Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> {
+                    val posMs = runCatching { session.player.currentPosition }.getOrDefault(0L)
+                    if (posMs <= 3_500L && currentSongState.queue.value.size > 1) {
+                        SongPlayer.previous(applicationContext)
+                        scheduleIdleStopCheck()
+                        return SessionResult.RESULT_INFO_SKIPPED
+                    }
+                }
+            }
+            return super.onPlayerCommandRequest(session, controller, playerCommand)
         }
 
 
@@ -1237,8 +1260,75 @@ class PlaybackService : MediaLibraryService() {
         return f
     }
 
+    private fun promoteForegroundNowIfNeeded() {
+        com.music.spotui.engine.MediaNotificationAdapter.ensureChannel(this)
+        val existingLiveNotification = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            runCatching {
+                val nm = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+                nm.activeNotifications.firstOrNull { it.id == NOTIFICATION_ID }?.notification
+            }.getOrNull()
+        } else {
+            null
+        }
+        val notification = existingLiveNotification ?: run {
+            val snap = SongPlayer.nowPlayingMetaSnapshot()
+            val title = snap.title.ifBlank { currentSongState.title.value }.ifBlank { "SpotUI" }
+            val artist = snap.artist.ifBlank { currentSongState.singer.value }
+            val isActive = SongPlayer.isPlaying() || currentSongState.playingState.value || SongPlayer.isResolvingTrack
+            com.music.spotui.engine.MediaNotificationAdapter.buildNotification(
+                context = this,
+                title = title,
+                artist = artist,
+                coverBitmap = null,
+                isPlaying = isActive,
+            )
+        }
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ServiceCompat.startForeground(
+                    this,
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+            hasPromotedForeground = true
+        }.onFailure { err ->
+            AppDiagnostics.warning("PlaybackService", "Immediate foreground promotion failed", err)
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
+
+        if (action == ACTION_MEDIA_NOTIFICATION_DISMISSED) {
+            val shouldKeepAlive = SongPlayer.isPlaying() ||
+                SpotifyWebPlayer.isPlaying ||
+                SongPlayer.isResolvingTrack
+            if (!shouldKeepAlive) {
+                hasPromotedForeground = false
+                idleStopJob?.cancel()
+                SongPlayer.pause()
+                widgetDebouncer?.reset()
+                widgetSink?.serviceStopped()
+                PlaybackSessionBus.onServiceStopping()
+                runCatching { ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE) }
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            promoteForegroundNowIfNeeded()
+            syncSessionStateFromApp()
+            super.onStartCommand(intent, flags, startId)
+            return START_STICKY
+        }
+
+        // Satisfy Android 12+/17 startForegroundService() within 5s for every non-dismiss launch
+        // (Media3 DefaultActionFactory PendingIntents, WidgetKeyRelay, or ACTION_ENSURE_FOREGROUND).
+        // When already in foreground with a live notification, promoteForegroundNowIfNeeded reuses it
+        // seamlessly with zero visual flicker.
+        promoteForegroundNowIfNeeded()
 
         if (action == Intent.ACTION_MEDIA_BUTTON) {
             if (WidgetMediaIntents.isSkipFirst(intent)) {
@@ -1290,10 +1380,10 @@ class PlaybackService : MediaLibraryService() {
         // Keep playing seamlessly in background if playback is active or resolving a track.
         // Stop cleanly if playback is paused/idle so the notification isn't left orphaned.
         val p = mediaSession?.player
-        val keepAlive = p?.playWhenReady == true ||
-            SongPlayer.isResolvingTrack ||
-            SpotifyWebPlayer.isPlaying
+        val keepAlive = ServiceSessionHolder.isResumable(p) &&
+            (p?.playWhenReady == true || SongPlayer.isResolvingTrack || SpotifyWebPlayer.isPlaying)
         if (!keepAlive) {
+            hasPromotedForeground = false
             widgetDebouncer?.reset()
             widgetSink?.serviceStopped()
             PlaybackSessionBus.onServiceStopping()
@@ -1305,6 +1395,8 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onDestroy() {
         if (activeInstance === this) activeInstance = null
+        hasPromotedForeground = false
+        ServiceSessionHolder.detach(this)
         idleStopJob?.cancel()
         idleStopJob = null
         MediaCommandDispatcher.stop()
