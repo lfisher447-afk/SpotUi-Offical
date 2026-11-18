@@ -296,6 +296,7 @@ object SystemHealthChecker {
     }
 
     private fun checkSoftwareDsp(context: Context): HealthCheckResult {
+        val route = AudioEffectController.refreshOutputRoute(context)
         val caps = AudioEffectController.capabilityReport()
         val eqOn = isEqEnabled(context)
         val spOn = isEqSpatialEnabled(context)
@@ -305,12 +306,12 @@ object SystemHealthChecker {
                 title = "Software 7-Band DSP & Spatializer",
                 category = "Audio FX",
                 severity = CheckSeverity.OK,
-                summary = "Attached (EQ=${if (eqOn) "ON" else "OFF"}, 3D=${if (spOn) "ON" else "OFF"})",
-                detail = "SpotuiDspAudioProcessor & SpatialWideningAudioProcessor are active in-process.",
+                summary = "Active on ${route.route.label} (EQ=${if (eqOn) "ON" else "OFF"}, 3D=${if (spOn) "ON" else "OFF"})",
+                detail = "SpotuiDspAudioProcessor & SpatialWideningAudioProcessor active on ${route.deviceName} (BT-Safe Bypass=${caps.bluetoothSafeBypassActive}).",
                 fixLabel = "Resync DSP",
                 autoFix = { ctx ->
                     SongPlayer.refreshAudioEffects(ctx)
-                    "Synced all 7 EQ bands, preamp, limiter, and spatial profile."
+                    "Synced all 7 EQ bands, preamp, limiter, and Bluetooth-safe 3D spatial profile."
                 },
             )
         } else {
@@ -319,7 +320,7 @@ object SystemHealthChecker {
                 title = "Software 7-Band DSP & Spatializer",
                 category = "Audio FX",
                 severity = CheckSeverity.WARNING,
-                summary = "Awaiting first ExoPlayer instance",
+                summary = "Awaiting first ExoPlayer instance (${route.route.label})",
                 detail = "DSP processors bind automatically when playback initializes or after crossfade.",
                 fixLabel = "Sync Processors",
                 autoFix = { ctx ->
@@ -332,6 +333,7 @@ object SystemHealthChecker {
 
     private fun checkHardwareAudioFx(): HealthCheckResult {
         val caps = AudioEffectController.capabilityReport()
+        val route = AudioEffectController.routeState.value
         return when {
             caps.sessionId <= 0 -> HealthCheckResult(
                 id = "hw_audiofx",
@@ -339,7 +341,15 @@ object SystemHealthChecker {
                 category = "Audio FX",
                 severity = CheckSeverity.WARNING,
                 summary = "No active audio session yet",
-                detail = "Play any track to probe device Equalizer/Virtualizer/BassBoost/PresetReverb.",
+                detail = "Play any track to probe device AudioFX handles.",
+            )
+            route.isBluetooth || caps.bluetoothSafeBypassActive -> HealthCheckResult(
+                id = "hw_audiofx",
+                title = "Hardware AudioFX HAL",
+                category = "Audio FX",
+                severity = CheckSeverity.OK,
+                summary = "BT/SW Safe Mode · ${route.deviceName}",
+                detail = "HW Virtualizer & PresetReverb are intentionally bypassed so Bluetooth A2DP/BLE audio never mutes. In-process 32-bit PCM EQ + 3D handles all FX.",
             )
             caps.equalizerAvailable || caps.hardwareSpatialAvailable || caps.bassBoostAvailable -> HealthCheckResult(
                 id = "hw_audiofx",
@@ -355,7 +365,7 @@ object SystemHealthChecker {
                 category = "Audio FX",
                 severity = CheckSeverity.WARNING,
                 summary = "HW effects blocked on current output; SW DSP active",
-                detail = "Device OEM/Bluetooth HAL refused AudioEffect handles. Spotui software Biquad EQ + 3D handles processing instead.",
+                detail = "Device OEM HAL refused AudioEffect handles. Spotui software Biquad EQ + 3D handles processing instead.",
             )
         }
     }

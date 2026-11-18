@@ -62,9 +62,11 @@ import com.music.spotui.data.entity.HomeFeedModel
 import com.music.spotui.data.entity.HomeItem
 import com.music.spotui.data.entity.HomeSection
 import com.music.spotui.ui.components.Loader
+import com.music.spotui.ui.components.ThanksgivingCountdownBanner
 import com.music.spotui.ui.navigation.Routes
 import com.music.spotui.ui.navigation.albumRoute
 import com.music.spotui.ui.navigation.artistRoute
+import com.music.spotui.ui.navigation.categoryRoute
 import com.music.spotui.ui.navigation.playlistRoute
 import com.music.spotui.ui.theme.AppBackground
 import com.music.spotui.ui.theme.AppPalette
@@ -203,6 +205,15 @@ fun HomeFeedContent(navController: NavController, feed: HomeFeedModel) {
     ) {
         item {
             HomeHeaderRow(navController)
+        }
+        item {
+            ThanksgivingCountdownBanner(
+                onAutumnMixClick = {
+                    navController.navigate(
+                        categoryRoute("Thanksgiving Autumn Acoustic", "Thanksgiving & Autumn Vibes"),
+                    )
+                },
+            )
         }
         gridSection?.let { section ->
             item {
@@ -427,6 +438,13 @@ fun SumUpHomeScreen(navController : NavController, albums: List<AlbumsModel>, ar
     ){
 
         GreetingSection()
+        ThanksgivingCountdownBanner(
+            onAutumnMixClick = {
+                navController.navigate(
+                    categoryRoute("Thanksgiving Autumn Acoustic", "Thanksgiving & Autumn Vibes"),
+                )
+            },
+        )
         //ChipSection(chip = listOf(" All ", "Music", "Podcasts"))
 
         if (albums.isNotEmpty()) {

@@ -1797,6 +1797,9 @@ object SongPlayer {
         }
         com.music.spotui.data.preferences.addDownload(appContext, song, outFile.absolutePath)
         downloadCoverImage(song.coverUri, java.io.File(dir, "${song.id}_cover.jpg"))
+        if (com.music.spotui.data.preferences.isAutoExportToMusicEnabled(appContext)) {
+            com.music.spotui.data.preferences.exportDownload(appContext, song)
+        }
         // Eagerly cache lyrics so offline playback doesn't need a network round-trip.
         LyricsApi.removeFromCache(song.title, song.singer)
         val lyricsOk = runCatching {
@@ -1875,6 +1878,9 @@ object SongPlayer {
                         if (dzOk && tmpFile.renameTo(outFile)) {
                             com.music.spotui.data.preferences.addDownload(appContext, song, outFile.absolutePath)
                             downloadCoverImage(song.coverUri, java.io.File(dir, "${song.id}_cover.jpg"))
+                            if (com.music.spotui.data.preferences.isAutoExportToMusicEnabled(appContext)) {
+                                com.music.spotui.data.preferences.exportDownload(appContext, song)
+                            }
                             return true
                         }
                         runCatching { tmpFile.delete() }
@@ -1908,6 +1914,9 @@ object SongPlayer {
         }
         com.music.spotui.data.preferences.addDownload(appContext, song, outFile.absolutePath)
         downloadCoverImage(song.coverUri, java.io.File(dir, "${song.id}_cover.jpg"))
+        if (com.music.spotui.data.preferences.isAutoExportToMusicEnabled(appContext)) {
+            com.music.spotui.data.preferences.exportDownload(appContext, song)
+        }
         // Eagerly cache lyrics so offline playback doesn't need a network round-trip.
         LyricsApi.removeFromCache(song.title, song.singer)
         val lyricsOk = runCatching {
@@ -2457,9 +2466,35 @@ object SongPlayer {
         return PlayerPipeline(p, dsp, filter, spatial)
     }
 
+    private fun shouldBypassOffloadForSoftwareDsp(context: Context): Boolean {
+        if (com.music.spotui.data.preferences.isEqSpatialEnabled(context)) return true
+        if (com.music.spotui.data.preferences.isHeadphoneCrossfeedEnabled(context)) return true
+        if (com.music.spotui.data.preferences.getBassBoostStrength(context) > 0) return true
+        if (com.music.spotui.data.preferences.isAudioNormalizerEnabled(context)) return true
+        if (com.music.spotui.ui.theme.ThemePreferences.monoAudio(context)) return true
+        if (kotlin.math.abs(com.music.spotui.ui.theme.ThemePreferences.audioBalance(context)) > 0.01f) return true
+        if (com.music.spotui.data.preferences.getCrossfadeMs(context) > 0) return true
+        if (com.music.spotui.data.preferences.isEqEnabled(context)) {
+            if (kotlin.math.abs(com.music.spotui.data.preferences.getEqPreampDb(context)) > 0.1f) return true
+            val bands = floatArrayOf(
+                com.music.spotui.data.preferences.getEqSubBass(context),
+                com.music.spotui.data.preferences.getEqBass(context),
+                com.music.spotui.data.preferences.getEqLowMid(context),
+                com.music.spotui.data.preferences.getEqVocal(context),
+                com.music.spotui.data.preferences.getEqHighMid(context),
+                com.music.spotui.data.preferences.getEqTreble(context),
+                com.music.spotui.data.preferences.getEqBrilliance(context),
+            )
+            if (bands.any { kotlin.math.abs(it - 50f) > 0.5f }) return true
+        }
+        return false
+    }
+
     private fun applyAudioOffloadPolicy(context: Context, exo: ExoPlayer) {
-        val offloadEnabled = com.music.spotui.data.preferences.isAudioOffloadEnabled(context)
-        val mode = if (offloadEnabled) {
+        val userWantsOffload = com.music.spotui.data.preferences.isAudioOffloadEnabled(context)
+        val dspActive = shouldBypassOffloadForSoftwareDsp(context)
+        val allowOffload = userWantsOffload && !dspActive
+        val mode = if (allowOffload) {
             androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED
         } else {
             androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED
@@ -2490,7 +2525,7 @@ object SongPlayer {
         )
         processor.preampDb = com.music.spotui.data.preferences.getEqPreampDb(context)
         val bb = com.music.spotui.data.preferences.getBassBoostStrength(context)
-        processor.bassBoostDb = (bb / 1000f) * 6.0f
+        processor.bassBoostDb = (bb / 1000f) * 8.0f
         processor.limiterEnabled = com.music.spotui.data.preferences.isLimiterEnabled(context)
         processor.normalizerEnabled = com.music.spotui.data.preferences.isAudioNormalizerEnabled(context)
         processor.normalizerBoostDb = (com.music.spotui.data.preferences.getAudioNormalizerGainMb(context) / 100f).coerceIn(0f, 6f)
@@ -2506,6 +2541,7 @@ object SongPlayer {
         processor.monoMix = com.music.spotui.ui.theme.ThemePreferences.monoAudio(context)
         processor.balance = com.music.spotui.ui.theme.ThemePreferences.audioBalance(context)
         processor.headphoneCrossfeed = com.music.spotui.data.preferences.isHeadphoneCrossfeedEnabled(context)
+        processor.autoHeadphoneHrtf = com.music.spotui.audio.AudioEffectController.refreshOutputRoute(context).isPersonalListening
         processor.roomDelayMs = com.music.spotui.data.preferences.getSpatialRoomDelayMs(context)
     }
 
@@ -2518,6 +2554,9 @@ object SongPlayer {
             currentDspProcessor = pipeline.dsp
             currentPlayerFilter = pipeline.filter
             currentSpatialProcessor = pipeline.spatial
+            com.music.spotui.audio.AudioEffectController.onRouteChanged = { ctx ->
+                refreshAudioOffloadPolicy(ctx)
+            }
             p.addListener(object : androidx.media3.common.Player.Listener {
                 override fun onAudioSessionIdChanged(audioSessionId: Int) {
                     val ctx = appCtx ?: return
@@ -2548,6 +2587,8 @@ object SongPlayer {
         com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(appContext, currentDspProcessor, currentSpatialProcessor)
         com.music.spotui.audio.AudioEffectController.attach(appContext, player?.audioSessionId ?: 0)
         com.music.spotui.audio.AudioEffectController.applyPreferences(appContext)
+        player?.let { applyAudioOffloadPolicy(appContext, it) }
+        secondaryPlayer?.let { applyAudioOffloadPolicy(appContext, it) }
     }
 
     /** Applies updated AudioFocusMode without recreating the ExoPlayer instance. */

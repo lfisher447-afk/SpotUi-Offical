@@ -592,3 +592,12 @@ fun isBatteryPromptDismissed(c: Context): Boolean =
 fun setBatteryPromptDismissed(c: Context, dismissed: Boolean) =
     prefs(c).edit().putBoolean(KEY_BATTERY_PROMPT_DISMISSED, dismissed).apply()
 
+private const val KEY_AUTO_EXPORT_MUSIC = "download_auto_export_music"
+
+fun isAutoExportToMusicEnabled(c: Context): Boolean =
+    prefs(c).getBoolean(KEY_AUTO_EXPORT_MUSIC, false)
+
+fun setAutoExportToMusicEnabled(c: Context, enabled: Boolean) =
+    prefs(c).edit().putBoolean(KEY_AUTO_EXPORT_MUSIC, enabled).apply()
+
+

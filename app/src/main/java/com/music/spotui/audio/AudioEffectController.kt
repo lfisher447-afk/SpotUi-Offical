@@ -1,12 +1,17 @@
 package com.music.spotui.audio
 
 import android.content.Context
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.PresetReverb
 import android.media.audiofx.Virtualizer
+import android.os.Handler
+import android.os.Looper
 import com.music.spotui.data.preferences.SpatialProfile
 import com.music.spotui.data.preferences.getAudioNormalizerGainMb
 import com.music.spotui.data.preferences.getBassBoostStrength
@@ -28,16 +33,24 @@ import com.music.spotui.data.preferences.isHeadphoneCrossfeedEnabled
 import com.music.spotui.data.preferences.isLimiterEnabled
 import com.music.spotui.ui.theme.ThemePreferences
 import com.music.spotui.util.AppDiagnostics
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlin.math.ln
 import kotlin.math.roundToInt
 
 /**
  * Unified Hardware + Software Audio Effects Orchestrator for the active Media3 audio session.
  *
- * Syncs Android hardware effects (`Equalizer`, `Virtualizer`, `BassBoost`, `PresetReverb`,
- * `LoudnessEnhancer`) AND ExoPlayer's in-process software PCM DSP (`SpotuiDspAudioProcessor` +
- * `SpatialWideningAudioProcessor`) so EQ, Bass Boost, 3D Spatial, and Normalization always work
- * deterministically on speakers, wired headphones, USB DACs, and Bluetooth outputs.
+ * CRITICAL BLUETOOTH / ONE UI AUDIO SAFETY:
+ * Samsung One UI & Qualcomm/Exynos Bluetooth A2DP HALs frequently mute or stall playback when
+ * hardware `Virtualizer` or `PresetReverb` (auxiliary effect) is attached/enabled on a BT sink,
+ * or when hardware FX conflict with ExoPlayer's in-process 32-bit float PCM AudioProcessors.
+ *
+ * Whenever software Spatial (`SpatialWideningAudioProcessor`) or a Bluetooth output route is active,
+ * this controller cleanly disables hardware `Virtualizer`, `PresetReverb`, `Equalizer`, and
+ * `LoudnessEnhancer` (plus `BassBoost` on Bluetooth), guaranteeing uninterrupted, zero-dropout
+ * 3D soundstage and 7-band parametric EQ audio on every headset.
  */
 object AudioEffectController {
     private const val TAG = "AudioEffects"
@@ -47,6 +60,24 @@ object AudioEffectController {
     private const val ANCHOR_VOCAL_HZ = 1000.0
     private const val ANCHOR_HIGH_MID_HZ = 4000.0
     private const val ANCHOR_TREBLE_HZ = 14000.0
+
+    enum class AudioOutputRoute(val label: String) {
+        SPEAKER("Phone Speaker"),
+        WIRED_HEADSET("Wired Headphones"),
+        USB_AUDIO("USB Audio / DAC"),
+        BLUETOOTH("Bluetooth Headset"),
+        HEARING_AID("Hearing Aid"),
+    }
+
+    data class AudioRouteInfo(
+        val route: AudioOutputRoute = AudioOutputRoute.SPEAKER,
+        val deviceName: String = "Device Speaker",
+        val isBluetooth: Boolean = false,
+        val isHeadphone: Boolean = false,
+    ) {
+        val isPersonalListening: Boolean
+            get() = isBluetooth || isHeadphone || route == AudioOutputRoute.USB_AUDIO || route == AudioOutputRoute.HEARING_AID
+    }
 
     private val lock = Any()
     private var activeSessionId = 0
@@ -70,6 +101,11 @@ object AudioEffectController {
 
     @Volatile private var softwareDspRef: SpotuiDspAudioProcessor? = null
     @Volatile private var softwareSpatialRef: SpatialWideningAudioProcessor? = null
+    @Volatile private var deviceCallbackRegistered = false
+    @Volatile var onRouteChanged: ((Context) -> Unit)? = null
+
+    private val _routeState = MutableStateFlow(AudioRouteInfo())
+    val routeState: StateFlow<AudioRouteInfo> = _routeState.asStateFlow()
 
     data class CapabilityReport(
         val sessionId: Int,
@@ -83,6 +119,9 @@ object AudioEffectController {
         val equalizerBands: Int = 0,
         val minLevelMb: Int = 0,
         val maxLevelMb: Int = 0,
+        val activeRoute: AudioOutputRoute = AudioOutputRoute.SPEAKER,
+        val activeDeviceName: String = "Device Speaker",
+        val bluetoothSafeBypassActive: Boolean = false,
     )
 
     @Volatile
@@ -106,6 +145,122 @@ object AudioEffectController {
         cachedEqualizer?.centerFreqsHz?.clone() ?: intArrayOf()
     }
 
+    /** Detects current physical audio output route and keeps `routeState` fresh. */
+    fun refreshOutputRoute(context: Context): AudioRouteInfo {
+        val appCtx = context.applicationContext
+        registerDeviceCallbackIfNeeded(appCtx)
+        val info = detectOutputRoute(appCtx)
+        if (_routeState.value != info) {
+            _routeState.value = info
+            AppDiagnostics.info(TAG, "Audio route changed -> ${info.route.label} (${info.deviceName})")
+        }
+        return info
+    }
+
+    private fun registerDeviceCallbackIfNeeded(appCtx: Context) {
+        if (deviceCallbackRegistered) return
+        synchronized(this) {
+            if (deviceCallbackRegistered) return
+            val am = appCtx.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+            deviceCallbackRegistered = true
+            runCatching {
+                am.registerAudioDeviceCallback(
+                    object : AudioDeviceCallback() {
+                        override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
+                            handleDeviceChange(appCtx)
+                        }
+
+                        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
+                            handleDeviceChange(appCtx)
+                        }
+                    },
+                    Handler(Looper.getMainLooper()),
+                )
+            }.onFailure {
+                deviceCallbackRegistered = false
+            }
+        }
+    }
+
+    private fun handleDeviceChange(appCtx: Context) {
+        val prev = _routeState.value
+        val next = detectOutputRoute(appCtx)
+        _routeState.value = next
+        if (prev != next) {
+            AppDiagnostics.info(TAG, "AudioDeviceCallback -> ${next.route.label} (${next.deviceName})")
+            applyPreferences(appCtx)
+            onRouteChanged?.invoke(appCtx)
+        }
+    }
+
+    private fun detectOutputRoute(context: Context): AudioRouteInfo {
+        val am = runCatching { context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }.getOrNull()
+            ?: return AudioRouteInfo()
+        val devices = runCatching { am.getDevices(AudioManager.GET_DEVICES_OUTPUTS) }.getOrNull().orEmpty()
+        if (devices.isEmpty()) return AudioRouteInfo()
+
+        val bluetooth = devices.firstOrNull { d ->
+            d.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                d.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                d.type == AudioDeviceInfo.TYPE_BLE_SPEAKER ||
+                d.type == AudioDeviceInfo.TYPE_BLE_BROADCAST ||
+                d.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+        }
+        if (bluetooth != null) {
+            val name = bluetooth.productName?.toString()?.trim()?.takeIf { it.isNotBlank() } ?: "Bluetooth Audio"
+            return AudioRouteInfo(
+                route = AudioOutputRoute.BLUETOOTH,
+                deviceName = name,
+                isBluetooth = true,
+                isHeadphone = true,
+            )
+        }
+
+        val hearingAid = devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_HEARING_AID }
+        if (hearingAid != null) {
+            val name = hearingAid.productName?.toString()?.trim()?.takeIf { it.isNotBlank() } ?: "Hearing Aid"
+            return AudioRouteInfo(
+                route = AudioOutputRoute.HEARING_AID,
+                deviceName = name,
+                isBluetooth = true,
+                isHeadphone = true,
+            )
+        }
+
+        val usb = devices.firstOrNull { d ->
+            d.type == AudioDeviceInfo.TYPE_USB_HEADSET || d.type == AudioDeviceInfo.TYPE_USB_DEVICE
+        }
+        if (usb != null) {
+            val name = usb.productName?.toString()?.trim()?.takeIf { it.isNotBlank() } ?: "USB DAC"
+            return AudioRouteInfo(
+                route = AudioOutputRoute.USB_AUDIO,
+                deviceName = name,
+                isBluetooth = false,
+                isHeadphone = true,
+            )
+        }
+
+        val wired = devices.firstOrNull { d ->
+            d.type == AudioDeviceInfo.TYPE_WIRED_HEADSET || d.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES
+        }
+        if (wired != null) {
+            val name = wired.productName?.toString()?.trim()?.takeIf { it.isNotBlank() } ?: "Wired Headphones"
+            return AudioRouteInfo(
+                route = AudioOutputRoute.WIRED_HEADSET,
+                deviceName = name,
+                isBluetooth = false,
+                isHeadphone = true,
+            )
+        }
+
+        return AudioRouteInfo(
+            route = AudioOutputRoute.SPEAKER,
+            deviceName = "Device Speaker",
+            isBluetooth = false,
+            isHeadphone = false,
+        )
+    }
+
     /** Registers active software PCM processors so every settings change applies immediately in-process. */
     fun bindSoftwareProcessors(
         context: Context,
@@ -119,6 +274,10 @@ object AudioEffectController {
 
     fun syncSoftwareProcessors(context: Context) {
         val appCtx = context.applicationContext
+        val route = refreshOutputRoute(appCtx)
+        val bypassHwBassOnBluetooth = route.isBluetooth
+        val hwBassActive = !bypassHwBassOnBluetooth && bassBoost != null && bassBoostStrengthSupported
+
         softwareDspRef?.let { dsp ->
             dsp.eqEnabled = isEqEnabled(appCtx)
             dsp.setFromNormalizedSliders(
@@ -131,15 +290,14 @@ object AudioEffectController {
                 brilliance = getEqBrilliance(appCtx),
             )
             dsp.preampDb = getEqPreampDb(appCtx)
-            // Software bass boost shelf supplements or covers when hardware BassBoost is absent
             val bbStrength = getBassBoostStrength(appCtx)
-            val hwBassPresent = bassBoost != null && bassBoostStrengthSupported
-            dsp.bassBoostDb = if (hwBassPresent) (bbStrength / 1000f) * 3.5f else (bbStrength / 1000f) * 8.0f
+            dsp.bassBoostDb = if (hwBassActive) (bbStrength / 1000f) * 3.5f else (bbStrength / 1000f) * 8.0f
             dsp.limiterEnabled = isLimiterEnabled(appCtx)
             val normOn = isAudioNormalizerEnabled(appCtx)
             dsp.normalizerEnabled = normOn
             dsp.normalizerBoostDb = (getAudioNormalizerGainMb(appCtx) / 100f).coerceIn(0f, 6f)
         }
+
         softwareSpatialRef?.let { sp ->
             sp.enabled = isEqSpatialEnabled(appCtx)
             sp.width = (getSpatialStrength(appCtx) / 1000f).coerceIn(0f, 1f)
@@ -147,10 +305,15 @@ object AudioEffectController {
             sp.monoMix = ThemePreferences.monoAudio(appCtx)
             sp.balance = ThemePreferences.audioBalance(appCtx)
             sp.headphoneCrossfeed = isHeadphoneCrossfeedEnabled(appCtx)
+            sp.autoHeadphoneHrtf = route.isPersonalListening
             sp.roomDelayMs = getSpatialRoomDelayMs(appCtx)
         }
+
         latestCapabilities = latestCapabilities.copy(
             softwareDspAttached = softwareDspRef != null || softwareSpatialRef != null,
+            activeRoute = route.route,
+            activeDeviceName = route.deviceName,
+            bluetoothSafeBypassActive = route.isBluetooth || softwareSpatialRef != null,
         )
     }
 
@@ -210,6 +373,7 @@ object AudioEffectController {
             applyPreferencesLocked(appCtx)
 
             val eqHolder = cachedEqualizer
+            val route = _routeState.value
             latestCapabilities = CapabilityReport(
                 sessionId = audioSessionId,
                 equalizerAvailable = eqHolder != null,
@@ -222,11 +386,14 @@ object AudioEffectController {
                 equalizerBands = eqHolder?.numBands?.toInt() ?: 0,
                 minLevelMb = eqHolder?.minLevel?.toInt() ?: 0,
                 maxLevelMb = eqHolder?.maxLevel?.toInt() ?: 0,
+                activeRoute = route.route,
+                activeDeviceName = route.deviceName,
+                bluetoothSafeBypassActive = route.isBluetooth || softwareSpatialRef != null,
             )
 
             AppDiagnostics.info(
                 TAG,
-                "Attached session $audioSessionId (HW EQ=${latestCapabilities.equalizerBands} bands, Virtualizer=${latestCapabilities.hardwareSpatialAvailable}, BassBoost=${latestCapabilities.bassBoostAvailable}, SoftwareDSP=${latestCapabilities.softwareDspAttached})",
+                "Attached session $audioSessionId on ${route.route.label} (HW EQ=${latestCapabilities.equalizerBands}b, BT-Safe-Bypass=${latestCapabilities.bluetoothSafeBypassActive}, SoftwareDSP=${latestCapabilities.softwareDspAttached})",
             )
         }
     }
@@ -250,14 +417,15 @@ object AudioEffectController {
         activeSessionId != 0 && (cachedEqualizer != null || virtualizer != null || bassBoost != null || presetReverb != null || loudnessEnhancer != null)
 
     private fun applyPreferencesLocked(context: Context) {
-        // Software DSP runs full Parametric EQ & BassBoost; apply hardware EQ gently only when HW is used
-        // or skip double-boosting by letting software DSP be the primary precision engine when attached.
+        val route = _routeState.value
         val softwareDspActive = softwareDspRef != null
+        val softwareSpatialActive = softwareSpatialRef != null
         val eqEnabled = isEqEnabled(context)
 
+        // 1. Hardware Equalizer: bypass whenever SW DSP handles it OR Bluetooth is connected
         cachedEqualizer?.let { eqHolder ->
             runCatching {
-                if (softwareDspActive || !eqEnabled) {
+                if (softwareDspActive || route.isBluetooth || !eqEnabled) {
                     if (eqHolder.eq.enabled) eqHolder.eq.enabled = false
                 } else {
                     val bass = normalized(getEqBass(context))
@@ -284,11 +452,12 @@ object AudioEffectController {
             }.onFailure { AppDiagnostics.warning(TAG, "Hardware EQ update failed", it) }
         }
 
-        // Hardware Virtualizer (paired cleanly with software spatializer)
+        // 2. CRITICAL BT FIX: Disable hardware Virtualizer whenever SW 3D Spatializer is bound OR route is Bluetooth!
+        // Samsung One UI / A2DP HALs mute or drop audio if HW Virtualizer / PresetReverb attach to BT AudioSink.
         virtualizer?.let { virt ->
             runCatching {
-                val spatialOn = isEqSpatialEnabled(context)
-                if (spatialOn) {
+                val shouldEnableHwVirt = !softwareSpatialActive && !route.isBluetooth && isEqSpatialEnabled(context)
+                if (shouldEnableHwVirt) {
                     val target = ((getSpatialStrength(context) * 0.7f).roundToInt().coerceIn(0, 1000)).toShort()
                     if (virtualizerStrengthSupported && lastVirtualizerStrength != target) {
                         @Suppress("DEPRECATION")
@@ -306,11 +475,12 @@ object AudioEffectController {
             }.onFailure { AppDiagnostics.warning(TAG, "Virtualizer update failed", it) }
         }
 
-        // Hardware BassBoost
+        // 3. Hardware BassBoost: disabled on Bluetooth (SW low-shelf delivers full +8dB safely)
         bassBoost?.let { bb ->
             runCatching {
                 val strength = getBassBoostStrength(context)
-                if (strength > 0) {
+                val shouldEnableHwBass = strength > 0 && !route.isBluetooth
+                if (shouldEnableHwBass) {
                     val target = strength.coerceIn(0, 1000).toShort()
                     if (bassBoostStrengthSupported && lastBassStrength != target) {
                         bb.setStrength(target)
@@ -327,13 +497,12 @@ object AudioEffectController {
             }.onFailure { AppDiagnostics.warning(TAG, "BassBoost update failed", it) }
         }
 
-        // PresetReverb — subtle acoustic room only for hall/cinema/immersive profiles
+        // 4. CRITICAL BT FIX: Disable PresetReverb whenever SW 3D Spatializer handles reflections OR route is Bluetooth!
         presetReverb?.let { effect ->
             runCatching {
-                val spatialEnabled = isEqSpatialEnabled(context)
-                val spatialProfile = getSpatialProfile(context)
-                val targetPreset = reverbPresetFor(spatialProfile)
-                if (spatialEnabled && targetPreset != PresetReverb.PRESET_NONE) {
+                val shouldEnableHwReverb = !softwareSpatialActive && !route.isBluetooth && isEqSpatialEnabled(context)
+                val targetPreset = reverbPresetFor(getSpatialProfile(context))
+                if (shouldEnableHwReverb && targetPreset != PresetReverb.PRESET_NONE) {
                     if (lastReverbPreset != targetPreset) {
                         effect.preset = targetPreset
                         lastReverbPreset = targetPreset
@@ -349,12 +518,12 @@ object AudioEffectController {
             }.onFailure { AppDiagnostics.warning(TAG, "PresetReverb update failed", it) }
         }
 
-        // Loudness Enhancer — hardware makeup disabled if software normalizer handles it (prevents double gain)
+        // 5. Loudness Enhancer — hardware makeup disabled if software normalizer handles it or on Bluetooth
         loudnessEnhancer?.let { effect ->
             runCatching {
                 val normalizerEnabled = isAudioNormalizerEnabled(context)
                 val targetGainMb = getAudioNormalizerGainMb(context).coerceAtLeast(0)
-                if (normalizerEnabled && !softwareDspActive) {
+                if (normalizerEnabled && !softwareDspActive && !route.isBluetooth) {
                     if (lastLoudnessGainMb != targetGainMb) {
                         effect.setTargetGain(targetGainMb)
                         lastLoudnessGainMb = targetGainMb
@@ -396,6 +565,7 @@ object AudioEffectController {
         lastBassStrength = -1
         lastBassEnabled = null
 
+        val route = _routeState.value
         latestCapabilities = CapabilityReport(
             sessionId = 0,
             equalizerAvailable = false,
@@ -405,6 +575,9 @@ object AudioEffectController {
             roomAvailable = false,
             loudnessAvailable = false,
             softwareDspAttached = softwareDspRef != null || softwareSpatialRef != null,
+            activeRoute = route.route,
+            activeDeviceName = route.deviceName,
+            bluetoothSafeBypassActive = route.isBluetooth || softwareSpatialRef != null,
         )
     }
 

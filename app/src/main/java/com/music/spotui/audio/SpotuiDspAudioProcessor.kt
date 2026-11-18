@@ -174,7 +174,8 @@ class SpotuiDspAudioProcessor : BaseAudioProcessor() {
     private fun processMonoPcm16(input: ByteBuffer, output: ByteBuffer, preampLinear: Double) {
         while (input.remaining() >= 2) {
             val s = input.short.toDouble() / Short.MAX_VALUE
-            val processed = processChannelSample(0, s * preampLinear)
+            val safe = if (s.isFinite()) s else 0.0
+            val processed = processChannelSample(0, safe * preampLinear)
             val norm = applyNormalizerAndLimiter(processed, processed).first
             output.putShort((norm.coerceIn(-1.0, 1.0) * Short.MAX_VALUE).roundToInt().toShort())
         }
@@ -182,8 +183,10 @@ class SpotuiDspAudioProcessor : BaseAudioProcessor() {
 
     private fun processStereoPcm16(input: ByteBuffer, output: ByteBuffer, preampLinear: Double) {
         while (input.remaining() >= 4) {
-            val lIn = input.short.toDouble() / Short.MAX_VALUE
-            val rIn = input.short.toDouble() / Short.MAX_VALUE
+            val lRaw = input.short.toDouble() / Short.MAX_VALUE
+            val rRaw = input.short.toDouble() / Short.MAX_VALUE
+            val lIn = if (lRaw.isFinite()) lRaw else 0.0
+            val rIn = if (rRaw.isFinite()) rRaw else 0.0
             val lEq = processChannelSample(0, lIn * preampLinear)
             val rEq = processChannelSample(1, rIn * preampLinear)
             val (lOut, rOut) = applyNormalizerAndLimiter(lEq, rEq)
@@ -194,7 +197,8 @@ class SpotuiDspAudioProcessor : BaseAudioProcessor() {
 
     private fun processMonoFloat(input: ByteBuffer, output: ByteBuffer, preampLinear: Double) {
         while (input.remaining() >= 4) {
-            val s = input.float.toDouble()
+            val sRaw = input.float.toDouble()
+            val s = if (sRaw.isFinite()) sRaw.coerceIn(-4.0, 4.0) else 0.0
             val processed = processChannelSample(0, s * preampLinear)
             val norm = applyNormalizerAndLimiter(processed, processed).first
             output.putFloat(norm.coerceIn(-1.0, 1.0).toFloat())
@@ -203,8 +207,10 @@ class SpotuiDspAudioProcessor : BaseAudioProcessor() {
 
     private fun processStereoFloat(input: ByteBuffer, output: ByteBuffer, preampLinear: Double) {
         while (input.remaining() >= 8) {
-            val lIn = input.float.toDouble()
-            val rIn = input.float.toDouble()
+            val lRaw = input.float.toDouble()
+            val rRaw = input.float.toDouble()
+            val lIn = if (lRaw.isFinite()) lRaw.coerceIn(-4.0, 4.0) else 0.0
+            val rIn = if (rRaw.isFinite()) rRaw.coerceIn(-4.0, 4.0) else 0.0
             val lEq = processChannelSample(0, lIn * preampLinear)
             val rEq = processChannelSample(1, rIn * preampLinear)
             val (lOut, rOut) = applyNormalizerAndLimiter(lEq, rEq)
@@ -214,7 +220,7 @@ class SpotuiDspAudioProcessor : BaseAudioProcessor() {
     }
 
     private fun processChannelSample(ch: Int, initialSample: Double): Double {
-        var sample = initialSample
+        var sample = if (initialSample.isFinite()) initialSample else 0.0
         val x1c = x1[ch]
         val x2c = x2[ch]
         val y1c = y1[ch]
@@ -223,6 +229,11 @@ class SpotuiDspAudioProcessor : BaseAudioProcessor() {
         for (i in 0 until totalFilters) {
             if (!bandActive[i]) continue
             val y = b0[i] * sample + b1[i] * x1c[i] + b2[i] * x2c[i] - a1[i] * y1c[i] - a2[i] * y2c[i]
+            if (!y.isFinite()) {
+                x1c[i] = 0.0; x2c[i] = 0.0; y1c[i] = 0.0; y2c[i] = 0.0
+                sample = 0.0
+                continue
+            }
             x2c[i] = x1c[i]
             x1c[i] = sample
             y2c[i] = y1c[i]

@@ -143,6 +143,11 @@ fun DownloadsScreen(navController: NavController) {
     var failedNovaAcExport by remember { mutableStateOf<NovaAcExportManager.ExportProgress?>(null) }
     var currentSort by remember { mutableStateOf(getDownloadsSortOption(context)) }
     var isDescending by remember { mutableStateOf(isDownloadsSortDescending(context)) }
+    var autoExportToMusic by remember { mutableStateOf(com.music.spotui.data.preferences.isAutoExportToMusicEnabled(context)) }
+    val totalStorageLabel = remember(songs) {
+        val bytes = com.music.spotui.data.preferences.getTotalDownloadsBytes(context)
+        if (bytes > 0L) " · ${formatNovaAcBytes(bytes)}" else ""
+    }
 
     androidx.compose.runtime.LaunchedEffect(currentSort, isDescending) {
         songs = getDownloadedSongs(context)
@@ -519,7 +524,7 @@ fun DownloadsScreen(navController: NavController) {
                     )
                     Text(
                         modifier = Modifier.padding(20.dp, 4.dp, 20.dp, 0.dp),
-                        text = "${songs.size} songs • available offline",
+                        text = "${songs.size} songs$totalStorageLabel • available offline",
                         color = Color.Gray,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
@@ -632,12 +637,15 @@ fun DownloadsScreen(navController: NavController) {
                                     .clickable {
                                         val appContext = context.applicationContext
                                         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                                            val (exported, destination) = com.music.spotui.data.preferences.exportDownloads(appContext)
+                                            val report = com.music.spotui.data.preferences.exportDownloadsDetailed(appContext)
                                             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                                val message = if (exported > 0) {
-                                                    "Exported $exported track(s) to $destination"
-                                                } else {
-                                                    destination
+                                                val message = when {
+                                                    report.exportedCount > 0 && report.failedCount == 0 ->
+                                                        "Exported ${report.exportedCount} track(s) to ${report.destinationLabel}"
+                                                    report.exportedCount > 0 ->
+                                                        "Exported ${report.exportedCount} track(s) to ${report.destinationLabel} (${report.failedCount} skipped)"
+                                                    else ->
+                                                        report.lastError?.let { "Export failed: $it" } ?: report.destinationLabel
                                                 }
                                                 android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
                                             }
@@ -662,6 +670,33 @@ fun DownloadsScreen(navController: NavController) {
                                 onDismissRequest = { showDownloadActions = false },
                                 modifier = Modifier.background(Color(0xFF282828)),
                             ) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text("Auto-export to Music/spotui", color = Color.White, modifier = Modifier.weight(1f))
+                                            if (autoExportToMusic) {
+                                                Spacer(Modifier.width(8.dp))
+                                                Icon(
+                                                    imageVector = Icons.Default.Check,
+                                                    contentDescription = "Enabled",
+                                                    tint = Color(0xFF1ED760),
+                                                    modifier = Modifier.size(18.dp),
+                                                )
+                                            }
+                                        }
+                                    },
+                                    onClick = {
+                                        val next = !autoExportToMusic
+                                        autoExportToMusic = next
+                                        com.music.spotui.data.preferences.setAutoExportToMusicEnabled(context, next)
+                                        showDownloadActions = false
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            if (next) "New downloads will auto-export to Music/spotui" else "Auto-export to Music/spotui turned off",
+                                            android.widget.Toast.LENGTH_SHORT,
+                                        ).show()
+                                    },
+                                )
                                 DropdownMenuItem(
                                     text = { Text("Export all as .NovaAc", color = Color.White) },
                                     onClick = {

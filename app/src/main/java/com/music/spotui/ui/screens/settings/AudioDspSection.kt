@@ -22,6 +22,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -142,10 +143,11 @@ fun AudioDspSection(
         }
     }
 
+    val routeInfo by AudioEffectController.routeState.collectAsState()
     val capabilities = remember(
         eqEnabled, eqSubBass, eqBass, eqLowMid, eqVocal, eqHighMid, eqTreble, eqBrilliance,
         preampDb, bassBoostStrength, limiterEnabled, audioNormalizer, eqSpatial, spatialProfile,
-        spatialStrength, roomDelayMs, headphoneCrossfeed,
+        spatialStrength, roomDelayMs, headphoneCrossfeed, routeInfo,
     ) {
         AudioEffectController.capabilityReport()
     }
@@ -459,7 +461,15 @@ fun AudioDspSection(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("3D Spatial Soundstage Engine", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    Text("Haas delay stereo widening, low-end anchor & early room reflections", color = Color.Gray, fontSize = 11.sp)
+                    Text(
+                        if (routeInfo.isBluetooth) {
+                            "BT-Safe SW 3D active on ${routeInfo.deviceName} (HRTF + Soft Limiter)"
+                        } else {
+                            "Haas delay stereo widening, low-end anchor & prime room reflections"
+                        },
+                        color = if (routeInfo.isBluetooth) Color(0xFF81C784) else Color.Gray,
+                        fontSize = 11.sp,
+                    )
                 }
                 Switch(
                     checked = eqSpatial,
@@ -470,6 +480,31 @@ fun AudioDspSection(
                     },
                     modifier = Modifier.testTag("spatial_audio_enable_switch"),
                     colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = AppPalette),
+                )
+            }
+
+            // Live Audio Route & Bluetooth Safe Telemetry Strip
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.White.copy(alpha = 0.05f))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = "Output: ${routeInfo.route.label} (${routeInfo.deviceName})",
+                    color = Color(0xFFD6DAE6),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = if (routeInfo.isBluetooth) "BT HAL Safe" else if (routeInfo.isPersonalListening) "HRTF Ready" else "PCM Active",
+                    color = AppPalette,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
                 )
             }
 
@@ -572,9 +607,11 @@ fun AudioDspSection(
         ) {
             Text(
                 when {
-                    capabilities.sessionId <= 0 -> "Hardware FX probes on next play · SW Biquad DSP ready"
-                    capabilities.hardwareSpatialAvailable -> "HW AudioFX (${capabilities.equalizerBands}b EQ + Virtualizer) + SW DSP Active"
-                    else -> "Bluetooth/HAL Bypassed HW FX -> SW 7-Band DSP & 3D Active"
+                    capabilities.sessionId <= 0 -> "${routeInfo.route.label} · SW Biquad EQ & 3D PCM Engine ready"
+                    routeInfo.isBluetooth || capabilities.bluetoothSafeBypassActive ->
+                        "${routeInfo.deviceName} · SW 7-Band DSP + 3D PCM Active (HW Virtualizer safely bypassed)"
+                    capabilities.hardwareSpatialAvailable -> "HW AudioFX (${capabilities.equalizerBands}b EQ) + SW DSP Active"
+                    else -> "SW 7-Band Biquad DSP & 3D Soundstage Active"
                 },
                 color = AppPalette,
                 fontSize = 11.sp,

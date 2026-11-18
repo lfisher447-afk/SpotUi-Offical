@@ -221,12 +221,16 @@ fun SongOptionsSheet(
                     // sheet closing (a rememberCoroutineScope would be cancelled).
                     val app = context.applicationContext
                     kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                        val ok = com.music.spotui.data.preferences.exportDownload(app, song)
+                        val res = com.music.spotui.data.preferences.exportDownloadDetailed(app, song)
                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            val msg = res.fold(
+                                onSuccess = { name -> "Saved $name to Music/spotui" },
+                                onFailure = { err -> "Export failed: ${err.message ?: "unknown error"}" },
+                            )
                             android.widget.Toast.makeText(
                                 app,
-                                if (ok) "Saved to Music/spotui" else "Export failed",
-                                android.widget.Toast.LENGTH_SHORT,
+                                msg,
+                                android.widget.Toast.LENGTH_LONG,
                             ).show()
                         }
                     }
