@@ -119,6 +119,7 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.webkit)
 
     // Hilt + Room persistence
     implementation(libs.hilt.android)

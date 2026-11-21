@@ -4,8 +4,11 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.webkit.CookieManager
+import android.webkit.PermissionRequest
 import android.webkit.WebSettings
 import android.widget.Toast
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewFeature
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -69,8 +72,8 @@ internal enum class LoginTab {
 }
 
 internal enum class WebUaMode(val shortLabel: String, val detailLabel: String) {
-    ANDROID_CHROME("Android Chrome", "Native Chromium UA (no '; wv') — matches device hardware & stops false password rejects"),
-    SYSTEM_WEBVIEW("System Default", "Unmodified Android System WebView UA"),
+    SYSTEM_WEBVIEW("System Default", "Authentic Android System WebView UA (matches Sec-CH-UA Client Hints cleanly)"),
+    ANDROID_CHROME("Android Chrome", "Mobile Chrome UA (no '; wv') — try if Spotify rejects System WebView"),
     DESKTOP_CHROME("Desktop Chrome", "Linux Chrome 131 UA (fallback if Spotify forces desktop flow)"),
 }
 
@@ -100,6 +103,78 @@ internal fun resolveUserAgent(context: Context, mode: WebUaMode): String {
         }
         WebUaMode.DESKTOP_CHROME -> {
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        }
+    }
+}
+
+private val TRUSTED_AUTH_DOMAINS = listOf(
+    "spotify.com",
+    "google.com",
+    "gstatic.com",
+    "recaptcha.net",
+    "arkoselabs.com",
+    "apple.com",
+    "facebook.com",
+)
+
+internal fun isTrustedAuthHost(host: String?): Boolean {
+    val cleanHost = host?.trim()?.lowercase()?.trimEnd('.') ?: return false
+    if (cleanHost.isEmpty()) return false
+    return TRUSTED_AUTH_DOMAINS.any { domain ->
+        cleanHost == domain || cleanHost.endsWith(".$domain")
+    }
+}
+
+internal fun handleTrustedWebPermissionRequest(request: PermissionRequest?) {
+    if (request == null) return
+    val originHost = request.origin?.host
+    if (!isTrustedAuthHost(originHost)) {
+        request.deny()
+        return
+    }
+    val safeResources = request.resources.filterNot { res ->
+        res == PermissionRequest.RESOURCE_AUDIO_CAPTURE ||
+            res == PermissionRequest.RESOURCE_VIDEO_CAPTURE
+    }
+    if (safeResources.isNotEmpty()) {
+        runCatching { request.grant(safeResources.toTypedArray()) }
+            .onFailure { request.deny() }
+    } else {
+        request.deny()
+    }
+}
+
+@Suppress("SetJavaScriptEnabled")
+internal fun configureAuthWebViewSettings(
+    context: Context,
+    settings: WebSettings,
+    uaMode: WebUaMode,
+    forOAuthPopup: Boolean = false,
+) {
+    val effectiveUaMode = if (forOAuthPopup && uaMode == WebUaMode.SYSTEM_WEBVIEW) {
+        WebUaMode.ANDROID_CHROME
+    } else {
+        uaMode
+    }
+    settings.apply {
+        javaScriptEnabled = true
+        domStorageEnabled = true
+        databaseEnabled = true
+        allowContentAccess = true
+        mediaPlaybackRequiresUserGesture = false
+        useWideViewPort = true
+        loadWithOverviewMode = true
+        builtInZoomControls = false
+        displayZoomControls = false
+        userAgentString = resolveUserAgent(context, effectiveUaMode)
+        mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+        cacheMode = WebSettings.LOAD_DEFAULT
+        javaScriptCanOpenWindowsAutomatically = true
+        setSupportMultipleWindows(true)
+    }
+    runCatching {
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
+            WebSettingsCompat.setRequestedWithHeaderOriginAllowList(settings, emptySet())
         }
     }
 }
@@ -193,7 +268,9 @@ internal fun sweepSpotifyCookies(currentUrl: String? = null): CookieSweepResult 
         currentUrl?.takeIf { it.isNotBlank() && it.contains("spotify", ignoreCase = true) }?.let { add(it) }
         add("https://open.spotify.com/")
         add("https://accounts.spotify.com/")
+        add("https://accounts.spotify.com/en/")
         add("https://www.spotify.com/")
+        add("https://api.spotify.com/")
         add("https://spotify.com/")
         add(".spotify.com")
     }.distinct()
@@ -236,7 +313,7 @@ internal fun resetSpotifyWebCookies(onDone: () -> Unit) {
 }
 
 /**
- * React-safe credential auto-fill script injected after user taps Log In from the Native tab.
+ * React-safe credential auto-fill script injected after user taps Log In or Email Code.
  * Never prints or logs the password inside JS console.
  */
 internal fun buildCredentialAutofillJs(
@@ -250,8 +327,13 @@ internal fun buildCredentialAutofillJs(
     val wantCode = preferEmailCode
     return """
         (function(){
-          if (window.__spotuiAutofillStarted) return 'already-started';
-          window.__spotuiAutofillStarted = true;
+          if (window.__spotuiAutofillTimer) {
+            try { clearInterval(window.__spotuiAutofillTimer); } catch(e) {}
+            window.__spotuiAutofillTimer = null;
+          }
+          var runId = (window.__spotuiAutofillRunId || 0) + 1;
+          window.__spotuiAutofillRunId = runId;
+
           var email = $qEmail;
           var pass = $qPass;
           var hasPass = $hasPass;
@@ -269,51 +351,114 @@ internal fun buildCredentialAutofillJs(
             } catch(e){ return false; }
           }
 
+          function btnText(el){
+            return ((el && (el.innerText || el.textContent)) || '').trim().replace(/\s+/g, ' ').toLowerCase();
+          }
+
+          function isExcludedBtn(el){
+            if (!el || el.disabled) return true;
+            var t = btnText(el);
+            var id = ((el.getAttribute('data-testid') || el.id || '') + '').toLowerCase();
+            var combined = t + ' ' + id;
+            return combined.indexOf('google') > -1 ||
+              combined.indexOf('facebook') > -1 ||
+              combined.indexOf('apple') > -1 ||
+              combined.indexOf('phone') > -1 ||
+              combined.indexOf('github') > -1 ||
+              combined.indexOf('sso') > -1 ||
+              combined.indexOf('sign up') > -1 ||
+              combined.indexOf('signup') > -1 ||
+              combined.indexOf('terms') > -1 ||
+              combined.indexOf('privacy') > -1 ||
+              combined.indexOf('cookie') > -1;
+          }
+
           var attempts = 0;
           var emailFilled = false;
           var passFilled = false;
+          var clickedContinue = false;
+          var clickedCodeBtn = false;
+          var clickedPwMode = false;
+
           var timer = setInterval(function(){
+            if (window.__spotuiAutofillRunId !== runId) { clearInterval(timer); return; }
             attempts++;
-            if (attempts > 45) { clearInterval(timer); return; }
+            if (attempts > 60) { clearInterval(timer); return; }
+
+            var otpEl = document.querySelector('input[autocomplete="one-time-code"], input[name*="otp" i], input[data-testid*="otp" i], input[inputmode="numeric"][maxlength="1"], input[inputmode="numeric"][maxlength="6"]');
+            if (otpEl) {
+              clearInterval(timer);
+              return;
+            }
 
             var userEl = document.querySelector('#login-username, input[name="username"], input[autocomplete="username"], input[data-testid="login-username"]');
-            if (userEl && !emailFilled && !userEl.value) {
-              setReactVal(userEl, email);
+            if (userEl && email && !emailFilled) {
+              if (userEl.value !== email) {
+                setReactVal(userEl, email);
+              }
               emailFilled = true;
             }
 
             var passEl = document.querySelector('#login-password, input[name="password"], input[type="password"], input[data-testid="login-password"]');
 
-            if (wantCode && emailFilled && !passEl) {
-              var btns = Array.prototype.slice.call(document.querySelectorAll('button'));
-              var codeBtn = btns.find(function(b){
-                var t = (b.innerText || b.textContent || '').toLowerCase();
-                return t.indexOf('without password') > -1 || t.indexOf('send code') > -1 || t.indexOf('continue') > -1;
+            if (wantCode) {
+              var allBtns = Array.prototype.slice.call(document.querySelectorAll('button, a, [role="button"]'));
+              var passwordlessBtn = allBtns.find(function(b){
+                if (isExcludedBtn(b)) return false;
+                var t = btnText(b);
+                var tid = (b.getAttribute('data-testid') || '').toLowerCase();
+                return tid.indexOf('without-password') > -1 ||
+                  tid.indexOf('passwordless') > -1 ||
+                  tid.indexOf('otp') > -1 ||
+                  t.indexOf('without password') > -1 ||
+                  t.indexOf('send code') > -1 ||
+                  t.indexOf('send a code') > -1 ||
+                  t.indexOf('one-time code') > -1 ||
+                  t.indexOf('email code') > -1 ||
+                  t.indexOf('email a code') > -1 ||
+                  t.indexOf('6-digit') > -1;
               });
-              if (codeBtn && !window.__spotuiClickedContinue) {
-                window.__spotuiClickedContinue = true;
-                codeBtn.click();
+              if (passwordlessBtn && !clickedCodeBtn) {
+                clickedCodeBtn = true;
+                passwordlessBtn.click();
+                return;
+              }
+
+              if (email && !passEl && emailFilled && !clickedContinue) {
+                var submitBtn = document.querySelector('button[data-testid="login-button"], #login-button, button[type="submit"]');
+                if (!submitBtn || isExcludedBtn(submitBtn)) {
+                  submitBtn = allBtns.find(function(b){
+                    if (isExcludedBtn(b)) return false;
+                    var t = btnText(b);
+                    return t === 'continue' || t === 'next' || t === 'log in';
+                  });
+                }
+                if (submitBtn) {
+                  clickedContinue = true;
+                  submitBtn.click();
+                }
               }
               return;
             }
 
-            if (hasPass && emailFilled && !passEl && !window.__spotuiClickedContinue) {
-              var contBtn = document.querySelector('button[data-testid="login-button"], button[type="submit"]');
-              if (contBtn) {
-                window.__spotuiClickedContinue = true;
+            if (hasPass && emailFilled && !passEl && !clickedContinue) {
+              var contBtn = document.querySelector('button[data-testid="login-button"], #login-button, button[type="submit"]');
+              if (contBtn && !isExcludedBtn(contBtn)) {
+                clickedContinue = true;
                 contBtn.click();
               }
               return;
             }
 
-            if (hasPass && !passEl && window.__spotuiClickedContinue && !window.__spotuiClickedPwMode) {
-              var altBtns = Array.prototype.slice.call(document.querySelectorAll('button, a'));
+            if (hasPass && !passEl && clickedContinue && !clickedPwMode) {
+              var altBtns = Array.prototype.slice.call(document.querySelectorAll('button, a, [role="button"]'));
               var usePwBtn = altBtns.find(function(b){
-                var t = (b.innerText || b.textContent || '').toLowerCase();
+                if (isExcludedBtn(b)) return false;
+                var t = btnText(b);
                 return t.indexOf('log in with a password') > -1 || t.indexOf('use password') > -1 || t.indexOf('password instead') > -1;
               });
               if (usePwBtn) {
-                window.__spotuiClickedPwMode = true;
+                clickedPwMode = true;
                 usePwBtn.click();
               }
               return;
@@ -324,11 +469,12 @@ internal fun buildCredentialAutofillJs(
               passFilled = true;
               setTimeout(function(){
                 var loginBtn = document.querySelector('#login-button, button[data-testid="login-button"], button[type="submit"]');
-                if (loginBtn) loginBtn.click();
+                if (loginBtn && !isExcludedBtn(loginBtn)) loginBtn.click();
                 clearInterval(timer);
               }, 220);
             }
           }, 350);
+          window.__spotuiAutofillTimer = timer;
           return 'started';
         })();
     """.trimIndent()
@@ -353,19 +499,37 @@ internal fun buildDomErrorProbeJs(): String = """
         var texts = [];
         sels.forEach(function(s){
           document.querySelectorAll(s).forEach(function(el){
-            var t = (el.innerText || '').trim().replace(/\s+/g, ' ');
-            if (t && t.length > 3 && t.length < 240 && texts.indexOf(t) === -1) {
-              texts.push(t);
-            }
+            try {
+              var st = window.getComputedStyle(el);
+              if (st && (st.display === 'none' || st.visibility === 'hidden')) return;
+              var r = el.getBoundingClientRect();
+              if (r.width <= 0 || r.height <= 0) return;
+              var t = (el.innerText || '').trim().replace(/\s+/g, ' ');
+              var low = t.toLowerCase();
+              if (!t || t.length <= 3 || t.length >= 240) return;
+              if (low.indexOf('accept cookies') > -1 || low.indexOf('cookie settings') > -1 || low.indexOf('we use cookies') > -1) return;
+              if (texts.indexOf(t) === -1) texts.push(t);
+            } catch(e) {}
           });
         });
         var bodyTxt = (document.body && document.body.innerText || '').toLowerCase();
-        var hasCaptcha = !!document.querySelector('iframe[src*="recaptcha"], iframe[src*="arkose"], iframe[src*="funcaptcha"], iframe[src*="challenge"]');
-        var hasOtpPrompt = bodyTxt.indexOf('enter the 6-digit code') > -1 || bodyTxt.indexOf('verification code') > -1;
+        var challengeFrames = Array.prototype.slice.call(
+          document.querySelectorAll('iframe[src*="recaptcha"], iframe[src*="arkose"], iframe[src*="funcaptcha"], iframe[src*="challenge"]')
+        );
+        var hasCaptcha = challengeFrames.some(function(el){
+          try {
+            var style = window.getComputedStyle(el);
+            if (!style || style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity || '1') <= 0.05) return false;
+            var rect = el.getBoundingClientRect();
+            return rect.width > 120 && rect.height > 120;
+          } catch(e) { return false; }
+        });
+        var hasOtpPrompt = bodyTxt.indexOf('enter the 6-digit code') > -1 || bodyTxt.indexOf('verification code') > -1 || !!document.querySelector('input[autocomplete="one-time-code"], input[name*="otp" i]');
         return JSON.stringify({
           alerts: texts,
           captcha: hasCaptcha,
-          otpPrompt: hasOtpPrompt
+          otpPrompt: hasOtpPrompt,
+          url: window.location.href || ''
         });
       } catch(e) {
         return '{}';

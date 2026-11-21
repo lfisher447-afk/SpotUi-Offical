@@ -398,6 +398,10 @@ fun ModuleLibsSettingsSection() {
             enabled = !lastFmBusy,
             onClick = {
                 UiSoundEngine.playTapChime(context)
+                if (lastFmApiKey.isBlank() || lastFmSecret.isBlank() || lastFmUserInput.isBlank() || lastFmPassword.isBlank()) {
+                    lastFmNote = "Enter API Key, Shared Secret, Username, and Password first."
+                    return@Button
+                }
                 lastFmBusy = true
                 scope.launch {
                     val res = ModuleLibsBridge.authenticateLastFm(

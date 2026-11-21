@@ -105,6 +105,7 @@ object SongPlayer {
     @Volatile private var lastKnownBufferedPct: Int = 0
     @Volatile var lastKnownMediaItemCount: Int = 0
         private set
+    @Volatile private var lastKnownPlaybackSpeed: Float = 1.0f
 
     val isResumableState: Boolean
         get() = lastKnownMediaItemCount > 0 &&
@@ -188,6 +189,7 @@ object SongPlayer {
             lastKnownSessionId = sessionId
             pwr = p.playWhenReady.also { lastKnownPlayWhenReady = it }
             playingNow = isPlaying().also { lastKnownIsPlaying = it }
+            lastKnownMediaItemCount = p.mediaItemCount
             pos = runCatching { p.currentPosition.coerceAtLeast(0L) }.getOrDefault(0L).also { lastKnownPositionMs = it }
             dur = runCatching { p.duration.coerceAtLeast(0L) }.getOrDefault(0L).also { lastKnownDurationMs = it }
             bufPct = runCatching { p.bufferedPercentage.coerceIn(0, 100) }.getOrDefault(0).also { lastKnownBufferedPct = it }
@@ -739,6 +741,7 @@ object SongPlayer {
             val targetGain = appVolumeGain()
             p.volume = if (fadeIn && playWhenResolved) 0.15f * targetGain else targetGain
             p.playWhenReady = playWhenResolved
+            syncCachedPlayerState(p)
             com.music.spotui.ui.notification.PlaybackService.ensureStarted(appContext)
             com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(appContext)
 
@@ -2576,6 +2579,7 @@ object SongPlayer {
             .setConstantBitrateSeekingEnabled(true)
             .setAdtsExtractorFlags(androidx.media3.extractor.ts.AdtsExtractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING)
         val p = ExoPlayer.Builder(context)
+            .setLooper(android.os.Looper.getMainLooper())
             .setLoadControl(loadControl)
             .setMediaSourceFactory(
                 androidx.media3.exoplayer.source.DefaultMediaSourceFactory(
@@ -2690,6 +2694,54 @@ object SongPlayer {
         processor.roomDelayMs = com.music.spotui.data.preferences.getSpatialRoomDelayMs(context)
     }
 
+    private fun syncCachedPlayerState(p: Player) {
+        if (android.os.Looper.myLooper() != p.applicationLooper) return
+        lastKnownSessionId = (p as? ExoPlayer)?.audioSessionId ?: lastKnownSessionId
+        lastKnownPlaybackState = p.playbackState
+        lastKnownPlayWhenReady = p.playWhenReady
+        lastKnownIsPlaying = p.isPlaying
+        lastKnownMediaItemCount = p.mediaItemCount
+        lastKnownDurationMs = runCatching { p.duration.coerceAtLeast(0L) }.getOrDefault(lastKnownDurationMs)
+        lastKnownPlaybackSpeed = p.playbackParameters.speed
+    }
+
+    private fun attachStateTrackingListener(p: ExoPlayer) {
+        p.addListener(object : androidx.media3.common.Player.Listener {
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                lastKnownSessionId = audioSessionId
+                val ctx = appCtx ?: return
+                com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(ctx, currentDspProcessor, currentSpatialProcessor)
+                com.music.spotui.audio.AudioEffectController.attach(ctx, audioSessionId)
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                lastKnownPlaybackState = playbackState
+                lastKnownMediaItemCount = p.mediaItemCount
+                lastKnownPlayWhenReady = p.playWhenReady
+                lastKnownIsPlaying = p.isPlaying
+                lastKnownDurationMs = runCatching { p.duration.coerceAtLeast(0L) }.getOrDefault(lastKnownDurationMs)
+            }
+
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                lastKnownIsPlaying = isPlaying
+            }
+
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                lastKnownPlayWhenReady = playWhenReady
+                lastKnownIsPlaying = p.isPlaying
+            }
+
+            override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+                lastKnownMediaItemCount = p.mediaItemCount
+                lastKnownDurationMs = runCatching { p.duration.coerceAtLeast(0L) }.getOrDefault(lastKnownDurationMs)
+            }
+
+            override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
+                lastKnownPlaybackSpeed = playbackParameters.speed
+            }
+        })
+    }
+
     private fun ensurePlayer(context: Context) {
         appCtx = context.applicationContext
         _appVolumePercent.value = com.music.spotui.data.preferences.getAppVolumePercent(context.applicationContext)
@@ -2703,13 +2755,8 @@ object SongPlayer {
             com.music.spotui.audio.AudioEffectController.onRouteChanged = { ctx ->
                 refreshAudioOffloadPolicy(ctx)
             }
-            p.addListener(object : androidx.media3.common.Player.Listener {
-                override fun onAudioSessionIdChanged(audioSessionId: Int) {
-                    val ctx = appCtx ?: return
-                    com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(ctx, currentDspProcessor, currentSpatialProcessor)
-                    com.music.spotui.audio.AudioEffectController.attach(ctx, audioSessionId)
-                }
-            })
+            attachStateTrackingListener(p)
+            syncCachedPlayerState(p)
             com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(context, currentDspProcessor, currentSpatialProcessor)
             com.music.spotui.audio.AudioEffectController.attach(context, p.audioSessionId)
             onPlayerCreated?.invoke(p)
@@ -2725,16 +2772,18 @@ object SongPlayer {
     /** Re-applies equalizer, preamp, normalizer, and spatial-audio preferences immediately. */
     fun refreshAudioEffects(context: Context) {
         val appContext = context.applicationContext
-        ensurePlayer(appContext)
-        currentDspProcessor?.let { applySoftwareDsp(appContext, it) }
-        secondaryDspProcessor?.let { applySoftwareDsp(appContext, it) }
-        currentSpatialProcessor?.let { applySoftwareSpatial(appContext, it) }
-        secondarySpatialProcessor?.let { applySoftwareSpatial(appContext, it) }
-        com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(appContext, currentDspProcessor, currentSpatialProcessor)
-        com.music.spotui.audio.AudioEffectController.attach(appContext, player?.audioSessionId ?: 0)
-        com.music.spotui.audio.AudioEffectController.applyPreferences(appContext)
-        player?.let { applyAudioOffloadPolicy(appContext, it) }
-        secondaryPlayer?.let { applyAudioOffloadPolicy(appContext, it) }
+        runOnMain {
+            ensurePlayer(appContext)
+            currentDspProcessor?.let { applySoftwareDsp(appContext, it) }
+            secondaryDspProcessor?.let { applySoftwareDsp(appContext, it) }
+            currentSpatialProcessor?.let { applySoftwareSpatial(appContext, it) }
+            secondarySpatialProcessor?.let { applySoftwareSpatial(appContext, it) }
+            com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(appContext, currentDspProcessor, currentSpatialProcessor)
+            com.music.spotui.audio.AudioEffectController.attach(appContext, player?.audioSessionId ?: 0)
+            com.music.spotui.audio.AudioEffectController.applyPreferences(appContext)
+            player?.let { applyAudioOffloadPolicy(appContext, it) }
+            secondaryPlayer?.let { applyAudioOffloadPolicy(appContext, it) }
+        }
     }
 
     /** Applies updated AudioFocusMode without recreating the ExoPlayer instance. */
@@ -2760,8 +2809,9 @@ object SongPlayer {
 
     fun isPlaying(): Boolean {
         if (webPlaybackActive()) return SpotifyWebPlayer.isPlaying
-        return if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
-            val playing = player?.isPlaying ?: false
+        val p = player ?: return false
+        return if (android.os.Looper.myLooper() == p.applicationLooper) {
+            val playing = p.isPlaying
             lastKnownIsPlaying = playing
             playing
         } else {
@@ -2802,53 +2852,73 @@ object SongPlayer {
             return
         }
         playWhenResolved = true
+        lastKnownPlayWhenReady = true
         if (currentRequest.isNotBlank() && currentRequest != loadedQuery) {
             // We are currently resolving a new track in the background.
             // Do not play the old track (loadedQuery).
             appCtx?.let { com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(it) }
             return
         }
-        // Fresh launch: nothing loaded yet — resume the restored session track.
-        val count = if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
-            player?.mediaItemCount ?: 0
-        } else {
-            lastKnownMediaItemCount
+        runOnMain {
+            val p = player
+            val count = p?.mediaItemCount ?: 0
+            if (count == 0) {
+                val q = restoreQuery
+                val ctx = appCtx
+                if (q != null && ctx != null) {
+                    playSong(q, ctx)
+                    return@runOnMain
+                }
+            }
+            p?.play()
+            p?.let { syncCachedPlayerState(it) }
+            appCtx?.let { com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(it) }
         }
-        if (count == 0) {
-            val q = restoreQuery
-            val ctx = appCtx
-            if (q != null && ctx != null) { playSong(q, ctx); return }
-        }
-        player?.play()
-        appCtx?.let { com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(it) }
     }
 
     fun pause() {
-        cancelCrossfade()
         playWhenResolved = false
+        lastKnownPlayWhenReady = false
+        lastKnownIsPlaying = false
         if (webPlaybackActive()) {
-            SpotifyWebPlayer.pause()
-            appCtx?.let { com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(it) }
+            runOnMain {
+                cancelCrossfade()
+                SpotifyWebPlayer.pause()
+                appCtx?.let { com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(it) }
+            }
             return
         }
-        player?.let {
-            it.playWhenReady = false
-            // Remember where we stopped so a relaunch can resume mid-track.
-            appCtx?.let { ctx ->
-                val pos = it.currentPosition
-                if (pos > 0) com.music.spotui.data.preferences.saveLastPosition(ctx, pos)
+        runOnMain {
+            cancelCrossfade()
+            player?.let {
+                it.playWhenReady = false
+                // Remember where we stopped so a relaunch can resume mid-track.
+                appCtx?.let { ctx ->
+                    val pos = it.currentPosition
+                    if (pos > 0) com.music.spotui.data.preferences.saveLastPosition(ctx, pos)
+                }
+                syncCachedPlayerState(it)
             }
+            appCtx?.let { com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(it) }
         }
-        appCtx?.let { com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(it) }
     }
 
     fun stop() {
-        cancelCrossfade()
         isResolvingTrack = false
-        player?.stop()
+        playWhenResolved = false
+        lastKnownPlayWhenReady = false
+        lastKnownIsPlaying = false
+        lastKnownPlaybackState = Player.STATE_IDLE
         loadedQuery = null
         currentRequest = ""
-        appCtx?.let { com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(it) }
+        runOnMain {
+            cancelCrossfade()
+            player?.let {
+                it.stop()
+                syncCachedPlayerState(it)
+            }
+            appCtx?.let { com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(it) }
+        }
     }
 
     fun togglePlay() {
@@ -2856,9 +2926,13 @@ object SongPlayer {
             if (SpotifyWebPlayer.isPlaying) pause() else play()
             return
         }
-        player?.let {
-            if (it.playWhenReady) pause() else play()
+        val p = player ?: return
+        val pwr = if (android.os.Looper.myLooper() == p.applicationLooper) {
+            p.playWhenReady.also { lastKnownPlayWhenReady = it }
+        } else {
+            lastKnownPlayWhenReady
         }
+        if (pwr) pause() else play()
     }
 
     fun next(context: Context) {
@@ -2934,9 +3008,19 @@ object SongPlayer {
     }
 
     fun seekTo(position: Long) {
-        cancelCrossfade()
-        if (webPlaybackActive()) { SpotifyWebPlayer.seekTo(position); return }
-        player?.seekTo(position.coerceAtLeast(0L))
+        val clamped = position.coerceAtLeast(0L)
+        if (webPlaybackActive()) {
+            runOnMain {
+                cancelCrossfade()
+                SpotifyWebPlayer.seekTo(clamped)
+            }
+            return
+        }
+        lastKnownPositionMs = clamped
+        runOnMain {
+            cancelCrossfade()
+            player?.seekTo(clamped)
+        }
     }
 
     fun seekRelative(deltaMs: Long) {
@@ -2969,12 +3053,10 @@ object SongPlayer {
 
     fun release() {
         positionWatchJob?.cancel()
-        cancelCrossfade()
         isResolvingTrack = false
         playWhenResolved = true
         updateResolveStatus(false)
-        com.music.spotui.audio.AudioEffectController.release()
-        player?.release()
+        val releasedPlayer = player
         player = null
         loadedQuery = null
         currentRequest = ""
@@ -2985,12 +3067,20 @@ object SongPlayer {
         lastKnownPositionMs = 0L
         lastKnownDurationMs = 0L
         lastKnownBufferedPct = 0
+        lastKnownMediaItemCount = 0
+        lastKnownPlaybackSpeed = 1.0f
+        runOnMain {
+            cancelCrossfade()
+            com.music.spotui.audio.AudioEffectController.release()
+            releasedPlayer?.release()
+        }
     }
 
     fun getDuration(): Long {
         if (webPlaybackActive()) return SpotifyWebPlayer.durationMs
-        return if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
-            val d = player?.duration ?: 0L
+        val p = player ?: return lastKnownDurationMs
+        return if (android.os.Looper.myLooper() == p.applicationLooper) {
+            val d = p.duration
             lastKnownDurationMs = d
             d
         } else {
@@ -3000,8 +3090,9 @@ object SongPlayer {
 
     fun getCurrentPosition(): Long {
         if (webPlaybackActive()) return SpotifyWebPlayer.positionMs
-        return if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
-            val pos = player?.currentPosition ?: 0L
+        val p = player ?: return lastKnownPositionMs
+        return if (android.os.Looper.myLooper() == p.applicationLooper) {
+            val pos = p.currentPosition
             lastKnownPositionMs = pos
             pos
         } else {
@@ -3010,8 +3101,9 @@ object SongPlayer {
     }
 
     fun isPrepared(): Boolean {
-        return if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
-            val playerState = player?.playbackState ?: ExoPlayer.STATE_IDLE
+        val p = player ?: return false
+        return if (android.os.Looper.myLooper() == p.applicationLooper) {
+            val playerState = p.playbackState
             lastKnownPlaybackState = playerState
             playerState != ExoPlayer.STATE_IDLE && playerState != ExoPlayer.STATE_ENDED
         } else {
@@ -3097,19 +3189,19 @@ object SongPlayer {
                 // Persist position & update DevConsole telemetry every ~2s
                 val p = player ?: continue
                 val (playing, pos, dur, bufPos) = withContext(Dispatchers.Main) {
-                    lastKnownSessionId = p.audioSessionId
-                    lastKnownPlaybackState = p.playbackState
-                    lastKnownPlayWhenReady = p.playWhenReady
-                    lastKnownIsPlaying = p.isPlaying
-                    lastKnownBufferedPct = p.bufferedPercentage
-                    lastKnownMediaItemCount = p.mediaItemCount
-                    lastKnownPlaybackState = p.playbackState
-                    if (p.isPlaying) {
-                        val cp = p.currentPosition.coerceAtLeast(0L)
-                        val d = p.duration.coerceAtLeast(0L)
+                    val cur = player ?: return@withContext listOf(false, -1L, -1L, -1L)
+                    lastKnownSessionId = cur.audioSessionId
+                    lastKnownPlaybackState = cur.playbackState
+                    lastKnownPlayWhenReady = cur.playWhenReady
+                    lastKnownIsPlaying = cur.isPlaying
+                    lastKnownBufferedPct = cur.bufferedPercentage
+                    lastKnownMediaItemCount = cur.mediaItemCount
+                    if (cur.isPlaying) {
+                        val cp = cur.currentPosition.coerceAtLeast(0L)
+                        val d = cur.duration.coerceAtLeast(0L)
                         lastKnownPositionMs = cp
                         lastKnownDurationMs = d
-                        listOf(true, cp, d, p.bufferedPosition)
+                        listOf(true, cp, d, cur.bufferedPosition)
                     } else {
                         listOf(false, -1L, -1L, -1L)
                     }
@@ -3293,13 +3385,8 @@ object SongPlayer {
             val effectiveFocus = ctx == null || com.music.spotui.data.preferences.getAudioFocusMode(ctx) != com.music.spotui.data.preferences.AudioFocusMode.MIX_IGNORE_FOCUS
             incoming.setAudioAttributes(buildAudioAttributes(), effectiveFocus)
             incoming.setHandleAudioBecomingNoisy(true)
-            incoming.addListener(object : Player.Listener {
-                override fun onAudioSessionIdChanged(audioSessionId: Int) {
-                    val activeCtx = appCtx ?: return
-                    com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(activeCtx, currentDspProcessor, currentSpatialProcessor)
-                    com.music.spotui.audio.AudioEffectController.attach(activeCtx, audioSessionId)
-                }
-            })
+            attachStateTrackingListener(incoming)
+            syncCachedPlayerState(incoming)
             if (ctx != null) {
                 com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(ctx, currentDspProcessor, currentSpatialProcessor)
                 com.music.spotui.audio.AudioEffectController.attach(ctx, incoming.audioSessionId)
@@ -3354,7 +3441,12 @@ object SongPlayer {
     }
 
     fun getPlaybackSpeed(): Float {
-        return player?.playbackParameters?.speed ?: 1.0f
+        val p = player ?: return lastKnownPlaybackSpeed
+        return if (android.os.Looper.myLooper() == p.applicationLooper) {
+            p.playbackParameters.speed.also { lastKnownPlaybackSpeed = it }
+        } else {
+            lastKnownPlaybackSpeed
+        }
     }
 
     fun refreshPlaybackTuning(context: Context) {

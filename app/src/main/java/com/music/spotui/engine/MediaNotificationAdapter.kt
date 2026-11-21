@@ -163,8 +163,12 @@ object MediaNotificationAdapter {
                         .get()
                 }.getOrNull()
                 if (remoteArt != null && isExitMiniShowing) {
-                    val livePlaying = SongPlayer.isPlaying() || SpotifyWebPlayer.isPlaying
-                    postExitMiniInternal(appContext, title, artist, livePlaying, remoteArt)
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        if (isExitMiniShowing) {
+                            val livePlaying = SongPlayer.isPlaying() || SpotifyWebPlayer.isPlaying
+                            postExitMiniInternal(appContext, title, artist, livePlaying, remoteArt)
+                        }
+                    }
                 }
             }
         }

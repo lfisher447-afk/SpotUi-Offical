@@ -200,7 +200,7 @@ object SystemHealthChecker {
     private fun checkMediaSession(telemetry: SongPlayer.PlayerTelemetry): HealthCheckResult {
         val activeService = com.music.spotui.ui.notification.ServiceSessionHolder.activeService()
         val hasForeground = activeService?.hasPromotedForeground == true
-        val resumable = com.music.spotui.ui.notification.ServiceSessionHolder.isResumable(SongPlayer.exoPlayer)
+        val resumable = com.music.spotui.ui.notification.ServiceSessionHolder.isResumable()
         val statusSuffix = "FG=$hasForeground · Resumable=$resumable"
         return when {
             activeService != null && !hasForeground && telemetry.playbackState != Player.STATE_IDLE -> HealthCheckResult(

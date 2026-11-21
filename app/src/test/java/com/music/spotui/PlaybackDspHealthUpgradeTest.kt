@@ -407,4 +407,42 @@ class PlaybackDspHealthUpgradeTest {
         assertEquals(4, LibrarySortOrder.entries.size)
         assertTrue(LibrarySortOrder.entries.all { it.label.isNotBlank() })
     }
+
+    @Test
+    fun backgroundWorkerThreads_neverCrashAccessingSongPlayerOrSessionResumableState() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        SongPlayer.ensureCreated(context)
+        SongPlayer.setNowPlayingMeta(
+            title = "Midnight City",
+            artist = "M83",
+            coverUri = "https://example.com/art.jpg",
+            album = "Hurry Up, We're Dreaming",
+            durationMs = 243_000L,
+        )
+        SongPlayer.playSong("spotify:track:bgtest123|Midnight City M83", context, "song/99")
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
+
+        // Invoke every public query & control path from Dispatchers.IO / Dispatchers.Default
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            assertFalse(com.music.spotui.ui.notification.ServiceSessionHolder.isResumable(SongPlayer.exoPlayer) && !SongPlayer.isResumableState)
+            SongPlayer.isPlaying()
+            SongPlayer.getCurrentPosition()
+            SongPlayer.getDuration()
+            SongPlayer.isPrepared()
+            SongPlayer.getPlaybackSpeed()
+            val telemetry = SongPlayer.telemetrySnapshot(context)
+            assertEquals("Midnight City", SongPlayer.nowPlayingMetaSnapshot().title)
+            assertTrue(telemetry.sessionId >= 0)
+            SongPlayer.refreshAudioEffects(context)
+            SongPlayer.seekTo(12_000L)
+            SongPlayer.togglePlay()
+            SongPlayer.pause()
+            SongPlayer.play()
+            com.music.spotui.engine.MediaNotificationAdapter.showOrUpdateExitMiniNotification(context)
+        }
+        SystemHealthChecker.resetCooldownForTest()
+        val report = SystemHealthChecker.runFullScan(context, skipNetworkProbesForTest = true)
+        assertEquals(18, report.checks.size)
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
+    }
 }

@@ -52,6 +52,11 @@ object ServiceSessionHolder {
      * matching Samsung One UI 9 / Media3 requirements before exposing active resume controls.
      */
     fun isResumable(player: Player? = null): Boolean {
+        if (player != null && android.os.Looper.myLooper() == player.applicationLooper) {
+            return player.mediaItemCount > 0 &&
+                player.playbackState != Player.STATE_IDLE &&
+                player.playbackState != Player.STATE_ENDED
+        }
         return com.music.spotui.di.SongPlayer.isResumableState
     }
 }
