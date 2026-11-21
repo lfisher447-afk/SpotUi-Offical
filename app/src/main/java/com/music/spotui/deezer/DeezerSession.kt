@@ -53,16 +53,22 @@ object DeezerSession {
     @Volatile var entitledQuality: Int = QUALITY_MP3_128
         private set
 
-    private val client: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
-            .writeTimeout(8, TimeUnit.SECONDS)
-            .followRedirects(true)
-            .build()
-    }
+    private val client: OkHttpClient by lazy { httpClient() }
 
-    fun httpClient(): OkHttpClient = client
+    fun httpClient(): OkHttpClient {
+        val builder = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .followRedirects(true)
+            .followSslRedirects(true)
+
+        runCatching {
+            com.metrolist.innertube.network.AuthSessionStore.applyOkHttpSettings(builder, forStream = true)
+        }
+        return builder.build()
+    }
 
     @Synchronized
     fun setArl(value: String?) {

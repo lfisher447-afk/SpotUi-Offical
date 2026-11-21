@@ -51,11 +51,7 @@ object ServiceSessionHolder {
      * Returns true when [player] holds a resumable item (non-empty timeline and not IDLE/ENDED),
      * matching Samsung One UI 9 / Media3 requirements before exposing active resume controls.
      */
-    fun isResumable(player: Player?): Boolean {
-        if (player == null) return false
-        return player.mediaItemCount > 0 &&
-            player.currentMediaItem != null &&
-            player.playbackState != Player.STATE_IDLE &&
-            player.playbackState != Player.STATE_ENDED
+    fun isResumable(player: Player? = null): Boolean {
+        return com.music.spotui.di.SongPlayer.isResumableState
     }
 }

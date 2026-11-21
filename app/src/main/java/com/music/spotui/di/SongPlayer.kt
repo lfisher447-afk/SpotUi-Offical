@@ -96,12 +96,20 @@ object SongPlayer {
         private set
 
     @Volatile private var lastKnownSessionId: Int = 0
-    @Volatile private var lastKnownPlaybackState: Int = Player.STATE_IDLE
+    @Volatile var lastKnownPlaybackState: Int = Player.STATE_IDLE
+        private set
     @Volatile private var lastKnownPlayWhenReady: Boolean = false
     @Volatile private var lastKnownIsPlaying: Boolean = false
     @Volatile private var lastKnownPositionMs: Long = 0L
     @Volatile private var lastKnownDurationMs: Long = 0L
     @Volatile private var lastKnownBufferedPct: Int = 0
+    @Volatile var lastKnownMediaItemCount: Int = 0
+        private set
+
+    val isResumableState: Boolean
+        get() = lastKnownMediaItemCount > 0 &&
+            lastKnownPlaybackState != Player.STATE_IDLE &&
+            lastKnownPlaybackState != Player.STATE_ENDED
 
     private val _appVolumePercent = kotlinx.coroutines.flow.MutableStateFlow(100)
     val appVolumePercentFlow: kotlinx.coroutines.flow.StateFlow<Int> = _appVolumePercent
@@ -2752,7 +2760,13 @@ object SongPlayer {
 
     fun isPlaying(): Boolean {
         if (webPlaybackActive()) return SpotifyWebPlayer.isPlaying
-        return player?.isPlaying ?: false
+        return if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            val playing = player?.isPlaying ?: false
+            lastKnownIsPlaying = playing
+            playing
+        } else {
+            lastKnownIsPlaying
+        }
     }
 
     fun webPlaybackActive(): Boolean {
@@ -2795,7 +2809,12 @@ object SongPlayer {
             return
         }
         // Fresh launch: nothing loaded yet — resume the restored session track.
-        if ((player?.mediaItemCount ?: 0) == 0) {
+        val count = if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            player?.mediaItemCount ?: 0
+        } else {
+            lastKnownMediaItemCount
+        }
+        if (count == 0) {
             val q = restoreQuery
             val ctx = appCtx
             if (q != null && ctx != null) { playSong(q, ctx); return }
@@ -2970,17 +2989,34 @@ object SongPlayer {
 
     fun getDuration(): Long {
         if (webPlaybackActive()) return SpotifyWebPlayer.durationMs
-        return player?.duration ?: 0L
+        return if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            val d = player?.duration ?: 0L
+            lastKnownDurationMs = d
+            d
+        } else {
+            lastKnownDurationMs
+        }
     }
 
     fun getCurrentPosition(): Long {
         if (webPlaybackActive()) return SpotifyWebPlayer.positionMs
-        return player?.currentPosition ?: 0L
+        return if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            val pos = player?.currentPosition ?: 0L
+            lastKnownPositionMs = pos
+            pos
+        } else {
+            lastKnownPositionMs
+        }
     }
 
     fun isPrepared(): Boolean {
-        val playerState = player?.playbackState
-        return playerState != null && playerState != ExoPlayer.STATE_IDLE && playerState != ExoPlayer.STATE_ENDED
+        return if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            val playerState = player?.playbackState ?: ExoPlayer.STATE_IDLE
+            lastKnownPlaybackState = playerState
+            playerState != ExoPlayer.STATE_IDLE && playerState != ExoPlayer.STATE_ENDED
+        } else {
+            lastKnownPlaybackState != ExoPlayer.STATE_IDLE && lastKnownPlaybackState != ExoPlayer.STATE_ENDED
+        }
     }
 
     // ── Crossfade + DJ-style mixing ──
@@ -3066,6 +3102,8 @@ object SongPlayer {
                     lastKnownPlayWhenReady = p.playWhenReady
                     lastKnownIsPlaying = p.isPlaying
                     lastKnownBufferedPct = p.bufferedPercentage
+                    lastKnownMediaItemCount = p.mediaItemCount
+                    lastKnownPlaybackState = p.playbackState
                     if (p.isPlaying) {
                         val cp = p.currentPosition.coerceAtLeast(0L)
                         val d = p.duration.coerceAtLeast(0L)
