@@ -102,6 +102,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.metrolist.spotify.SpotifyAuth
+import com.metrolist.spotify.models.SpotifyInternalToken
 import com.music.spotui.R
 import com.music.spotui.audio.UiSoundEngine
 import com.music.spotui.di.SpotifyWebPlayer
@@ -169,6 +170,7 @@ fun SpotifyLoginScreen(navController: NavController) {
     var emailCodeGuideActive by remember { mutableStateOf(false) }
     var lastLoggedDomError by remember { mutableStateOf("") }
     var failedAutoSyncSpDc by remember { mutableStateOf<String?>(null) }
+    var webViewExtractedToken by remember { mutableStateOf<SpotifyInternalToken?>(null) }
 
     // OAuth Popup WebView (Google/Facebook/Apple SSO)
     var popupWebView by remember { mutableStateOf<WebView?>(null) }
@@ -237,6 +239,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                 spDc = spDc,
                 spKey = sweep.spKey,
                 source = source,
+                fallbackToken = webViewExtractedToken,
                 scope = scope,
                 setProcessing = { isProcessing = it },
                 setStatus = { statusMessage = it },
@@ -270,6 +273,25 @@ fun SpotifyLoginScreen(navController: NavController) {
         webViewRef?.let { wv ->
             configureAuthWebViewSettings(context, wv.settings, nextMode)
             wv.loadUrl(SpotifyAuth.LOGIN_URL)
+        }
+    }
+
+    fun autoRecoverWebLogin(preferEmailCode: Boolean = true) {
+        DevConsoleManager.logButtonAction("SpotifyLogin", "AutoRecover", "nextUa=${uaMode.nextRecoveryMode().shortLabel}")
+        resetSpotifyWebCookies {
+            domAuthBanner = null
+            domHasOtpPrompt = false
+            failedAutoSyncSpDc = null
+            webViewExtractedToken = null
+            lastLoggedDomError = ""
+            emailCodeGuideActive = preferEmailCode
+            if (preferEmailCode && emailOrUsername.isNotBlank()) {
+                pendingHandoff = PendingCredentialHandoff(
+                    emailOrUsername = emailOrUsername.trim(),
+                    preferEmailCode = true,
+                )
+            }
+            applyUaAndReload(uaMode.nextRecoveryMode())
         }
     }
 
@@ -319,6 +341,21 @@ fun SpotifyLoginScreen(navController: NavController) {
                     val hasOtp = obj.optBoolean("otpPrompt", false)
                     val currentJsUrl = obj.optString("url", "")
                     domHasOtpPrompt = hasOtp
+
+                    obj.optJSONObject("sessionToken")?.let { st ->
+                        val tok = st.optString("accessToken")
+                        val exp = st.optLong("accessTokenExpirationTimestampMs", 0L)
+                        if (tok.isNotBlank()) {
+                            webViewExtractedToken = SpotifyInternalToken(
+                                accessToken = tok,
+                                accessTokenExpirationTimestampMs = exp,
+                                isAnonymous = false,
+                            )
+                            if (!tokenFetchStarted.get()) {
+                                tryExchangeCapturedCookies("WebViewSessionProbe")
+                            }
+                        }
+                    }
 
                     if (!tokenFetchStarted.get() &&
                         currentJsUrl.contains("accounts.spotify.com", ignoreCase = true) &&
@@ -872,6 +909,12 @@ fun SpotifyLoginScreen(navController: NavController) {
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 TextButton(
+                                    onClick = { autoRecoverWebLogin(preferEmailCode = true) },
+                                    modifier = Modifier.heightIn(min = 48.dp).testTag("webview_auto_recover"),
+                                ) {
+                                    Text("Auto-Recover", color = Color(LOGIN_SPOTIFY_GREEN), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                                TextButton(
                                     onClick = {
                                         resetSpotifyWebCookies {
                                             domAuthBanner = null
@@ -893,31 +936,10 @@ fun SpotifyLoginScreen(navController: NavController) {
                                     Text("Email Code", color = Color(LOGIN_SPOTIFY_GREEN), fontSize = 11.sp)
                                 }
                                 TextButton(
-                                    onClick = {
-                                        val next = when (uaMode) {
-                                            WebUaMode.SYSTEM_WEBVIEW -> WebUaMode.ANDROID_CHROME
-                                            WebUaMode.ANDROID_CHROME -> WebUaMode.DESKTOP_CHROME
-                                            WebUaMode.DESKTOP_CHROME -> WebUaMode.SYSTEM_WEBVIEW
-                                        }
-                                        applyUaAndReload(next)
-                                    },
+                                    onClick = { applyUaAndReload(uaMode.nextRecoveryMode()) },
                                     modifier = Modifier.heightIn(min = 48.dp),
                                 ) {
                                     Text("Switch UA", color = Color.White, fontSize = 11.sp)
-                                }
-                                TextButton(
-                                    onClick = {
-                                        resetSpotifyWebCookies {
-                                            domAuthBanner = null
-                                            domHasOtpPrompt = false
-                                            failedAutoSyncSpDc = null
-                                            lastLoggedDomError = ""
-                                            webViewRef?.loadUrl(SpotifyAuth.LOGIN_URL)
-                                        }
-                                    },
-                                    modifier = Modifier.heightIn(min = 48.dp),
-                                ) {
-                                    Text("Reset", color = Color.White, fontSize = 11.sp)
                                 }
                                 TextButton(
                                     onClick = { showLogsDialog = true },
@@ -1058,11 +1080,24 @@ fun SpotifyLoginScreen(navController: NavController) {
                                                         ) {
                                                             val status = errorResponse?.statusCode ?: return
                                                             val host = req?.url?.host.orEmpty()
+                                                            val path = req?.url?.path.orEmpty()
                                                             if (status >= 400 && (req?.isForMainFrame == true || host.contains("spotify", ignoreCase = true) || host.contains("google", ignoreCase = true))) {
-                                                                DevConsoleManager.logError(
-                                                                    "SpotifyOAuthPopup",
-                                                                    "HTTP $status on $host${req?.url?.path.orEmpty()}",
-                                                                )
+                                                                val summary = "HTTP $status on $host$path"
+                                                                DevConsoleManager.logError("SpotifyOAuthPopup", summary)
+                                                                when (status) {
+                                                                    402 -> domAuthBanner = "OAuth challenge returned HTTP 402. Close popup and tap 'Auto-Recover' or 'Email Code'."
+                                                                    400 -> domAuthBanner = "OAuth login rejected (HTTP 400). Try 'Auto-Recover' or 'Email Code'."
+                                                                    403 -> domAuthBanner = "Embedded OAuth blocked (HTTP 403). Close popup and use 'Email Code' or 'Switch UA'."
+                                                                    429 -> domAuthBanner = "Too many OAuth attempts (HTTP 429). Wait a moment before retrying."
+                                                                }
+                                                                if (status in listOf(400, 401, 402, 403, 429)) {
+                                                                    DevConsoleManager.reportComponentFault(
+                                                                        component = "SpotifyLogin",
+                                                                        action = "OAuthPopup_HTTP_$status",
+                                                                        reason = "$summary [UA=${uaMode.shortLabel}]",
+                                                                        autoFixHint = "Close OAuth popup and tap Auto-Recover or Email Code.",
+                                                                    )
+                                                                }
                                                             }
                                                         }
 
@@ -1165,15 +1200,26 @@ fun SpotifyLoginScreen(navController: NavController) {
                                                 if (status >= 400 && host.contains("spotify", ignoreCase = true)) {
                                                     val summary = "HTTP $status on $host$path (mainFrame=$isMain)"
                                                     DevConsoleManager.logError("SpotifyWebHTTP", summary)
-                                                    if (path.contains("login/password", ignoreCase = true) && status == 400) {
-                                                        domAuthBanner = "Spotify rejected password login here (HTTP 400). Tap 'Email Code' or 'Switch UA' below."
+                                                    when (status) {
+                                                        402 -> {
+                                                            domAuthBanner = "Spotify challenge/risk guard returned HTTP 402. Tap 'Auto-Recover' below to clear challenge cookies and switch browser profile."
+                                                        }
+                                                        400 -> if (path.contains("login", ignoreCase = true) || path.contains("challenge", ignoreCase = true) || isMain) {
+                                                            domAuthBanner = "Spotify rejected login request (HTTP 400). Tap 'Auto-Recover' or 'Email Code' below."
+                                                        }
+                                                        403 -> {
+                                                            domAuthBanner = "Spotify blocked embedded browser profile (HTTP 403). Tap 'Auto-Recover' or 'Switch UA'."
+                                                        }
+                                                        429 -> {
+                                                            domAuthBanner = "Too many login attempts (HTTP 429). Wait a minute or tap 'Auto-Recover'."
+                                                        }
                                                     }
-                                                    if (isMain || status == 400 || status == 401 || status == 403 || status == 429) {
+                                                    if (isMain || status in listOf(400, 401, 402, 403, 429)) {
                                                         DevConsoleManager.reportComponentFault(
                                                             component = "SpotifyLogin",
                                                             action = "HTTP_$status",
                                                             reason = "$summary [UA=${uaMode.shortLabel}]",
-                                                            autoFixHint = "Spotify returned HTTP $status. Tap Email Code, Switch UA, or Reset.",
+                                                            autoFixHint = "Spotify returned HTTP $status. Tap Auto-Recover, Email Code, or Switch UA.",
                                                         )
                                                     }
                                                 }

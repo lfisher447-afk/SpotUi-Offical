@@ -196,18 +196,30 @@ object AudioEffectController {
     private fun detectOutputRoute(context: Context): AudioRouteInfo {
         val am = runCatching { context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }.getOrNull()
             ?: return AudioRouteInfo()
-        val devices = runCatching { am.getDevices(AudioManager.GET_DEVICES_OUTPUTS) }.getOrNull().orEmpty()
-        if (devices.isEmpty()) return AudioRouteInfo()
+        val allDevices = runCatching { am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList() }.getOrNull().orEmpty()
+        if (allDevices.isEmpty()) return AudioRouteInfo()
 
-        val bluetooth = devices.firstOrNull { d ->
+        val mediaRoutedDevices = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            runCatching {
+                val mediaAttrs = android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build()
+                am.getAudioDevicesForAttributes(mediaAttrs)
+            }.getOrNull().orEmpty()
+        } else {
+            emptyList()
+        }
+        val candidates = if (mediaRoutedDevices.isNotEmpty()) mediaRoutedDevices else allDevices
+
+        val mediaBluetooth = candidates.firstOrNull { d ->
             d.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
                 d.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
                 d.type == AudioDeviceInfo.TYPE_BLE_SPEAKER ||
-                d.type == AudioDeviceInfo.TYPE_BLE_BROADCAST ||
-                d.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+                d.type == AudioDeviceInfo.TYPE_BLE_BROADCAST
         }
-        if (bluetooth != null) {
-            val name = bluetooth.productName?.toString()?.trim()?.takeIf { it.isNotBlank() } ?: "Bluetooth Audio"
+        if (mediaBluetooth != null) {
+            val name = mediaBluetooth.productName?.toString()?.trim()?.takeIf { it.isNotBlank() } ?: "Bluetooth Audio"
             return AudioRouteInfo(
                 route = AudioOutputRoute.BLUETOOTH,
                 deviceName = name,
@@ -216,7 +228,7 @@ object AudioEffectController {
             )
         }
 
-        val hearingAid = devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_HEARING_AID }
+        val hearingAid = candidates.firstOrNull { it.type == AudioDeviceInfo.TYPE_HEARING_AID }
         if (hearingAid != null) {
             val name = hearingAid.productName?.toString()?.trim()?.takeIf { it.isNotBlank() } ?: "Hearing Aid"
             return AudioRouteInfo(
@@ -227,7 +239,7 @@ object AudioEffectController {
             )
         }
 
-        val usb = devices.firstOrNull { d ->
+        val usb = candidates.firstOrNull { d ->
             d.type == AudioDeviceInfo.TYPE_USB_HEADSET || d.type == AudioDeviceInfo.TYPE_USB_DEVICE
         }
         if (usb != null) {
@@ -240,7 +252,7 @@ object AudioEffectController {
             )
         }
 
-        val wired = devices.firstOrNull { d ->
+        val wired = candidates.firstOrNull { d ->
             d.type == AudioDeviceInfo.TYPE_WIRED_HEADSET || d.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES
         }
         if (wired != null) {
@@ -249,6 +261,17 @@ object AudioEffectController {
                 route = AudioOutputRoute.WIRED_HEADSET,
                 deviceName = name,
                 isBluetooth = false,
+                isHeadphone = true,
+            )
+        }
+
+        val scoFallback = candidates.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
+        if (scoFallback != null) {
+            val name = scoFallback.productName?.toString()?.trim()?.takeIf { it.isNotBlank() } ?: "Bluetooth Audio"
+            return AudioRouteInfo(
+                route = AudioOutputRoute.BLUETOOTH,
+                deviceName = name,
+                isBluetooth = true,
                 isHeadphone = true,
             )
         }

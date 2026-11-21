@@ -1542,7 +1542,10 @@ private fun currentAudioRoute(context: Context): String {
         val outs = am.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
         val bt = outs.firstOrNull {
             it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
-                    it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+                it.type == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                it.type == android.media.AudioDeviceInfo.TYPE_BLE_SPEAKER
+        } ?: outs.firstOrNull {
+            it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO
         }
         if (bt != null) return bt.productName?.toString()?.takeIf { it.isNotBlank() } ?: "Bluetooth"
         val wired = outs.firstOrNull {

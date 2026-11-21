@@ -11,6 +11,7 @@ import android.content.Context
 object SpotifySession {
     private const val PREFS = "spotify_session"
     private const val KEY_SP_DC = "sp_dc"
+    private const val KEY_SP_KEY = "sp_key"
 
     // Optional compile-time default so the app has data on first launch.
     // Leave blank to require runtime configuration.
@@ -21,10 +22,19 @@ object SpotifySession {
         return prefs.getString(KEY_SP_DC, null)?.takeIf { it.isNotBlank() } ?: DEFAULT_SP_DC
     }
 
-    fun setSpDc(context: Context, value: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_SP_DC, value.trim())
-            .apply()
+    fun spKey(context: Context): String {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_SP_KEY, null)?.takeIf { it.isNotBlank() }.orEmpty()
+    }
+
+    fun setSpDc(context: Context, value: String, spKey: String = "") {
+        val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        editor.putString(KEY_SP_DC, value.trim())
+        if (spKey.isNotBlank()) {
+            editor.putString(KEY_SP_KEY, spKey.trim())
+        } else if (value.isBlank()) {
+            editor.remove(KEY_SP_KEY)
+        }
+        editor.apply()
     }
 }

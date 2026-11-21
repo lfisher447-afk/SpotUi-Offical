@@ -45,8 +45,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.metrolist.spotify.Spotify
 import com.metrolist.spotify.SpotifyAuth
+import com.metrolist.spotify.models.SpotifyInternalToken
 import com.music.spotui.audio.UiSoundEngine
 import com.music.spotui.data.api.SpotifySession
+import com.music.spotui.data.api.SpotifyTokenProvider
 import com.music.spotui.util.DevConsoleManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -74,7 +76,13 @@ internal enum class LoginTab {
 internal enum class WebUaMode(val shortLabel: String, val detailLabel: String) {
     SYSTEM_WEBVIEW("System Default", "Authentic Android System WebView UA (matches Sec-CH-UA Client Hints cleanly)"),
     ANDROID_CHROME("Android Chrome", "Mobile Chrome UA (no '; wv') — try if Spotify rejects System WebView"),
-    DESKTOP_CHROME("Desktop Chrome", "Linux Chrome 131 UA (fallback if Spotify forces desktop flow)"),
+    DESKTOP_CHROME("Desktop Chrome", "Linux Chrome UA (fallback if Spotify forces desktop flow)");
+
+    fun nextRecoveryMode(): WebUaMode = when (this) {
+        SYSTEM_WEBVIEW -> ANDROID_CHROME
+        ANDROID_CHROME -> DESKTOP_CHROME
+        DESKTOP_CHROME -> SYSTEM_WEBVIEW
+    }
 }
 
 internal data class PendingCredentialHandoff(
@@ -525,11 +533,25 @@ internal fun buildDomErrorProbeJs(): String = """
           } catch(e) { return false; }
         });
         var hasOtpPrompt = bodyTxt.indexOf('enter the 6-digit code') > -1 || bodyTxt.indexOf('verification code') > -1 || !!document.querySelector('input[autocomplete="one-time-code"], input[name*="otp" i]');
+        var sessionToken = null;
+        try {
+          var sEl = document.getElementById('session');
+          if (sEl && sEl.textContent) {
+            var sJson = JSON.parse(sEl.textContent);
+            if (sJson && sJson.accessToken && sJson.isAnonymous === false) {
+              sessionToken = {
+                accessToken: sJson.accessToken,
+                accessTokenExpirationTimestampMs: sJson.accessTokenExpirationTimestampMs || 0
+              };
+            }
+          }
+        } catch(e) {}
         return JSON.stringify({
           alerts: texts,
           captcha: hasCaptcha,
           otpPrompt: hasOtpPrompt,
-          url: window.location.href || ''
+          url: window.location.href || '',
+          sessionToken: sessionToken
         });
       } catch(e) {
         return '{}';
@@ -538,13 +560,30 @@ internal fun buildDomErrorProbeJs(): String = """
 """.trimIndent()
 
 /**
- * Exchanges `sp_dc` for an authenticated access token and records detailed diagnostics in [DevConsoleManager].
+ * Formats actionable HTTP / Spotify auth failure hints (covering 400, 401, 402, 403, 429, 503).
+ */
+internal fun describeAuthFailure(rawMsg: String): String {
+    val msg = rawMsg.trim()
+    return when {
+        "402" in msg -> "HTTP 402 verification/risk check ($msg) — tap Auto-Recover, Switch UA, or use Email Code."
+        "400" in msg -> "HTTP 400 challenge rejection ($msg) — tap Auto-Recover or Switch UA."
+        "401" in msg -> "Session expired or rejected (HTTP 401) — sign in again or reset cookies."
+        "403" in msg -> "Blocked by anti-bot rule (HTTP 403) — switch UA profile or use Email Code."
+        "429" in msg -> "Rate-limited by Spotify (HTTP 429) — wait a moment then retry."
+        else -> msg
+    }
+}
+
+/**
+ * Exchanges `sp_dc` for an authenticated access token (saving both `sp_dc` & `sp_key`, and
+ * falling back to a verified non-anonymous WebPlayer session token if provided).
  */
 internal fun processLoginSession(
     context: Context,
     spDc: String,
     spKey: String = "",
     source: String = "Session",
+    fallbackToken: SpotifyInternalToken? = null,
     scope: CoroutineScope,
     setProcessing: (Boolean) -> Unit,
     setStatus: (String) -> Unit,
@@ -565,8 +604,11 @@ internal fun processLoginSession(
         repeat(3) { attempt ->
             val result = SpotifyAuth.fetchAccessToken(spDc, spKey)
             result.onSuccess { token ->
-                SpotifySession.setSpDc(context, spDc)
-                Spotify.accessToken = token.accessToken
+                SpotifySession.setSpDc(context, spDc, spKey)
+                SpotifyTokenProvider.seedVerifiedToken(
+                    token.accessToken,
+                    token.accessTokenExpirationTimestampMs,
+                )
                 DevConsoleManager.logInfo(
                     "SpotifyLogin",
                     "Login succeeded via $source on attempt ${attempt + 1} (anonymous=${token.isAnonymous})",
@@ -594,13 +636,40 @@ internal fun processLoginSession(
                 if (attempt < 2) delay(750)
             }
         }
-        val finalMsg = lastError?.message ?: "Unable to verify Spotify session"
+
+        // Resilience fallback: if WebView already minted a verified non-anonymous WebPlayer token
+        // inside open.spotify.com's #session JSON, seed it while preserving sp_dc + sp_key.
+        if (fallbackToken != null && !fallbackToken.isAnonymous && fallbackToken.accessToken.isNotBlank()) {
+            SpotifySession.setSpDc(context, spDc, spKey)
+            SpotifyTokenProvider.seedVerifiedToken(
+                fallbackToken.accessToken,
+                fallbackToken.accessTokenExpirationTimestampMs,
+            )
+            DevConsoleManager.logWarning(
+                "SpotifyLogin",
+                "API token exchange failed (${lastError?.message}); recovered using WebView #session bearer token ($source).",
+            )
+            withContext(Dispatchers.Main) {
+                UiSoundEngine.playToggleSound(context, true)
+                setStatus("Signed in via Web session!")
+                setProcessing(false)
+                setError(false)
+                onComplete(true)
+            }
+            delay(280)
+            withContext(Dispatchers.Main) {
+                onSuccess()
+            }
+            return@launch
+        }
+
+        val finalMsg = describeAuthFailure(lastError?.message ?: "Unable to verify Spotify session")
         DevConsoleManager.logError("SpotifyLogin", "Login verification failed ($source): $finalMsg", lastError)
         DevConsoleManager.reportComponentFault(
             component = "SpotifyLogin",
             action = "TokenVerification_$source",
             reason = finalMsg,
-            autoFixHint = "Verify network connectivity, reset WebView cookies, or use Email Code sign-in.",
+            autoFixHint = "Tap Auto-Recover, reset WebView cookies, or use Email Code sign-in.",
             exception = lastError,
         )
         withContext(Dispatchers.Main) {

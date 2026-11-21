@@ -25,12 +25,23 @@ object SpotifyTokenProvider {
     @Volatile
     private var loggedMissingCookieOnce = false
 
+    fun seedVerifiedToken(accessToken: String, expiresAtTimestampMs: Long) {
+        if (accessToken.isBlank()) return
+        Spotify.accessToken = accessToken
+        expiresAtMs = if (expiresAtTimestampMs > System.currentTimeMillis()) {
+            expiresAtTimestampMs
+        } else {
+            System.currentTimeMillis() + 30 * 60_000L
+        }
+    }
+
     suspend fun ensureToken(context: Context): Boolean = mutex.withLock {
         val now = System.currentTimeMillis()
         if (Spotify.accessToken != null && now < expiresAtMs - 60_000L) {
             return@withLock true
         }
         val spDc = SpotifySession.spDc(context)
+        val spKey = SpotifySession.spKey(context)
         if (spDc.isBlank()) {
             Log.w(TAG, "No sp_dc cookie set — Spotify data unavailable")
             if (!loggedMissingCookieOnce) {
@@ -45,12 +56,11 @@ object SpotifyTokenProvider {
         loggedMissingCookieOnce = false
         DevConsoleManager.logInfo(
             TAG,
-            "Refreshing Spotify web bearer token (sp_dc len=${spDc.length})…",
+            "Refreshing Spotify web bearer token (sp_dc len=${spDc.length}, sp_key=${if (spKey.isNotBlank()) "present" else "none"})…",
         )
-        SpotifyAuth.fetchAccessToken(spDc).fold(
+        SpotifyAuth.fetchAccessToken(spDc, spKey).fold(
             onSuccess = { token ->
-                Spotify.accessToken = token.accessToken
-                expiresAtMs = token.accessTokenExpirationTimestampMs
+                seedVerifiedToken(token.accessToken, token.accessTokenExpirationTimestampMs)
                 val ttlSec = ((expiresAtMs - System.currentTimeMillis()) / 1000L).coerceAtLeast(0L)
                 Log.d(TAG, "Spotify token refreshed (ttl=${ttlSec}s)")
                 DevConsoleManager.logInfo(

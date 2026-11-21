@@ -1,19 +1,23 @@
 package com.music.spotui.ui.components
 
-import android.content.Intent
-import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -25,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -35,12 +40,16 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.music.spotui.data.preferences.isAutoDownloadUpdatesEnabled
 import com.music.spotui.data.update.UpdateChecker
+import com.music.spotui.data.update.UpdateDownloader
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
@@ -55,23 +64,90 @@ import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.InstallMobile
 import androidx.compose.material.icons.filled.Refresh
 
 @Composable
 fun UpdatePrompt() {
     val context = LocalContext.current
     var update by remember { mutableStateOf<UpdateChecker.UpdateInfo?>(null) }
+    var autoTriggeredVersion by remember { mutableStateOf<String?>(null) }
+    var autoOpenedInstallerVersion by remember { mutableStateOf<String?>(null) }
+    var installPermissionNeeded by remember { mutableStateOf(false) }
+    var installerErrorMessage by remember { mutableStateOf<String?>(null) }
+    val downloadState by UpdateDownloader.state.collectAsStateWithLifecycle()
+
+    val unknownSourcesLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        if (UpdateDownloader.canRequestPackageInstalls(context)) {
+            installPermissionNeeded = false
+            val completed = downloadState as? UpdateDownloader.DownloadState.Completed
+            if (completed != null) {
+                when (val res = UpdateDownloader.installApk(context, completed)) {
+                    is UpdateDownloader.InstallLaunchResult.Launched -> installerErrorMessage = null
+                    is UpdateDownloader.InstallLaunchResult.PermissionRequired -> installPermissionNeeded = true
+                    is UpdateDownloader.InstallLaunchResult.Failed -> installerErrorMessage = res.reason
+                }
+            }
+        }
+    }
+
+    fun triggerPackageInstaller(completed: UpdateDownloader.DownloadState.Completed) {
+        when (val res = UpdateDownloader.installApk(context, completed)) {
+            is UpdateDownloader.InstallLaunchResult.Launched -> {
+                installPermissionNeeded = false
+                installerErrorMessage = null
+            }
+            is UpdateDownloader.InstallLaunchResult.PermissionRequired -> {
+                installPermissionNeeded = true
+                installerErrorMessage = null
+            }
+            is UpdateDownloader.InstallLaunchResult.Failed -> {
+                installerErrorMessage = res.reason
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         update = UpdateChecker.check(context)
     }
 
     val info = update ?: return
+
+    LaunchedEffect(info.version) {
+        val canAutoDownload = isAutoDownloadUpdatesEnabled(context) &&
+            (info.downloadUrl.endsWith(".apk", ignoreCase = true) ||
+                info.downloadUrl.contains("/releases/", ignoreCase = true))
+        if (canAutoDownload && autoTriggeredVersion != info.version) {
+            autoTriggeredVersion = info.version
+            UpdateDownloader.startDownload(context, info)
+        }
+    }
+
+    LaunchedEffect(downloadState) {
+        val st = downloadState
+        if (st is UpdateDownloader.DownloadState.Completed &&
+            st.version == info.version &&
+            autoOpenedInstallerVersion != info.version
+        ) {
+            autoOpenedInstallerVersion = info.version
+            triggerPackageInstaller(st)
+        }
+    }
+
+    val activeDownloadForVersion = when (val st = downloadState) {
+        is UpdateDownloader.DownloadState.Downloading -> st.version == info.version
+        is UpdateDownloader.DownloadState.Verifying -> st.version == info.version
+        is UpdateDownloader.DownloadState.Completed -> st.version == info.version
+        is UpdateDownloader.DownloadState.Failed -> st.version == info.version
+        else -> false
+    }
 
     AlertDialog(
         onDismissRequest = { update = null },
@@ -141,6 +217,16 @@ fun UpdatePrompt() {
                         }
                     }
                 }
+
+                if (activeDownloadForVersion) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    InAppUpdateStatusCard(
+                        state = downloadState,
+                        installPermissionNeeded = installPermissionNeeded,
+                        installerErrorMessage = installerErrorMessage,
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(10.dp))
                 if (info.releaseBody.isNotBlank()) {
                     RenderMarkdown(info.releaseBody)
@@ -154,16 +240,78 @@ fun UpdatePrompt() {
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                com.music.spotui.audio.UiSoundEngine.playTapChime(context)
-                runCatching {
-                    context.startActivity(
-                        Intent(Intent.ACTION_VIEW, Uri.parse(info.downloadUrl))
-                    )
+            when (val st = downloadState) {
+                is UpdateDownloader.DownloadState.Completed if st.version == info.version -> {
+                    Button(
+                        onClick = {
+                            com.music.spotui.audio.UiSoundEngine.playTapChime(context)
+                            if (!UpdateDownloader.canRequestPackageInstalls(context)) {
+                                unknownSourcesLauncher.launch(
+                                    UpdateDownloader.buildUnknownAppSourcesIntent(context, newTask = false),
+                                )
+                            } else {
+                                triggerPackageInstaller(st)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF1DB954),
+                            contentColor = Color.Black,
+                        ),
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("update_install_apk_button"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.InstallMobile,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = if (installPermissionNeeded) "Allow & Install" else "Install Update",
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
                 }
-                update = null
-            }) {
-                Text("Download APK", color = Color(0xFF1DB954), fontWeight = FontWeight.Bold)
+                is UpdateDownloader.DownloadState.Downloading if st.version == info.version -> {
+                    TextButton(
+                        onClick = {
+                            com.music.spotui.audio.UiSoundEngine.playTapChime(context)
+                            UpdateDownloader.cancelDownload(context)
+                        },
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("update_cancel_download_button"),
+                    ) {
+                        Text("Cancel Download", color = Color(0xFFFF7A59), fontWeight = FontWeight.Bold)
+                    }
+                }
+                is UpdateDownloader.DownloadState.Verifying if st.version == info.version -> {
+                    TextButton(onClick = {}, enabled = false) {
+                        Text("Verifying…", color = Color(0xFF9ED4FF))
+                    }
+                }
+                else -> {
+                    Button(
+                        onClick = {
+                            com.music.spotui.audio.UiSoundEngine.playTapChime(context)
+                            autoOpenedInstallerVersion = null
+                            UpdateDownloader.startDownload(context, info, force = true)
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF1DB954),
+                            contentColor = Color.Black,
+                        ),
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("update_download_in_app_button"),
+                    ) {
+                        Text(
+                            text = if (downloadState is UpdateDownloader.DownloadState.Failed) "Retry In-App" else "Download & Install",
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
             }
         },
         dismissButton = {
@@ -174,10 +322,123 @@ fun UpdatePrompt() {
                 Text("Don't show again", color = Color(0xFFB3B3B3))
             }
             TextButton(onClick = { update = null }) {
-                Text("Dismiss", color = Color.White)
+                Text(
+                    if (downloadState is UpdateDownloader.DownloadState.Downloading) "Hide" else "Dismiss",
+                    color = Color.White,
+                )
             }
         },
     )
+}
+
+@Composable
+private fun InAppUpdateStatusCard(
+    state: UpdateDownloader.DownloadState,
+    installPermissionNeeded: Boolean,
+    installerErrorMessage: String?,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF191D26)),
+        shape = RoundedCornerShape(10.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            when (state) {
+                is UpdateDownloader.DownloadState.Downloading -> {
+                    val pctText = if (state.progressFraction >= 0f) {
+                        "${(state.progressFraction * 100).toInt()}%"
+                    } else "Streaming…"
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("Downloading update inside app…", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(pctText, color = Color(0xFF1DB954), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                    if (state.progressFraction >= 0f) {
+                        LinearProgressIndicator(
+                            progress = { state.progressFraction },
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)),
+                            color = Color(0xFF1DB954),
+                            trackColor = Color(0xFF2B303D),
+                        )
+                    } else {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)),
+                            color = Color(0xFF1DB954),
+                            trackColor = Color(0xFF2B303D),
+                        )
+                    }
+                    val totalStr = if (state.totalBytes > 0L) " / ${UpdateDownloader.formatBytes(state.totalBytes)}" else ""
+                    val eta = UpdateDownloader.formatEta(state.etaSeconds)
+                    val etaPart = if (eta.isNotBlank()) " · $eta" else ""
+                    Text(
+                        text = "${UpdateDownloader.formatBytes(state.downloadedBytes)}$totalStr · ${UpdateDownloader.formatSpeed(state.speedBytesPerSec)}$etaPart",
+                        color = Color(0xFFB3B8C4),
+                        fontSize = 11.sp,
+                    )
+                }
+                is UpdateDownloader.DownloadState.Verifying -> {
+                    Text("Verifying APK integrity & SHA-256…", color = Color(0xFF9ED4FF), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)),
+                        color = Color(0xFF9ED4FF),
+                        trackColor = Color(0xFF2B303D),
+                    )
+                }
+                is UpdateDownloader.DownloadState.Completed -> {
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = Color(0xFF1DB954),
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = if (state.sha256Verified == true) "Ready to Install (SHA-256 Verified)" else "Ready to Install (APK Verified)",
+                            color = Color(0xFF1DB954),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    Text(
+                        text = "Android updates in-place over your current SpotUI install while keeping your library & settings. Backup copy saved in ${state.savedDisplayPath}.",
+                        color = Color(0xFFD0D5E0),
+                        fontSize = 11.sp,
+                    )
+                    if (installPermissionNeeded) {
+                        Text(
+                            text = "Tap 'Allow & Install' and enable 'Allow from this source' once — Android Package Installer will open immediately on return.",
+                            color = Color(0xFFFFD54F),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    if (!installerErrorMessage.isNullOrBlank()) {
+                        Text(
+                            text = installerErrorMessage,
+                            color = Color(0xFFFF7A59),
+                            fontSize = 11.sp,
+                        )
+                    }
+                    Text(
+                        text = "SHA-256: ${state.computedSha256.take(24)}…",
+                        color = Color(0xFF9ED4FF),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
+                    )
+                }
+                is UpdateDownloader.DownloadState.Failed -> {
+                    Text("In-app download failed: ${state.reason}", color = Color(0xFFFF7A59), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
+                else -> Unit
+            }
+        }
+    }
 }
 
 @Composable

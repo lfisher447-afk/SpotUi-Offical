@@ -53,6 +53,14 @@ private data class PatchNoteItem(
 
 private val v25IssuesFixed = listOf(
     PatchNoteItem(
+        title = "Spotify WebView Login HTTP 402 / 400 & Gist Rate-Limit Failures",
+        detail = "Fixed password-login URL hints, added 1-tap Auto-Recover UA & cookie cycling for HTTP 402/400/403 risk challenges, cached TOTP secrets with raw Gist fallback, and added #session fallback token extraction.",
+    ),
+    PatchNoteItem(
+        title = "Bluetooth False-Positive SCO Call Mode & Route Probe Log Spam",
+        detail = "Fixed dual-profile Bluetooth headsets (A2DP + HFP) flagging 'SCO Call' when media A2DP was active, added real SCO communication-device release, and eliminated duplicate BT probe log entries.",
+    ),
+    PatchNoteItem(
         title = "Spotify Login \"Incorrect Password\" & Native Redirect Bug",
         detail = "Fixed an issue where spoofing a Windows Desktop Chrome User-Agent inside Android WebView triggered Spotify's anti-bot heuristic ('Incorrect username or password' on valid accounts), and Native Login discarded credentials instead of auto-filling.",
     ),
@@ -84,6 +92,14 @@ private val v25IssuesFixed = listOf(
 
 private val v25Improvements = listOf(
     PatchNoteItem(
+        title = "Automatic In-App Update Downloader + Package Installer",
+        detail = "Downloads GitHub Release APKs inside SpotUI with live MB/s speed, ETA, inline SHA-256 & PK header verification, and automatically opens the Android Package Installer for an in-place upgrade.",
+    ),
+    PatchNoteItem(
+        title = "Hardened WebView Spotify Auth + #session Token Bridge",
+        detail = "Strips legacy password-endpoint query hints, adds OAuth/main WebView HTTP 402/400 Auto-Recover cycling, passes sp_key in token minting, and seeds verified WebView session tokens seamlessly.",
+    ),
+    PatchNoteItem(
         title = "Authentic Android Chrome Auth + Email Code + Live Logs",
         detail = "Made Spotify sign-in reliable without external cookie extensions -> How it works: strips '; wv' from your real device Chromium UA, supports OAuth popups & 1-tap Email Code login, parses Cookie-Editor JSON, and logs HTTP/DOM/Token faults live inside Sign In.",
     ),
@@ -107,15 +123,11 @@ private val v25Improvements = listOf(
         title = "Tactile UI Sound Engine & Auto-Location Home Clock",
         detail = "Made navigation, switches, sliders & home feel alive -> How it works: synthesizes low-latency PCM tab/toggle/slider chimes via SONIFICATION audio focus and ticks your local timezone clock live on Home.",
     ),
-    PatchNoteItem(
-        title = "Release APK & SHA-256 Verifier Updater",
-        detail = "Made app updates transparent & verifiable -> How it works: inspects the GitHub Release APK filename, size in MB, and `.sha256` integrity digest in-app before launching your browser download.",
-    ),
 )
 
 /**
  * First-login / post-update "What's New & Patch Notes" UI modal displaying explicit root-cause
- * fixes and feature improvements for SpotUI v2.5.0.
+ * fixes and feature improvements for SpotUI v2.5.1.
  */
 @Composable
 fun PatchNotesDialog(

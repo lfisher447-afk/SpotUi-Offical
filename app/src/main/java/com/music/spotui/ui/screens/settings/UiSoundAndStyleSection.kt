@@ -42,6 +42,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.music.spotui.BuildConfig
 import com.music.spotui.audio.UiSoundEngine
 import com.music.spotui.data.preferences.ExperiencePreferences
 import com.music.spotui.data.preferences.PlayerUiStyle
@@ -330,7 +331,7 @@ fun UiSoundAndStyleSection(
                 modifier = Modifier.size(18.dp),
             )
             Spacer(Modifier.width(8.dp))
-            Text("View v2.5.0 What's New & Patch Notes", fontWeight = FontWeight.Bold)
+            Text("View v${BuildConfig.VERSION_NAME.removeSuffix("-debug")} What's New & Patch Notes", fontWeight = FontWeight.Bold)
         }
     }
 }

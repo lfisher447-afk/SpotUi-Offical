@@ -98,9 +98,13 @@ import com.music.spotui.data.preferences.setVideoFallbackEnabled
 import com.music.spotui.data.preferences.setWebPlaybackEnabled
 import com.music.spotui.data.preferences.setWifiQuality
 import com.music.spotui.data.preferences.getUpdateRepoUrl
+import com.music.spotui.data.preferences.isAutoDownloadUpdatesEnabled
+import com.music.spotui.data.preferences.setAutoDownloadUpdatesEnabled
 import com.music.spotui.data.preferences.setUpdateRepoUrl
 import com.music.spotui.data.preferences.resetUpdateRepoUrl
 import com.music.spotui.data.preferences.DEFAULT_UPDATE_REPO_URL
+import com.music.spotui.data.update.UpdateDownloader
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.width
@@ -265,7 +269,51 @@ fun SettingsScreen(navController: NavController) {
     var manualUpdateBusy by remember { mutableStateOf(false) }
     var manualUpdateStatus by remember { mutableStateOf("") }
     var manualUpdateInfo by remember { mutableStateOf<UpdateChecker.UpdateInfo?>(null) }
+    var autoDownloadUpdates by remember { mutableStateOf(isAutoDownloadUpdatesEnabled(context)) }
+    val updateDownloadState by UpdateDownloader.state.collectAsStateWithLifecycle()
+    var settingsAutoOpenedVersion by remember { mutableStateOf<String?>(null) }
+    var settingsInstallPermNeeded by remember { mutableStateOf(false) }
+    var settingsInstallError by remember { mutableStateOf<String?>(null) }
     var showPatchNotesModal by remember { mutableStateOf(false) }
+
+    val settingsUnknownSourcesLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        if (UpdateDownloader.canRequestPackageInstalls(context)) {
+            settingsInstallPermNeeded = false
+            val completed = updateDownloadState as? UpdateDownloader.DownloadState.Completed
+            if (completed != null) {
+                when (val res = UpdateDownloader.installApk(context, completed)) {
+                    is UpdateDownloader.InstallLaunchResult.Launched -> settingsInstallError = null
+                    is UpdateDownloader.InstallLaunchResult.PermissionRequired -> settingsInstallPermNeeded = true
+                    is UpdateDownloader.InstallLaunchResult.Failed -> settingsInstallError = res.reason
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(updateDownloadState) {
+        val st = updateDownloadState
+        if (st is UpdateDownloader.DownloadState.Completed &&
+            manualUpdateInfo?.version == st.version &&
+            settingsAutoOpenedVersion != st.version
+        ) {
+            settingsAutoOpenedVersion = st.version
+            when (val res = UpdateDownloader.installApk(context, st)) {
+                is UpdateDownloader.InstallLaunchResult.Launched -> {
+                    settingsInstallPermNeeded = false
+                    settingsInstallError = null
+                }
+                is UpdateDownloader.InstallLaunchResult.PermissionRequired -> {
+                    settingsInstallPermNeeded = true
+                    settingsInstallError = null
+                }
+                is UpdateDownloader.InstallLaunchResult.Failed -> {
+                    settingsInstallError = res.reason
+                }
+            }
+        }
+    }
     var uiAndStyleExpanded by rememberSaveable { mutableStateOf(true) }
     var moduleLibsExpanded by rememberSaveable { mutableStateOf(true) }
 
@@ -2382,6 +2430,15 @@ fun SettingsScreen(navController: NavController) {
                 color = Color(0xFFB3B3B3),
                 fontSize = 12.sp,
             )
+            Spacer(Modifier.height(6.dp))
+            SettingsSwitchRow(
+                title = "Auto-download updates in-app",
+                subtitle = "Streams GitHub Release APKs inside SpotUI, verifies SHA-256, and opens Android Package Installer automatically",
+                checked = autoDownloadUpdates,
+            ) {
+                autoDownloadUpdates = it
+                setAutoDownloadUpdatesEnabled(context, it)
+            }
             Spacer(Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -2400,7 +2457,12 @@ fun SettingsScreen(navController: NavController) {
                                 when (val result = UpdateChecker.checkManual(context)) {
                                     is UpdateChecker.ManualCheckResult.UpdateAvailable -> {
                                         manualUpdateInfo = result.info
-                                        manualUpdateStatus = "New version v${result.info.version} available on GitHub!"
+                                        if (autoDownloadUpdates) {
+                                            manualUpdateStatus = "Found v${result.info.version} — downloading in-app…"
+                                            UpdateDownloader.startDownload(context, result.info)
+                                        } else {
+                                            manualUpdateStatus = "New version v${result.info.version} available on GitHub!"
+                                        }
                                     }
                                     is UpdateChecker.ManualCheckResult.UpToDate -> {
                                         manualUpdateInfo = null
@@ -2444,7 +2506,7 @@ fun SettingsScreen(navController: NavController) {
                     Text("GitHub Releases", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
-            if (manualUpdateStatus.isNotBlank()) {
+            if (manualUpdateStatus.isNotBlank() || updateDownloadState !is UpdateDownloader.DownloadState.Idle) {
                 Spacer(Modifier.height(6.dp))
                 Column(
                     modifier = Modifier
@@ -2454,30 +2516,175 @@ fun SettingsScreen(navController: NavController) {
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(
-                            manualUpdateStatus,
-                            color = if (manualUpdateInfo != null) Color(0xFF81C784) else Color(0xFFD0D6E0),
-                            fontSize = 12.sp,
-                            modifier = Modifier.weight(1f),
-                        )
-                        manualUpdateInfo?.let { info ->
-                            TextButton(
-                                modifier = Modifier.heightIn(min = 48.dp),
-                                onClick = {
-                                    UiSoundEngine.playTapChime(context)
-                                    runCatching {
-                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(info.downloadUrl)))
-                                    }
-                                },
-                            ) {
-                                Text("Download APK", color = AppPalette, fontWeight = FontWeight.Bold)
+                    if (manualUpdateStatus.isNotBlank()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                manualUpdateStatus,
+                                color = if (manualUpdateInfo != null) Color(0xFF81C784) else Color(0xFFD0D6E0),
+                                fontSize = 12.sp,
+                                modifier = Modifier.weight(1f),
+                            )
+                            manualUpdateInfo?.let { info ->
+                                val isDownloadingThis = updateDownloadState is UpdateDownloader.DownloadState.Downloading &&
+                                    (updateDownloadState as UpdateDownloader.DownloadState.Downloading).version == info.version
+                                TextButton(
+                                    modifier = Modifier.heightIn(min = 48.dp),
+                                    onClick = {
+                                        UiSoundEngine.playTapChime(context)
+                                        if (isDownloadingThis) {
+                                            UpdateDownloader.cancelDownload(context)
+                                        } else {
+                                            UpdateDownloader.startDownload(context, info, force = true)
+                                        }
+                                    },
+                                ) {
+                                    Text(
+                                        if (isDownloadingThis) "Cancel" else "Download In-App",
+                                        color = if (isDownloadingThis) Color(0xFFFF7A59) else AppPalette,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
                             }
                         }
+                    }
+                    when (val dlState = updateDownloadState) {
+                        is UpdateDownloader.DownloadState.Downloading -> {
+                            val pct = if (dlState.progressFraction >= 0f) "${(dlState.progressFraction * 100).toInt()}%" else "…"
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text("In-App Download: ${dlState.fileName}", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                                Text(pct, color = AppPalette, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            if (dlState.progressFraction >= 0f) {
+                                LinearProgressIndicator(
+                                    progress = { dlState.progressFraction },
+                                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)),
+                                    color = AppPalette,
+                                    trackColor = Color(0xFF2B2D36),
+                                )
+                            } else {
+                                LinearProgressIndicator(
+                                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)),
+                                    color = AppPalette,
+                                    trackColor = Color(0xFF2B2D36),
+                                )
+                            }
+                            val totalStr = if (dlState.totalBytes > 0L) " / ${UpdateDownloader.formatBytes(dlState.totalBytes)}" else ""
+                            val eta = UpdateDownloader.formatEta(dlState.etaSeconds)
+                            Text(
+                                text = "${UpdateDownloader.formatBytes(dlState.downloadedBytes)}$totalStr · ${UpdateDownloader.formatSpeed(dlState.speedBytesPerSec)}${if (eta.isNotBlank()) " · $eta" else ""}",
+                                color = Color(0xFF9EA5B5),
+                                fontSize = 11.sp,
+                            )
+                        }
+                        is UpdateDownloader.DownloadState.Verifying -> {
+                            Text("Verifying ${dlState.fileName} SHA-256 & APK header…", color = Color(0xFF9ED4FF), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)),
+                                color = Color(0xFF9ED4FF),
+                                trackColor = Color(0xFF2B2D36),
+                            )
+                        }
+                        is UpdateDownloader.DownloadState.Completed -> {
+                            Text(
+                                text = if (dlState.sha256Verified == true) {
+                                    "✓ v${dlState.version} ready to install (SHA-256 verified)"
+                                } else {
+                                    "✓ v${dlState.version} ready to install (APK verified)"
+                                },
+                                color = Color(0xFF81C784),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                text = "Installs in-place over your current SpotUI install while keeping your library. Backup copy: ${dlState.savedDisplayPath} (${UpdateDownloader.formatBytes(dlState.sizeBytes)}).",
+                                color = Color(0xFFD0D6E0),
+                                fontSize = 11.sp,
+                            )
+                            if (settingsInstallPermNeeded) {
+                                Text(
+                                    text = "Enable 'Allow from this source' once — Android Package Installer will open automatically right after.",
+                                    color = Color(0xFFFFD54F),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                            if (!settingsInstallError.isNullOrBlank()) {
+                                Text(
+                                    text = settingsInstallError!!,
+                                    color = Color(0xFFFF7A59),
+                                    fontSize = 11.sp,
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                TextButton(
+                                    modifier = Modifier.heightIn(min = 48.dp),
+                                    onClick = {
+                                        UiSoundEngine.playTapChime(context)
+                                        if (!UpdateDownloader.canRequestPackageInstalls(context)) {
+                                            settingsUnknownSourcesLauncher.launch(
+                                                UpdateDownloader.buildUnknownAppSourcesIntent(context, newTask = false),
+                                            )
+                                        } else {
+                                            when (val res = UpdateDownloader.installApk(context, dlState)) {
+                                                is UpdateDownloader.InstallLaunchResult.Launched -> {
+                                                    settingsInstallPermNeeded = false
+                                                    settingsInstallError = null
+                                                }
+                                                is UpdateDownloader.InstallLaunchResult.PermissionRequired -> {
+                                                    settingsInstallPermNeeded = true
+                                                }
+                                                is UpdateDownloader.InstallLaunchResult.Failed -> {
+                                                    settingsInstallError = res.reason
+                                                }
+                                            }
+                                        }
+                                    },
+                                ) {
+                                    Text(
+                                        if (settingsInstallPermNeeded) "Allow & Install" else "Install Update",
+                                        color = AppPalette,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                                TextButton(
+                                    modifier = Modifier.heightIn(min = 48.dp),
+                                    onClick = {
+                                        UiSoundEngine.playTapChime(context)
+                                        UpdateDownloader.openDownloadsFolder(context)
+                                    },
+                                ) {
+                                    Text("Downloads", color = Color(0xFFD0D6E0), fontSize = 11.sp)
+                                }
+                                Text(
+                                    text = "SHA: ${dlState.computedSha256.take(12)}…",
+                                    color = Color(0xFF9ED4FF),
+                                    fontSize = 10.sp,
+                                    modifier = Modifier.clickable {
+                                        val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                        cm.setPrimaryClip(android.content.ClipData.newPlainText("SpotUI SHA256", dlState.computedSha256))
+                                        android.widget.Toast.makeText(context, "SHA-256 digest copied", android.widget.Toast.LENGTH_SHORT).show()
+                                    },
+                                )
+                            }
+                        }
+                        is UpdateDownloader.DownloadState.Failed -> {
+                            Text("In-app download failed: ${dlState.reason}", color = Color(0xFFFF7A59), fontSize = 11.sp)
+                        }
+                        is UpdateDownloader.DownloadState.Cancelled -> {
+                            Text("In-app update download cancelled.", color = Color(0xFFB3B3B3), fontSize = 11.sp)
+                        }
+                        UpdateDownloader.DownloadState.Idle -> Unit
                     }
                     manualUpdateInfo?.let { info ->
                         if (info.apkFileName.isNotBlank() || info.expectedSha256.isNotBlank()) {
@@ -2523,7 +2730,7 @@ fun SettingsScreen(navController: NavController) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Roadmap & Update Master Plan", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
-                    Text("View complete release history and version changelogs (v1.5.1 through v2.5.0)", color = Color(0xFFB3B3B3), fontSize = 12.sp)
+                    Text("View complete release history and version changelogs (v1.5.1 through v2.5.1)", color = Color(0xFFB3B3B3), fontSize = 12.sp)
                 }
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.OpenInNew,

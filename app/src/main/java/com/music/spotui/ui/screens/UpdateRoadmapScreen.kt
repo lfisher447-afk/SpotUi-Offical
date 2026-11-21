@@ -41,7 +41,7 @@ private data class ReleaseEntry(
     val details: String,
 )
 
-private const val ROADMAP_INTEGRATION_DATE = "2026-11-22"
+private const val ROADMAP_INTEGRATION_DATE = "2026-11-23"
 
 private val releaseHistory = listOf(
     ReleaseEntry("1.5.1", "Timed lyrics foundation", "Added corrected LRC timestamp parsing and sorted millisecond lyric streams."),
@@ -94,6 +94,7 @@ private val releaseHistory = listOf(
     ReleaseEntry("2.3.0", "Thanksgiving Harvest Update — One UI 9 / Android 17 Media3, Bluetooth 3D Spatial, Music/spotui Export & Countdown", "Eliminated ForegroundServiceDidNotStartInTimeException via synchronous placeholder startForeground promotion in PlaybackService; routed 3D Spatial Soundstage + HRTF crossfeed + 7-band EQ exclusively through ExoPlayer float/PCM AudioProcessors when Bluetooth or software DSP is active so BT headsets never mute; fixed MediaStore Downloads export to Music/spotui with auto-export on completion, per-track export, and storage telemetry; added live Thanksgiving Countdown Banner on Home and custom Thanksgiving adaptive & monochrome themed launcher icons."),
     ReleaseEntry("2.4.0", "Pro Audio DSP, Non-OS In-App Volume, Offline Download Playback, Exit Mini-Notification & Native YouTube Sync", "Fixed offline downloaded track playback across FLAC/M4A/Opus/WebM/MP3 with SimpleCache bypass, CBR extractor seeking, state ordering repair, and Play All / Shuffle / Verify & Repair controls; added a persistent 0–100% In-App Volume slider in Player & Audio DSP that adjusts internal gain without touching Android OS media volume; rebuilt 3D Spatial Soundstage + EQ/Crossfeed processors for 16/24/32-bit/Float PCM with loudness-preserving HRTF binaural widening, mid-track offload-to-PCM switching, and live PCM telemetry; added background Exit Play/Pause Mini-Notification controlled strictly via PendingIntent broadcasts without launching the app; upgraded native YouTube Music sync to paginate all playlists, Liked Music (LM), and saved albums directly into Library & Album screens with automatic UI refresh."),
     ReleaseEntry("2.5.0", "Expressive Experience, 10-Module Suite, Multi-MB/s NovaAc, BT Fault Inspector & Tactile UI Audio", "Introduced the New Expressive SongPlay UI v2.5 with a live Legacy Classic UI toggle in Advanced Settings; added Tactile UI Sound Engine (tab, toggle & slider PCM chimes); added first-login & post-update v2.5.0 Patch Notes showcase detailing issues found and fixed; added an auto-timezone live Home Clock card; wired and exposed all 10 modules/app/libs submodules (Spotify, InnerTube, LRCLIB, BetterLyrics, KuGou, SimpMusic, Paxsenix, Last.fm Scrobbler, ShazamKit, Fastlane) in Advanced Settings; upgraded DevConsoleManager with automated component/button fault logging, 20-point SystemHealthChecker, and live Bluetooth A2DP/BLE/SCO codec & conflict diagnostics; fixed Search screen direct Add-to-Playlist for all tracks; rewrote NovaAc Fast Mode to 4 MiB buffers, 2 MiB AEAD frames & zero-deflate multi-MB/s streaming; and added SHA-256 release asset verification metadata in the updater."),
+    ReleaseEntry("2.5.1", "In-App Auto-Update Downloader + Android Package Installer, Spotify Login HTTP 402/400 Hardening & Bluetooth SCO/A2DP Fix", "Replaced external browser APK redirects with a direct in-app OkHttp release downloader featuring live MB/s telemetry, ETA, inline SHA-256 + PK header verification, FileProvider-backed Android Package Installer in-place upgrades, and Downloads/SpotUI backup export; fixed dual-profile Bluetooth A2DP vs HFP/SCO detection & duplicate probe logs; hardened Spotify WebView login against HTTP 402/400 challenges with clean login URL loading, OAuth/Main HTTP error recovery cycling, TOTP Nuance caching + raw Gist mirror fallback, sp_key token minting, and verified #session token seeding."),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -131,7 +132,7 @@ fun UpdateRoadmapScreen(navController: NavController) {
                 Text("Sequential release integration", color = AppPalette, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "Every release entry from 1.5.1 to 2.5.0 is recorded below. Entries were updated on $ROADMAP_INTEGRATION_DATE.",
+                    "Every release entry from 1.5.1 to 2.5.1 is recorded below. Entries were updated on $ROADMAP_INTEGRATION_DATE.",
                     color = Color(0xFFCACAD2),
                     fontSize = 13.sp,
                     lineHeight = 18.sp,

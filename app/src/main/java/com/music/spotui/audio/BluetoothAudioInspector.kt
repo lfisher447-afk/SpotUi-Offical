@@ -68,30 +68,120 @@ object BluetoothAudioInspector {
         val appCausedIssueCount: Int get() = conflicts.count { it.causedBySpotui && it.severity != CheckSeverity.OK }
     }
 
-    suspend fun inspect(context: Context): BluetoothSpecsReport {
+    @Volatile private var lastLoggedSummary: String? = null
+    @Volatile private var lastLoggedAtMs: Long = 0L
+    private const val BT_LOG_MIN_INTERVAL_MS = 30_000L
+
+    private fun isMediaBluetoothType(type: Int): Boolean =
+        type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+            type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+            type == AudioDeviceInfo.TYPE_BLE_SPEAKER ||
+            type == AudioDeviceInfo.TYPE_BLE_BROADCAST ||
+            type == AudioDeviceInfo.TYPE_HEARING_AID
+
+    private fun isWiredOrUsbType(type: Int): Boolean =
+        type == AudioDeviceInfo.TYPE_USB_HEADSET ||
+            type == AudioDeviceInfo.TYPE_USB_DEVICE ||
+            type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+            type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES
+
+    /**
+     * Releases any stale HFP/SCO or communication device lock (without interrupting an active
+     * cellular call) and restores standard USAGE_MEDIA A2DP audio focus + DSP routing.
+     */
+    fun releaseScoAndRestoreA2dp(context: Context): String {
+        val appCtx = context.applicationContext
+        val am = appCtx.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        if (am != null) {
+            val currentMode = runCatching { am.mode }.getOrDefault(AudioManager.MODE_NORMAL)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                runCatching { am.clearCommunicationDevice() }
+            }
+            runCatching {
+                @Suppress("DEPRECATION")
+                if (am.isBluetoothScoOn) {
+                    am.stopBluetoothSco()
+                    am.isBluetoothScoOn = false
+                }
+            }
+            if (currentMode == AudioManager.MODE_IN_COMMUNICATION) {
+                runCatching { am.mode = AudioManager.MODE_NORMAL }
+            }
+        }
+        SongPlayer.refreshAudioFocusPolicy(appCtx)
+        SongPlayer.refreshAudioEffects(appCtx)
+        return "Cleared SCO/Communication device lock and restored standard MEDIA A2DP focus."
+    }
+
+    suspend fun inspect(context: Context, forceLog: Boolean = false): BluetoothSpecsReport {
         val appCtx = context.applicationContext
         val am = appCtx.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
         val route = AudioEffectController.refreshOutputRoute(appCtx)
         val caps = AudioEffectController.capabilityReport()
         val devices = runCatching { am?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)?.toList().orEmpty() }.getOrElse { emptyList() }
 
-        val btAudioDevice = devices.firstOrNull { d ->
-            d.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
-                d.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
-                d.type == AudioDeviceInfo.TYPE_BLE_SPEAKER ||
-                d.type == AudioDeviceInfo.TYPE_BLE_BROADCAST ||
-                d.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                d.type == AudioDeviceInfo.TYPE_HEARING_AID
+        val routedMediaDevices = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && am != null) {
+            runCatching {
+                val mediaAttrs = android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build()
+                am.getAudioDevicesForAttributes(mediaAttrs)
+            }.getOrNull().orEmpty()
+        } else {
+            emptyList()
         }
 
-        val primaryDevice = btAudioDevice
-            ?: devices.firstOrNull {
-                it.type == AudioDeviceInfo.TYPE_USB_HEADSET ||
-                    it.type == AudioDeviceInfo.TYPE_USB_DEVICE ||
-                    it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
-                    it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES
-            }
-            ?: devices.firstOrNull()
+        val audioMode = runCatching { am?.mode ?: AudioManager.MODE_NORMAL }.getOrDefault(AudioManager.MODE_NORMAL)
+        @Suppress("DEPRECATION")
+        val scoLegacyOn = runCatching { am?.isBluetoothScoOn == true }.getOrDefault(false)
+        val commDeviceIsSco = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && am != null) {
+            runCatching { am.communicationDevice?.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }.getOrDefault(false)
+        } else {
+            false
+        }
+        val inVoiceOrCommMode = audioMode == AudioManager.MODE_IN_CALL ||
+            audioMode == AudioManager.MODE_IN_COMMUNICATION ||
+            audioMode == AudioManager.MODE_RINGTONE
+
+        // Never pick TYPE_BLUETOOTH_SCO simply because getDevices() listed it before TYPE_BLUETOOTH_A2DP.
+        val routedMediaBt = routedMediaDevices.firstOrNull { isMediaBluetoothType(it.type) }
+        val routedMediaSco = routedMediaDevices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
+        val routedWired = routedMediaDevices.firstOrNull { isWiredOrUsbType(it.type) }
+
+        val mediaBtDevice = routedMediaBt ?: devices.firstOrNull { isMediaBluetoothType(it.type) }
+        val scoDevice = routedMediaSco ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
+
+        val routedStrictlyToSco = routedMediaDevices.isNotEmpty() &&
+            routedMediaSco != null &&
+            routedMediaBt == null &&
+            routedWired == null &&
+            routedMediaDevices.none { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+
+        val isActuallyUsingScoForMedia = scoDevice != null && (
+            routedStrictlyToSco ||
+                (mediaBtDevice == null && routedWired == null && routedMediaDevices.none { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }) ||
+                scoLegacyOn ||
+                commDeviceIsSco ||
+                inVoiceOrCommMode
+            )
+
+        val btAudioDevice = when {
+            isActuallyUsingScoForMedia && (routedStrictlyToSco || mediaBtDevice == null || commDeviceIsSco || scoLegacyOn) -> scoDevice
+            mediaBtDevice != null -> mediaBtDevice
+            isActuallyUsingScoForMedia -> scoDevice
+            else -> null
+        }
+
+        val primaryDevice = when {
+            routedMediaBt != null -> routedMediaBt
+            routedStrictlyToSco -> routedMediaSco
+            routedWired != null -> routedWired
+            btAudioDevice != null -> btAudioDevice
+            else -> devices.firstOrNull { isWiredOrUsbType(it.type) }
+                ?: routedMediaDevices.firstOrNull()
+                ?: devices.firstOrNull()
+        }
 
         val hasBtPerm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             ContextCompat.checkSelfPermission(appCtx, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
@@ -187,19 +277,22 @@ object BluetoothAudioInspector {
             )
         }
 
-        if (btAudioDevice?.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) {
+        if (isActuallyUsingScoForMedia) {
+            val modeDetail = when {
+                audioMode == AudioManager.MODE_IN_CALL -> "An active phone call holds OS call audio focus."
+                audioMode == AudioManager.MODE_IN_COMMUNICATION -> "Another VoIP/call app holds MODE_IN_COMMUNICATION."
+                commDeviceIsSco || scoLegacyOn -> "Android Communication Device / SCO channel is locked ON."
+                mediaBtDevice == null -> "Headset connected with HFP/SCO hands-free profile only (no A2DP media sink)."
+                else -> "Android is routing media over hands-free SCO (8–16 kHz mono)."
+            }
             conflicts += BluetoothConflict(
                 id = "bt_sco_active",
                 title = "Headset stuck in low-bandwidth HFP/SCO call mode",
                 severity = CheckSeverity.WARNING,
                 causedBySpotui = false,
-                explanation = "Android is routing media over hands-free SCO (8–16 kHz mono). Another app or active call may hold Communication focus.",
+                explanation = "$modeDetail Tap Reset Audio Focus to clear stale SCO routing.",
                 fixLabel = "Reset Audio Focus",
-                applyFix = { ctx ->
-                    SongPlayer.refreshAudioFocusPolicy(ctx)
-                    SongPlayer.refreshAudioEffects(ctx)
-                    "Requested standard MEDIA A2DP audio focus."
-                },
+                applyFix = { ctx -> releaseScoAndRestoreA2dp(ctx) },
             )
         }
 
@@ -324,7 +417,15 @@ object BluetoothAudioInspector {
             "${report.activeOutputType} · ${report.sampleRateKhz}"
         }
         DevConsoleManager.updateDiagnostics { copy(bluetoothSummary = summary) }
-        DevConsoleManager.logBluetoothDiagnostic("BT/Audio route probe: $summary")
+        val now = System.currentTimeMillis()
+        val shouldLog = forceLog ||
+            summary != lastLoggedSummary ||
+            (now - lastLoggedAtMs) >= BT_LOG_MIN_INTERVAL_MS
+        if (shouldLog) {
+            lastLoggedSummary = summary
+            lastLoggedAtMs = now
+            DevConsoleManager.logBluetoothDiagnostic("BT/Audio route probe: $summary")
+        }
         return report
     }
 

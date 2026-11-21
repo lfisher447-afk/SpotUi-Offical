@@ -459,9 +459,14 @@ fun setCustomLosslessMirrorUrl(c: Context, url: String) {
 }
 
 private const val KEY_STABLE_UPDATES_ONLY = "update_stable_only"
+private const val KEY_AUTO_DOWNLOAD_UPDATES = "update_auto_download_in_app"
 fun isStableUpdatesOnly(c: Context): Boolean = prefs(c).getBoolean(KEY_STABLE_UPDATES_ONLY, true)
 fun setStableUpdatesOnly(c: Context, value: Boolean) =
     prefs(c).edit().putBoolean(KEY_STABLE_UPDATES_ONLY, value).apply()
+
+fun isAutoDownloadUpdatesEnabled(c: Context): Boolean = prefs(c).getBoolean(KEY_AUTO_DOWNLOAD_UPDATES, true)
+fun setAutoDownloadUpdatesEnabled(c: Context, value: Boolean) =
+    prefs(c).edit().putBoolean(KEY_AUTO_DOWNLOAD_UPDATES, value).apply()
 
 // ── Extended Equalizer, Preamp, Limiter & Spatial DSP Preferences ──
 private const val KEY_EQ_ENABLED = "audio_eq_enabled"

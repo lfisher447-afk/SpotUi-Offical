@@ -105,7 +105,9 @@ private fun resolveExpressiveRouteName(context: Context): String {
         val bt = outs.firstOrNull {
             it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
                 it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
-                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+                it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER
+        } ?: outs.firstOrNull {
+            it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
         }
         if (bt != null) {
             return bt.productName?.toString()?.takeIf { it.isNotBlank() } ?: "Bluetooth"

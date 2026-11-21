@@ -1,13 +1,16 @@
 package com.music.spotui.data.update
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import com.music.spotui.BuildConfig
 import com.music.spotui.data.preferences.getUpdateRepoUrl
+import com.music.spotui.data.preferences.isStableUpdatesOnly
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
@@ -27,11 +30,12 @@ object UpdateChecker {
         val apkSizeBytes: Long = -1L,
         val sha256Url: String = "",
         val expectedSha256: String = "",
+        val releasePageUrl: String = "",
     )
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(8, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(12, TimeUnit.SECONDS)
         .build()
 
     sealed class ManualCheckResult {
@@ -68,12 +72,21 @@ object UpdateChecker {
     }
 
     internal fun buildLatestReleaseApiUrl(repoUrl: String): String {
+        val repoPath = extractRepoPath(repoUrl)
+        return "https://api.github.com/repos/$repoPath/releases/latest"
+    }
+
+    internal fun buildReleasesListApiUrl(repoUrl: String): String {
+        val repoPath = extractRepoPath(repoUrl)
+        return "https://api.github.com/repos/$repoPath/releases?per_page=10"
+    }
+
+    private fun extractRepoPath(repoUrl: String): String {
         val clean = repoUrl.trim().trimEnd('/').removeSuffix(".git")
-        val repoPath = clean
+        return clean
             .removePrefix("https://github.com/")
             .removePrefix("http://github.com/")
             .trim('/')
-        return "https://api.github.com/repos/$repoPath/releases/latest"
     }
 
     internal data class ApkAssetMeta(
@@ -81,25 +94,51 @@ object UpdateChecker {
         val url: String,
         val sizeBytes: Long,
         val sha256Url: String,
+        val directDigestSha256: String = "",
     )
 
-    internal fun selectBestApkUrl(assets: org.json.JSONArray?): String? =
+    internal fun selectBestApkUrl(assets: JSONArray?): String? =
         selectBestApkAsset(assets)?.url
 
-    internal fun selectBestApkAsset(assets: org.json.JSONArray?): ApkAssetMeta? {
+    internal fun selectBestApkAsset(assets: JSONArray?): ApkAssetMeta? {
         if (assets == null) return null
         val items = (0 until assets.length()).mapNotNull { assets.optJSONObject(it) }
         val apkItems = items.filter { it.optString("name").endsWith(".apk", ignoreCase = true) }
-        val releaseApk = apkItems.firstOrNull { it.optString("name").contains("release", ignoreCase = true) }
-        val chosen = releaseApk ?: apkItems.firstOrNull() ?: return null
+        if (apkItems.isEmpty()) return null
+
+        val primaryAbi = Build.SUPPORTED_ABIS.firstOrNull()?.lowercase().orEmpty()
+        val chosen = apkItems.maxByOrNull { obj ->
+            val name = obj.optString("name").lowercase()
+            var score = 0
+            if (primaryAbi.isNotBlank() && name.contains(primaryAbi)) score += 100
+            if (name.contains("universal") || name.contains("all")) score += 40
+            if (name.contains("release")) score += 30
+            if (name.contains("unsigned")) score -= 20
+            if (name.contains("debug")) score -= 15
+            score
+        } ?: apkItems.first()
+
         val url = chosen.optString("browser_download_url").ifBlank { return null }
         val name = chosen.optString("name")
         val size = chosen.optLong("size", -1L)
+        val rawDigest = chosen.optString("digest").trim()
+        val directDigestSha256 = rawDigest
+            .removePrefix("sha256:")
+            .takeIf { Regex("""^[A-Fa-f0-9]{64}$""").matches(it) }
+            .orEmpty()
         val shaAsset = items.firstOrNull {
             val n = it.optString("name")
-            n.equals("$name.sha256", ignoreCase = true) || n.endsWith(".sha256", ignoreCase = true)
+            n.equals("$name.sha256", ignoreCase = true) ||
+                n.equals("$name.sha256sum", ignoreCase = true) ||
+                n.endsWith(".sha256", ignoreCase = true)
         }?.optString("browser_download_url").orEmpty()
-        return ApkAssetMeta(name = name, url = url, sizeBytes = size, sha256Url = shaAsset)
+        return ApkAssetMeta(
+            name = name,
+            url = url,
+            sizeBytes = size,
+            sha256Url = shaAsset,
+            directDigestSha256 = directDigestSha256,
+        )
     }
 
     private fun fetchSha256Digest(url: String): String {
@@ -140,53 +179,110 @@ object UpdateChecker {
                 entryTitle.contains("beta", ignoreCase = true) ||
                 entryTitle.contains("rc", ignoreCase = true) ||
                 link.contains("pre", ignoreCase = true)
+            val pageUrl = link.ifBlank { "$repoUrl/releases/latest" }
             UpdateInfo(
                 version = version,
-                downloadUrl = link.ifBlank { "$repoUrl/releases/latest" },
+                downloadUrl = pageUrl,
                 fingerprint = "$version:$updated",
                 releaseBody = cleanBody,
                 isPrerelease = isPrerelease,
+                releasePageUrl = pageUrl,
             )
         }.getOrNull()
     }
 
+    private fun parseReleaseJson(json: JSONObject, releasesPage: String): UpdateInfo? {
+        val tag = json.optString("tag_name").trim()
+        if (tag.isBlank()) return null
+        val version = extractVersion(tag) ?: return null
+        val releaseBody = json.optString("body", "")
+        val htmlUrl = json.optString("html_url", releasesPage).ifBlank { releasesPage }
+        val assets = json.optJSONArray("assets")
+        val apkMeta = selectBestApkAsset(assets)
+        val inlineSha = Regex("""SHA-?256[^A-Fa-f0-9\r\n]{0,16}([A-Fa-f0-9]{64})""", RegexOption.IGNORE_CASE)
+            .find(releaseBody)?.groupValues?.getOrNull(1).orEmpty()
+        val digest = when {
+            apkMeta?.directDigestSha256?.isNotBlank() == true -> apkMeta.directDigestSha256
+            apkMeta?.sha256Url?.isNotBlank() == true -> fetchSha256Digest(apkMeta.sha256Url).ifBlank { inlineSha }
+            else -> inlineSha
+        }
+        val isPrerelease = json.optBoolean("prerelease", false)
+        return UpdateInfo(
+            version = version,
+            downloadUrl = apkMeta?.url ?: htmlUrl,
+            fingerprint = "${json.optLong("id")}:${json.optString("updated_at")}:$version",
+            releaseBody = releaseBody,
+            isPrerelease = isPrerelease,
+            apkFileName = apkMeta?.name.orEmpty(),
+            apkSizeBytes = apkMeta?.sizeBytes ?: -1L,
+            sha256Url = apkMeta?.sha256Url.orEmpty(),
+            expectedSha256 = digest,
+            releasePageUrl = htmlUrl,
+        )
+    }
+
     private fun fetchLatestRelease(context: Context): UpdateInfo? {
         val repoUrl = getUpdateRepoUrl(context).trim().trimEnd('/').removeSuffix(".git")
+        val stableOnly = isStableUpdatesOnly(context)
         val apiLatest = buildLatestReleaseApiUrl(repoUrl)
         val releasesPage = "$repoUrl/releases/latest"
 
-        val request = Request.Builder()
-            .url(apiLatest)
+        if (stableOnly) {
+            val request = Request.Builder()
+                .url(apiLatest)
+                .header("Accept", "application/vnd.github+json")
+                .header("User-Agent", "SpotUI/${BuildConfig.VERSION_NAME}")
+                .build()
+            runCatching {
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val body = response.body?.string() ?: return@use null
+                        parseReleaseJson(JSONObject(body), releasesPage)
+                    } else {
+                        null
+                    }
+                }
+            }.getOrNull()?.let { return it }
+        }
+
+        // Fallback / prerelease-enabled / rate-limit fallback: list recent releases JSON
+        val listUrl = buildReleasesListApiUrl(repoUrl)
+        val listReq = Request.Builder()
+            .url(listUrl)
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "SpotUI/${BuildConfig.VERSION_NAME}")
             .build()
-        return client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return@use null
-            val body = response.body?.string() ?: return@use null
-            val json = JSONObject(body)
-            val tag = json.optString("tag_name").trim()
-            if (tag.isBlank()) return@use null
-            val version = extractVersion(tag)
-                ?: return@use null
-            val releaseBody = json.optString("body", "")
-            val htmlUrl = json.optString("html_url", releasesPage)
-                .ifBlank { releasesPage }
-            val assets = json.optJSONArray("assets")
-            val apkMeta = selectBestApkAsset(assets)
-            val digest = apkMeta?.sha256Url?.takeIf { it.isNotBlank() }?.let(::fetchSha256Digest).orEmpty()
-            val isPrerelease = json.optBoolean("prerelease", false)
-            UpdateInfo(
-                version = version,
-                downloadUrl = apkMeta?.url ?: htmlUrl,
-                fingerprint = "${json.optLong("id")}:${json.optString("updated_at")}:$version",
-                releaseBody = releaseBody,
-                isPrerelease = isPrerelease,
-                apkFileName = apkMeta?.name.orEmpty(),
-                apkSizeBytes = apkMeta?.sizeBytes ?: -1L,
-                sha256Url = apkMeta?.sha256Url.orEmpty(),
-                expectedSha256 = digest,
-            )
-        }
+        runCatching {
+            client.newCall(listReq).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val body = response.body?.string() ?: return@use null
+                val array = JSONArray(body)
+                for (i in 0 until array.length()) {
+                    val obj = array.optJSONObject(i) ?: continue
+                    if (obj.optBoolean("draft", false)) continue
+                    if (stableOnly && obj.optBoolean("prerelease", false)) continue
+                    val parsed = parseReleaseJson(obj, releasesPage)
+                    if (parsed != null) return@use parsed
+                }
+                null
+            }
+        }.getOrNull()?.let { return it }
+
+        // Final fallback: GitHub Atom feed (works even when REST API is unauthenticated rate-limited)
+        val atomUrl = "$repoUrl/releases.atom"
+        val atomReq = Request.Builder()
+            .url(atomUrl)
+            .header("Accept", "application/atom+xml, application/xml")
+            .header("User-Agent", "SpotUI/${BuildConfig.VERSION_NAME}")
+            .build()
+        return runCatching {
+            client.newCall(atomReq).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val xml = response.body?.string() ?: return@use null
+                val parsed = parseReleasesAtom(xml, repoUrl) ?: return@use null
+                if (stableOnly && parsed.isPrerelease) null else parsed
+            }
+        }.getOrNull()
     }
 
     private fun extractVersion(text: String): String? =

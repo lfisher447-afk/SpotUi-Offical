@@ -132,9 +132,9 @@ fun DeveloperConsoleScreen(navController: NavController) {
     var latestCrashText by remember { mutableStateOf<String?>(null) }
     var hasCrashReports by remember { mutableStateOf(CrashHandler.hasCrashReport(context)) }
 
-    fun triggerScan(userInitiated: Boolean = false) {
+    fun triggerScan(userInitiated: Boolean = false, forceRefresh: Boolean = false) {
         if (isScanning) return
-        val remaining = SystemHealthChecker.remainingCooldownMs()
+        val remaining = if (forceRefresh) 0L else SystemHealthChecker.remainingCooldownMs()
         if (userInitiated && remaining > 0L) {
             val sec = ((remaining + 999L) / 1000L).coerceAtLeast(1L)
             Toast.makeText(context, "Diagnostics refreshed recently (${sec}s cooldown)", Toast.LENGTH_SHORT).show()
@@ -142,17 +142,17 @@ fun DeveloperConsoleScreen(navController: NavController) {
         }
         isScanning = true
         scope.launch {
-            healthReport = SystemHealthChecker.runFullScan(context)
+            healthReport = SystemHealthChecker.runFullScan(context, forceRefresh = forceRefresh)
             telemetry = SongPlayer.telemetrySnapshot(context)
             isScanning = false
         }
     }
 
-    fun refreshBtSpecs() {
+    fun refreshBtSpecs(forceLog: Boolean = false) {
         if (isInspectingBt) return
         isInspectingBt = true
         scope.launch {
-            btReport = BluetoothAudioInspector.inspect(context)
+            btReport = BluetoothAudioInspector.inspect(context, forceLog = forceLog)
             isInspectingBt = false
         }
     }
@@ -164,12 +164,11 @@ fun DeveloperConsoleScreen(navController: NavController) {
 
     // Periodic live telemetry refresh while on Telemetry or BT tab
     LaunchedEffect(selectedTab) {
-        if (selectedTab == 3) refreshBtSpecs()
         while (selectedTab == 2 || selectedTab == 3) {
             telemetry = SongPlayer.telemetrySnapshot(context)
             hasCrashReports = CrashHandler.hasCrashReport(context)
             if (selectedTab == 3) {
-                btReport = BluetoothAudioInspector.inspect(context)
+                btReport = BluetoothAudioInspector.inspect(context, forceLog = false)
             }
             delay(if (selectedTab == 3) 2_500L else 1_000L)
         }
@@ -300,7 +299,7 @@ fun DeveloperConsoleScreen(navController: NavController) {
                             val msg = runCatching { fix(context) }.getOrElse { "Fix error: ${it.message}" }
                             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                             fixingId = null
-                            triggerScan()
+                            triggerScan(forceRefresh = true)
                         }
                     },
                 )
@@ -337,12 +336,12 @@ fun DeveloperConsoleScreen(navController: NavController) {
                     btReport = btReport,
                     isRefreshing = isInspectingBt,
                     faults = faults,
-                    onRefreshBt = { refreshBtSpecs() },
+                    onRefreshBt = { refreshBtSpecs(forceLog = true) },
                     onApplyBtFix = { conflict ->
                         val fix = conflict.applyFix ?: return@BluetoothSpecsAndFaultsTab
                         val msg = runCatching { fix(context) }.getOrElse { "Fix failed: ${it.message}" }
                         Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                        refreshBtSpecs()
+                        refreshBtSpecs(forceLog = true)
                     },
                     onResolveFault = { DevConsoleManager.markFaultResolved(it) },
                     onClearFaults = { DevConsoleManager.clearFaults() },

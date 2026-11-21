@@ -24,18 +24,20 @@ import kotlin.math.floor
  */
 object SpotifyAuth {
     private const val TOKEN_URL = "https://open.spotify.com/api/token"
+    private const val LEGACY_TOKEN_URL = "https://open.spotify.com/get_access_token"
     private const val SERVER_TIME_URL = "https://open.spotify.com/api/server-time"
+    private const val NUANCE_GIST_ID = "22ed9c6ba463899e933427f7de1f0eef"
     private const val NUANCE_GIST_URL =
-        "https://api.github.com/gists/22ed9c6ba463899e933427f7de1f0eef"
+        "https://api.github.com/gists/$NUANCE_GIST_ID"
+    private const val NUANCE_GIST_RAW_FALLBACK =
+        "https://gist.githubusercontent.com/raw/$NUANCE_GIST_ID"
     private const val USER_AGENT =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
 
-    // method=password&allow_password=1 forces Spotify's email+password form to be
-    // the default (instead of the passwordless "magic link" flow); allow_signup=1
-    // keeps the "Sign up" link so the full web signup works from the same page.
+    // Standard Spotify login entry avoids deprecated `&method=password&allow_password=1`
+    // parameters that frequently trigger HTTP 400/402 challenges in embedded WebViews.
     const val LOGIN_URL =
-        "https://accounts.spotify.com/en/login?continue=https%3A%2F%2Fopen.spotify.com%2F" +
-            "&method=password&allow_password=1&allow_signup=1"
+        "https://accounts.spotify.com/en/login?continue=https%3A%2F%2Fopen.spotify.com%2F"
 
     // Direct entry to Spotify's web signup flow.
     const val SIGNUP_URL = "https://www.spotify.com/signup"
@@ -44,6 +46,14 @@ object SpotifyAuth {
         isLenient = true
         ignoreUnknownKeys = true
     }
+
+    @Volatile
+    private var cachedNuance: Nuance? = null
+
+    @Volatile
+    private var cachedNuanceAtMs: Long = 0L
+
+    private const val NUANCE_CACHE_TTL_MS = 30 * 60 * 1000L
 
     @Serializable
     private data class Nuance(val s: String, val v: Int)
@@ -58,73 +68,148 @@ object SpotifyAuth {
     private data class ServerTimeResponse(val serverTime: Long)
 
     /**
-     * Fetches an internal web-player access token using session cookies and TOTP.
-     *
-     * 1. Fetches the TOTP secret from the community Gist
-     * 2. Gets the server time from Spotify
-     * 3. Generates a 6-digit TOTP (SHA1, 30s interval)
-     * 4. Calls /api/token with the TOTP and sp_dc cookie
+     * Fetches an internal web-player access token using session cookies and TOTP,
+     * with cached/mirrored TOTP secrets, multi-step reason fallback, and WebPlayer headers.
      */
     suspend fun fetchAccessToken(
         spDc: String,
         spKey: String = "",
     ): Result<SpotifyInternalToken> = runCatching {
-        val nuance = fetchNuance()
-        val serverTimeSec = fetchServerTime()
-        val totp = generateTotp(nuance.s, serverTimeSec)
-
-        val tokenUrl = buildString {
-            append(TOKEN_URL)
-            append("?reason=transport")
-            append("&productType=web-player")
-            append("&totp=$totp")
-            append("&totpServer=$totp")
-            append("&totpVer=${nuance.v}")
+        val cleanDc = spDc.trim()
+        val cleanKey = spKey.trim()
+        if (cleanDc.isBlank()) {
+            throw Spotify.SpotifyException(401, "Missing sp_dc session cookie")
         }
 
         val cookieHeader = buildString {
-            append("sp_dc=$spDc")
-            if (spKey.isNotEmpty()) {
-                append("; sp_key=$spKey")
+            append("sp_dc=$cleanDc")
+            if (cleanKey.isNotEmpty()) {
+                append("; sp_key=$cleanKey")
             }
         }
 
-        val body = withContext(Dispatchers.IO) {
-            httpGet(tokenUrl, mapOf("Cookie" to cookieHeader))
+        val webPlayerHeaders = mapOf(
+            "Cookie" to cookieHeader,
+            "Origin" to "https://open.spotify.com",
+            "Referer" to "https://open.spotify.com/",
+            "app-platform" to "WebPlayer",
+            "spotify-app-version" to "1.2.62.580.g5b2f8f82",
+        )
+
+        val nuanceResult = runCatching { fetchNuance() }
+        val serverTimeSec = runCatching { fetchServerTime() }.getOrElse { System.currentTimeMillis() / 1000L }
+
+        var lastError: Throwable? = null
+        val nuance = nuanceResult.getOrNull()
+        if (nuance != null) {
+            val reasons = listOf("transport", "init")
+            val timeOffsets = listOf(0L, 30L)
+            for (offset in timeOffsets) {
+                val totp = generateTotp(nuance.s, serverTimeSec + offset)
+                for (reason in reasons) {
+                    val tokenUrl = buildString {
+                        append(TOKEN_URL)
+                        append("?reason=$reason")
+                        append("&productType=web-player")
+                        append("&totp=$totp")
+                        append("&totpServer=$totp")
+                        append("&totpVer=${nuance.v}")
+                    }
+                    val attempt = runCatching {
+                        val body = withContext(Dispatchers.IO) { httpGet(tokenUrl, webPlayerHeaders) }
+                        val parsed = json.decodeFromString<SpotifyInternalToken>(body)
+                        if (parsed.isAnonymous || parsed.accessToken.isBlank()) {
+                            throw Spotify.SpotifyException(
+                                401,
+                                "Received anonymous token — sp_dc cookie is invalid or expired",
+                            )
+                        }
+                        parsed
+                    }
+                    attempt.onSuccess { return@runCatching it }
+                    lastError = attempt.exceptionOrNull()
+                    // Don't burn retries on hard 401 expired cookie; try legacy fallback once instead.
+                    if ((lastError as? Spotify.SpotifyException)?.statusCode == 401) break
+                }
+            }
+        } else {
+            lastError = nuanceResult.exceptionOrNull()
         }
 
-        val token = json.decodeFromString<SpotifyInternalToken>(body)
-
-        if (token.isAnonymous || token.accessToken.isBlank()) {
-            throw Spotify.SpotifyException(
-                401,
-                "Received anonymous token — sp_dc cookie is invalid or expired",
-            )
+        // Secondary fallback: legacy get_access_token endpoint
+        for (reason in listOf("transport", "init")) {
+            val legacyUrl = "$LEGACY_TOKEN_URL?reason=$reason&productType=web-player"
+            val attempt = runCatching {
+                val body = withContext(Dispatchers.IO) { httpGet(legacyUrl, webPlayerHeaders) }
+                val parsed = json.decodeFromString<SpotifyInternalToken>(body)
+                if (parsed.isAnonymous || parsed.accessToken.isBlank()) {
+                    throw Spotify.SpotifyException(
+                        401,
+                        "Received anonymous token — sp_dc cookie is invalid or expired",
+                    )
+                }
+                parsed
+            }
+            attempt.onSuccess { return@runCatching it }
+            if (lastError == null) lastError = attempt.exceptionOrNull()
         }
 
-        token
+        throw lastError ?: Spotify.SpotifyException(503, "Unable to mint Spotify web token")
     }
 
     private suspend fun fetchNuance(): Nuance = withContext(Dispatchers.IO) {
-        val body = try {
-            httpGet(NUANCE_GIST_URL, emptyMap())
-        } catch (e: Exception) {
-            throw Spotify.SpotifyException(
-                503,
-                "Failed to fetch TOTP secret from gist: ${e.message}",
-            )
+        val now = System.currentTimeMillis()
+        val cached = cachedNuance
+        if (cached != null && (now - cachedNuanceAtMs) in 0 until NUANCE_CACHE_TTL_MS) {
+            return@withContext cached
         }
-        val gist = json.decodeFromString<GistFiles>(body)
-        val nuancesJson = gist.files.values.firstOrNull()?.content
-            ?: throw Spotify.SpotifyException(500, "Gist has no files")
-        val nuances = json.decodeFromString<List<Nuance>>(nuancesJson)
-        nuances.maxByOrNull { it.v }
-            ?: throw Spotify.SpotifyException(500, "No nuance data found in gist")
+
+        // 1. Primary GitHub Gist API
+        val apiParsed = runCatching {
+            val body = httpGet(NUANCE_GIST_URL, emptyMap())
+            val gist = json.decodeFromString<GistFiles>(body)
+            val nuancesJson = gist.files.values.firstOrNull()?.content
+                ?: error("Gist has no files")
+            json.decodeFromString<List<Nuance>>(nuancesJson).maxByOrNull { it.v }
+                ?: error("Empty nuance list")
+        }.getOrNull()
+
+        if (apiParsed != null) {
+            cachedNuance = apiParsed
+            cachedNuanceAtMs = now
+            return@withContext apiParsed
+        }
+
+        // 2. Fallback: GitHub raw gist endpoint (avoids api.github.com 60 req/hr unauthenticated limit)
+        val rawParsed = runCatching {
+            val rawBody = httpGet(NUANCE_GIST_RAW_FALLBACK, emptyMap())
+            json.decodeFromString<List<Nuance>>(rawBody).maxByOrNull { it.v }
+                ?: error("Empty raw nuance list")
+        }.getOrNull()
+
+        if (rawParsed != null) {
+            cachedNuance = rawParsed
+            cachedNuanceAtMs = now
+            return@withContext rawParsed
+        }
+
+        if (cached != null) return@withContext cached
+
+        throw Spotify.SpotifyException(
+            503,
+            "Failed to fetch Spotify TOTP config from GitHub Gist mirror",
+        )
     }
 
     private suspend fun fetchServerTime(): Long = withContext(Dispatchers.IO) {
         val body = try {
-            httpGet(SERVER_TIME_URL, emptyMap())
+            httpGet(
+                SERVER_TIME_URL,
+                mapOf(
+                    "Origin" to "https://open.spotify.com",
+                    "Referer" to "https://open.spotify.com/",
+                ),
+            )
         } catch (e: Exception) {
             throw Spotify.SpotifyException(
                 503,
@@ -197,7 +282,7 @@ object SpotifyAuth {
             connection.readTimeout = 15_000
             connection.setRequestProperty("User-Agent", USER_AGENT)
             connection.setRequestProperty("Accept", "application/json, text/plain, */*")
-            connection.setRequestProperty("Accept-Language", "en")
+            connection.setRequestProperty("Accept-Language", "en-US,en;q=0.9")
             for ((key, value) in extraHeaders) {
                 connection.setRequestProperty(key, value)
             }
@@ -207,7 +292,7 @@ object SpotifyAuth {
                 val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
                 throw Spotify.SpotifyException(
                     responseCode,
-                    "HTTP $responseCode: $errorBody",
+                    "HTTP $responseCode: ${errorBody.take(200)}",
                 )
             }
 
