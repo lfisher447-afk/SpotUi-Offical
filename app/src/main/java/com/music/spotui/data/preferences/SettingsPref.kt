@@ -593,11 +593,34 @@ fun setBatteryPromptDismissed(c: Context, dismissed: Boolean) =
     prefs(c).edit().putBoolean(KEY_BATTERY_PROMPT_DISMISSED, dismissed).apply()
 
 private const val KEY_AUTO_EXPORT_MUSIC = "download_auto_export_music"
+private const val KEY_APP_VOLUME_PERCENT = "playback_app_volume_percent"
+private const val KEY_BACKGROUND_EXIT_NOTIFICATION = "playback_background_exit_notification"
+private const val KEY_YT_AUTO_SYNC_PLAYLISTS = "youtube_auto_sync_playlists"
 
 fun isAutoExportToMusicEnabled(c: Context): Boolean =
     prefs(c).getBoolean(KEY_AUTO_EXPORT_MUSIC, false)
 
 fun setAutoExportToMusicEnabled(c: Context, enabled: Boolean) =
     prefs(c).edit().putBoolean(KEY_AUTO_EXPORT_MUSIC, enabled).apply()
+
+/** Independent in-app playback volume (0–100%). Does NOT mutate Android OS media stream volume. */
+fun getAppVolumePercent(c: Context): Int =
+    prefs(c).getInt(KEY_APP_VOLUME_PERCENT, 100).coerceIn(0, 100)
+
+fun setAppVolumePercent(c: Context, percent: Int) =
+    prefs(c).edit().putInt(KEY_APP_VOLUME_PERCENT, percent.coerceIn(0, 100)).apply()
+
+/** Shows a quick Play/Pause mini notification when leaving the app without reopening the UI. */
+fun isBackgroundExitNotificationEnabled(c: Context): Boolean =
+    prefs(c).getBoolean(KEY_BACKGROUND_EXIT_NOTIFICATION, true)
+
+fun setBackgroundExitNotificationEnabled(c: Context, enabled: Boolean) =
+    prefs(c).edit().putBoolean(KEY_BACKGROUND_EXIT_NOTIFICATION, enabled).apply()
+
+fun isAutoSyncYoutubePlaylistsEnabled(c: Context): Boolean =
+    prefs(c).getBoolean(KEY_YT_AUTO_SYNC_PLAYLISTS, true)
+
+fun setAutoSyncYoutubePlaylistsEnabled(c: Context, enabled: Boolean) =
+    prefs(c).edit().putBoolean(KEY_YT_AUTO_SYNC_PLAYLISTS, enabled).apply()
 
 

@@ -103,6 +103,45 @@ object SongPlayer {
     @Volatile private var lastKnownDurationMs: Long = 0L
     @Volatile private var lastKnownBufferedPct: Int = 0
 
+    private val _appVolumePercent = kotlinx.coroutines.flow.MutableStateFlow(100)
+    val appVolumePercentFlow: kotlinx.coroutines.flow.StateFlow<Int> = _appVolumePercent
+
+    fun getAppVolumePercent(context: Context): Int {
+        val v = com.music.spotui.data.preferences.getAppVolumePercent(context)
+        if (_appVolumePercent.value != v) _appVolumePercent.value = v
+        return v
+    }
+
+    /** Perceptual exponential volume curve so 10%..100% feels smooth and independent of OS media volume. */
+    fun appVolumeGain(): Float {
+        val pct = _appVolumePercent.value.coerceIn(0, 100)
+        if (pct <= 0) return 0f
+        if (pct >= 100) return 1f
+        return Math.pow(pct / 100.0, 1.65).toFloat().coerceIn(0f, 1f)
+    }
+
+    /** Adjusts SpotUI's internal audio gain (0–100%) without changing Android OS volume. */
+    fun setAppVolumePercent(context: Context, percent: Int) {
+        val appContext = context.applicationContext
+        val clamped = percent.coerceIn(0, 100)
+        com.music.spotui.data.preferences.setAppVolumePercent(appContext, clamped)
+        _appVolumePercent.value = clamped
+        val gain = appVolumeGain()
+        runOnMain {
+            if (!isCrossfading) {
+                player?.volume = gain
+            }
+            SpotifyWebPlayer.setVolume(gain)
+        }
+    }
+
+    fun dspTelemetrySummary(): String {
+        val sp = currentSpatialProcessor
+        val dsp = currentDspProcessor
+        val frames = (sp?.processedFrames ?: 0L) + (dsp?.processedFrames ?: 0L)
+        return sp?.telemetrySummary() ?: "DSP idle · ${frames / 1000}k frames"
+    }
+
     fun shouldPlayWhenResolved(): Boolean = playWhenResolved
 
     data class PlayerTelemetry(
@@ -489,6 +528,21 @@ object SongPlayer {
             currentQuality = song.substringAfterLast('.', "").uppercase().takeIf { it.length in 2..5 } ?: "LOCAL"
             return song
         }
+        // Downloaded & local alternative files MUST outrank remote HTTP caches so offline playback never hits expired URLs.
+        val matchedDownload = com.music.spotui.data.preferences.downloadedPathForQuery(appContext, song)
+            ?: currentMediaId?.let { com.music.spotui.data.preferences.downloadedPathForQuery(appContext, it) }
+        matchedDownload?.let { path ->
+            val file = java.io.File(path)
+            val (ext, _) = com.music.spotui.data.preferences.detectAudioContainerAndMime(file)
+            currentSource = "Downloaded"
+            currentQuality = ext.uppercase().ifBlank { file.extension.uppercase() }
+            return android.net.Uri.fromFile(file).toString()
+        }
+        alternativeStreamForPlayback(song, appContext)?.takeIf { it.isLocal }?.let { alt ->
+            currentSource = "Alternative file"
+            currentQuality = alt.label.substringAfterLast('.', "").uppercase().takeIf { it.length in 2..5 }.orEmpty()
+            return alt.value
+        }
         streamCache[song]?.let { cached ->
             currentSource = sourceCache[song] ?: "YouTube"
             currentQuality = qualityCache[song] ?: ""
@@ -501,16 +555,6 @@ object SongPlayer {
             currentSource = source
             currentQuality = quality
             return url
-        }
-        alternativeStreamForPlayback(song, appContext)?.takeIf { it.isLocal }?.let { alt ->
-            currentSource = "Alternative file"
-            currentQuality = alt.label.substringAfterLast('.', "").uppercase().takeIf { it.length in 2..5 }.orEmpty()
-            return alt.value
-        }
-        com.music.spotui.data.preferences.downloadedPathForQuery(appContext, song)?.let { path ->
-            currentSource = "Downloaded"
-            currentQuality = path.substringAfterLast('.', "").uppercase()
-            return android.net.Uri.fromFile(java.io.File(path)).toString()
         }
         return null
     }
@@ -565,6 +609,7 @@ object SongPlayer {
             ensurePlayer(appContext)
             // Lazy-initialize SpotifyWebPlayer only if a track is explicitly eligible to route there.
             val downloadedPath = com.music.spotui.data.preferences.downloadedPathForQuery(appContext, song)
+                ?: inferredMediaId?.let { com.music.spotui.data.preferences.downloadedPathForQuery(appContext, it) }
             val webEnabled = webPlayerEnabled && com.music.spotui.data.preferences.isWebPlaybackEnabled(appContext)
             if (webEnabled && (song.startsWith("episode:") || downloadedPath == null)) {
                 runCatching { SpotifyWebPlayer.attach(appContext) }
@@ -605,6 +650,10 @@ object SongPlayer {
                 Log.w(TAG, "web playback on but no Spotify id for query: $song — using fallback engine")
             }
 
+            if (webEnabled && SpotifyWebPlayer.canPlay) {
+                runCatching { SpotifyWebPlayer.pause() }
+            }
+
             // Immediately queue a real MediaItem with full MediaMetadata onto ExoPlayer on frame 0 so
             // currentTimeline is non-empty and state enters STATE_BUFFERING (never STATE_IDLE while
             // ResolvingDataSource resolves uncached streams on ExoPlayer's background loader thread).
@@ -640,15 +689,17 @@ object SongPlayer {
             val lookahead = if (crossfadeMs <= 0) nextTrackForQueueLookahead() else null
             if (lookahead != null && (youtubeEnabled || losslessStreaming || streamCache.containsKey(lookahead.first.url))) {
                 val (nextSong, nextMediaId) = lookahead
-                val cachedNext = streamCache[nextSong.url]?.let {
+                val localNext = com.music.spotui.data.preferences.downloadedPathForQuery(appContext, nextSong.url)
+                    ?.let { android.net.Uri.fromFile(java.io.File(it)).toString() }
+                val cachedNext = localNext ?: streamCache[nextSong.url]?.let {
                     com.music.spotui.util.StreamSanitizer.sanitizeStreamUrl(it)
                 }
                 val nextUri = cachedNext ?: resolveUriForQuery(nextSong.url)
                 val nextMime = if (cachedNext != null) {
                     streamMimeType(
                         cachedNext,
-                        source = sourceCache[nextSong.url] ?: "",
-                        quality = qualityCache[nextSong.url] ?: "",
+                        source = if (localNext != null) "Downloaded" else sourceCache[nextSong.url] ?: "",
+                        quality = if (localNext != null) "" else qualityCache[nextSong.url] ?: "",
                     )
                 } else {
                     null
@@ -677,7 +728,8 @@ object SongPlayer {
                 appContext, currentDspProcessor, currentSpatialProcessor
             )
             com.music.spotui.audio.AudioEffectController.attach(appContext, p.audioSessionId)
-            p.volume = if (fadeIn && playWhenResolved) 0.15f else 1f
+            val targetGain = appVolumeGain()
+            p.volume = if (fadeIn && playWhenResolved) 0.15f * targetGain else targetGain
             p.playWhenReady = playWhenResolved
             com.music.spotui.ui.notification.PlaybackService.ensureStarted(appContext)
             com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(appContext)
@@ -688,7 +740,8 @@ object SongPlayer {
                     for (i in 1..steps) {
                         delay(20L)
                         if (player === p && !isCrossfading) {
-                            p.volume = 0.15f + (0.85f * (i.toFloat() / steps))
+                            val currentTarget = appVolumeGain()
+                            p.volume = (0.15f + (0.85f * (i.toFloat() / steps))) * currentTarget
                         }
                     }
                 }
@@ -739,7 +792,7 @@ object SongPlayer {
             .build()
     }
 
-    /** MIME hint for a resolved stream: DASH manifest, single-file FLAC, MP3, or none. */
+    /** MIME hint for a resolved stream: DASH manifest, FLAC, M4A, WebM, Opus, MP3, WAV, or none. */
     internal fun streamMimeType(
         streamUrl: String,
         source: String = currentSource,
@@ -747,6 +800,23 @@ object SongPlayer {
     ): String? {
         val bare = streamUrl.substringBefore('?').lowercase()
         val isGoogleVideo = bare.contains("googlevideo.com") || bare.contains("youtube.com")
+        if (streamUrl.startsWith("file://", ignoreCase = true)) {
+            runCatching {
+                val f = java.io.File(android.net.Uri.parse(streamUrl).path.orEmpty())
+                if (f.exists()) {
+                    val (_, sniffedMime) = com.music.spotui.data.preferences.detectAudioContainerAndMime(f)
+                    return when (sniffedMime) {
+                        "audio/flac" -> androidx.media3.common.MimeTypes.AUDIO_FLAC
+                        "audio/mpeg" -> androidx.media3.common.MimeTypes.AUDIO_MPEG
+                        "audio/webm" -> androidx.media3.common.MimeTypes.AUDIO_WEBM
+                        "audio/ogg" -> androidx.media3.common.MimeTypes.AUDIO_OGG
+                        "audio/mp4" -> androidx.media3.common.MimeTypes.AUDIO_MP4
+                        "audio/wav" -> androidx.media3.common.MimeTypes.AUDIO_WAV
+                        else -> sniffedMime
+                    }
+                }
+            }
+        }
         return when {
             streamUrl.startsWith("data:application/dash+xml") ||
                 bare.endsWith(".mpd") || streamUrl.contains("manifest.tidal.com") || streamUrl.contains("/manifests/") ->
@@ -758,6 +828,11 @@ object SongPlayer {
                     androidx.media3.common.MimeTypes.AUDIO_MPEG
                 }
             bare.endsWith(".flac") -> androidx.media3.common.MimeTypes.AUDIO_FLAC
+            bare.endsWith(".m4a") || bare.endsWith(".mp4") || bare.endsWith(".aac") -> androidx.media3.common.MimeTypes.AUDIO_MP4
+            bare.endsWith(".webm") || bare.endsWith(".mka") -> androidx.media3.common.MimeTypes.AUDIO_WEBM
+            bare.endsWith(".opus") || bare.endsWith(".ogg") -> androidx.media3.common.MimeTypes.AUDIO_OGG
+            bare.endsWith(".mp3") -> androidx.media3.common.MimeTypes.AUDIO_MPEG
+            bare.endsWith(".wav") -> androidx.media3.common.MimeTypes.AUDIO_WAV
             !isGoogleVideo && source.startsWith("Lossless") && quality.contains("FLAC", ignoreCase = true) ->
                 androidx.media3.common.MimeTypes.AUDIO_FLAC
             else -> null
@@ -973,8 +1048,9 @@ object SongPlayer {
     }
 
     private fun cacheDataSourceFactory(context: Context): androidx.media3.datasource.DataSource.Factory {
-        // MrBean owns the concrete Media3 HTTP transport when enabled; DeezerAwareDataSourceFactory
-        // intercepts `deezer://` Blowfish-encrypted CDN streams and bypasses SimpleCache cleanly.
+        // Local device schemes (file://, content://, asset://) MUST bypass CacheDataSource and
+        // Mrbean network upstream so downloaded/local tracks open directly with zero cache locks.
+        val localDirectFactory = androidx.media3.datasource.DefaultDataSource.Factory(context)
         val upstream = androidx.media3.datasource.DefaultDataSource.Factory(
             context,
             org.eclipse.Mrbean.client.MrbeanMediaDataSource.upstreamFactory(context),
@@ -988,7 +1064,43 @@ object SongPlayer {
         } else {
             upstream
         }
-        return com.music.spotui.deezer.DeezerAwareDataSourceFactory(cachedOrUpstream)
+        val remoteFactory = com.music.spotui.deezer.DeezerAwareDataSourceFactory(cachedOrUpstream)
+        return androidx.media3.datasource.DataSource.Factory {
+            object : androidx.media3.datasource.DataSource {
+                private var active: androidx.media3.datasource.DataSource? = null
+
+                override fun addTransferListener(transferListener: androidx.media3.datasource.TransferListener) {
+                    // Propagated when resolved DataSource opens
+                }
+
+                override fun open(dataSpec: androidx.media3.datasource.DataSpec): Long {
+                    val scheme = dataSpec.uri.scheme?.lowercase().orEmpty()
+                    val delegate = if (scheme == "file" || scheme == "content" || scheme == "asset" || scheme == "android.resource") {
+                        localDirectFactory.createDataSource()
+                    } else {
+                        remoteFactory.createDataSource()
+                    }
+                    active = delegate
+                    return delegate.open(dataSpec)
+                }
+
+                override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+                    active?.read(buffer, offset, length) ?: androidx.media3.common.C.RESULT_END_OF_INPUT
+
+                override fun getUri(): android.net.Uri? = active?.uri
+
+                override fun getResponseHeaders(): MutableMap<String, MutableList<String>> =
+                    active?.responseHeaders ?: mutableMapOf()
+
+                override fun close() {
+                    try {
+                        active?.close()
+                    } finally {
+                        active = null
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -1124,36 +1236,19 @@ object SongPlayer {
             }
             return song
         }
-        if (forPlayback) {
-            updateResolveStatus(true, "Checking cache...")
-        }
-        streamCache[song]?.let {
+        // Offline-first priority: check downloaded file and local alternative files BEFORE network/memory caches.
+        com.music.spotui.data.preferences.downloadedPathForQuery(appContext, song)?.let { path ->
+            val file = java.io.File(path)
+            val (ext, _) = com.music.spotui.data.preferences.detectAudioContainerAndMime(file)
             if (forPlayback) {
-                currentSource = sourceCache[song] ?: "YouTube"
-                currentQuality = qualityCache[song] ?: ""
+                currentSource = "Downloaded"
+                currentQuality = ext.uppercase().ifBlank { file.extension.uppercase() }
                 updateResolveStatus(false)
             }
-            return it
-        }
-        // Persistent stream cache: survives app restarts. YouTube URLs are cached
-        // with their server-provided expiry so stale entries are never served.
-        if (forPlayback) {
-            updateResolveStatus(true, "Checking saved cache...")
-        }
-        com.music.spotui.data.preferences.getCachedStream(appContext, song)?.let { (url, source, quality) ->
-            // Promote back into the in-memory caches for this session.
-            streamCache[song] = url
-            sourceCache[song] = source
-            qualityCache[song] = quality
-            if (forPlayback) {
-                currentSource = source
-                currentQuality = quality
-                updateResolveStatus(false)
-            }
-            return url
+            return android.net.Uri.fromFile(file).toString()
         }
         if (forPlayback) {
-            updateResolveStatus(true, "Checking alternative source...")
+            updateResolveStatus(true, "Checking alternative & cache...")
         }
         alternativeStreamForPlayback(song, appContext)?.let { alt ->
             return when {
@@ -1197,17 +1292,27 @@ object SongPlayer {
                 }
             }
         }
-        // Offline: if this track was downloaded, play the local file instead of the network.
-        if (forPlayback) {
-            updateResolveStatus(true, "Locating local file...")
-        }
-        com.music.spotui.data.preferences.downloadedPathForQuery(appContext, song)?.let { path ->
+        streamCache[song]?.let {
             if (forPlayback) {
-                currentSource = "Downloaded"
-                currentQuality = path.substringAfterLast('.', "").uppercase()
+                currentSource = sourceCache[song] ?: "YouTube"
+                currentQuality = qualityCache[song] ?: ""
                 updateResolveStatus(false)
             }
-            return android.net.Uri.fromFile(java.io.File(path)).toString()
+            return it
+        }
+        // Persistent stream cache: survives app restarts. YouTube URLs are cached
+        // with their server-provided expiry so stale entries are never served.
+        com.music.spotui.data.preferences.getCachedStream(appContext, song)?.let { (url, source, quality) ->
+            // Promote back into the in-memory caches for this session.
+            streamCache[song] = url
+            sourceCache[song] = source
+            qualityCache[song] = quality
+            if (forPlayback) {
+                currentSource = source
+                currentQuality = quality
+                updateResolveStatus(false)
+            }
+            return url
         }
         // Coalesce concurrent network resolutions for the same song query so ExoPlayer loader +
         // preResolve/prefetch never kick off duplicate SpotiFLAC/YouTube resolution chains.
@@ -1614,6 +1719,10 @@ object SongPlayer {
                 }
             }
             downloadProgress[query] = 100
+            if (position < 8192L || !com.music.spotui.data.preferences.isValidAudioDownloadFile(tmpFile)) {
+                lastDownloadError = "Downloaded stream was empty or invalid (${position}B)"
+                return false
+            }
             return total <= 0 || position >= total
         } catch (e: Exception) {
             lastDownloadError = e.message ?: "Download error"
@@ -1778,9 +1887,13 @@ object SongPlayer {
                 downloaded = httpDownloadRanged(refreshed.streamUrl, tmpFile, song.url)
             }
         }
-        if (!downloaded) {
+        if (!downloaded || !com.music.spotui.data.preferences.isValidAudioDownloadFile(tmpFile)) {
             runCatching { tmpFile.delete() }
             return false
+        }
+        val (sniffedExt, _) = com.music.spotui.data.preferences.detectAudioContainerAndMime(tmpFile)
+        if (sniffedExt.isNotBlank() && sniffedExt != extension) {
+            outFile = java.io.File(dir, "${song.id}.$sniffedExt")
         }
         runCatching { if (outFile.exists()) outFile.delete() }
         if (!tmpFile.renameTo(outFile)) {
@@ -1894,8 +2007,8 @@ object SongPlayer {
         }
 
         val dir = java.io.File(appContext.filesDir, "downloads").apply { mkdirs() }
-        val outFile = java.io.File(dir, "${song.id}.flac")
-        val tmpFile = java.io.File(dir, "${song.id}.flacpart")
+        var outFile = java.io.File(dir, "${song.id}.flac")
+        val tmpFile = java.io.File(dir, "${song.id}.flac.part")
         // TIDAL lossless is segmented DASH — remux the segments into a real .flac;
         // single-file providers (Qobuz) download directly.
         val ok = if (flac.container == "dash") {
@@ -1903,11 +2016,16 @@ object SongPlayer {
         } else {
             httpDownloadRanged(flac.url, tmpFile, song.url)
         }
-        if (!ok) {
+        if (!ok || !com.music.spotui.data.preferences.isValidAudioDownloadFile(tmpFile)) {
             Log.e(TAG, "FLAC download failed for ${song.title}: $lastDownloadError")
             runCatching { tmpFile.delete() }
             return false
         }
+        val (sniffedExt, _) = com.music.spotui.data.preferences.detectAudioContainerAndMime(tmpFile)
+        if (sniffedExt.isNotBlank()) {
+            outFile = java.io.File(dir, "${song.id}.$sniffedExt")
+        }
+        runCatching { if (outFile.exists()) outFile.delete() }
         if (!tmpFile.renameTo(outFile)) {
             runCatching { tmpFile.delete() }
             return false
@@ -2446,10 +2564,16 @@ object SongPlayer {
                         ),
                     ).build()
         }
+        val extractors = androidx.media3.extractor.DefaultExtractorsFactory()
+            .setConstantBitrateSeekingEnabled(true)
+            .setAdtsExtractorFlags(androidx.media3.extractor.ts.AdtsExtractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING)
         val p = ExoPlayer.Builder(context)
             .setLoadControl(loadControl)
             .setMediaSourceFactory(
-                androidx.media3.exoplayer.source.DefaultMediaSourceFactory(resolvingDataSourceFactory(context)),
+                androidx.media3.exoplayer.source.DefaultMediaSourceFactory(
+                    resolvingDataSourceFactory(context),
+                    extractors,
+                ),
             )
             .setRenderersFactory(renderers)
             .setAudioAttributes(buildAudioAttributes(), effectiveFocus)
@@ -2461,6 +2585,7 @@ object SongPlayer {
                 val pitch = com.music.spotui.data.preferences.getPlaybackPitchPref(context)
                 it.playbackParameters = androidx.media3.common.PlaybackParameters(speed, pitch)
                 it.skipSilenceEnabled = com.music.spotui.data.preferences.isSkipSilenceEnabled(context)
+                it.volume = appVolumeGain()
                 applyAudioOffloadPolicy(context, it)
             }
         return PlayerPipeline(p, dsp, filter, spatial)
@@ -2494,11 +2619,13 @@ object SongPlayer {
         val userWantsOffload = com.music.spotui.data.preferences.isAudioOffloadEnabled(context)
         val dspActive = shouldBypassOffloadForSoftwareDsp(context)
         val allowOffload = userWantsOffload && !dspActive
+        val prevMode = exo.trackSelectionParameters.audioOffloadPreferences.audioOffloadMode
         val mode = if (allowOffload) {
             androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED
         } else {
             androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED
         }
+        if (prevMode == mode) return
         val prefs = androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences.Builder()
             .setAudioOffloadMode(mode)
             .setIsGaplessSupportRequired(true)
@@ -2507,6 +2634,16 @@ object SongPlayer {
         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
             .setAudioOffloadPreferences(prefs)
             .build()
+        // If user just turned Spatial/DSP ON while audio offload was running, nudge seek position so Media3
+        // flushes the offloaded sink and routes immediately through our in-process 3D/EQ AudioProcessors.
+        if (prevMode == androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED &&
+            !allowOffload &&
+            exo.mediaItemCount > 0 &&
+            (exo.playbackState == Player.STATE_READY || exo.playbackState == Player.STATE_BUFFERING)
+        ) {
+            val pos = exo.currentPosition.coerceAtLeast(0L)
+            runCatching { exo.seekTo(pos) }
+        }
     }
 
     private fun applySoftwareDsp(
@@ -2547,6 +2684,7 @@ object SongPlayer {
 
     private fun ensurePlayer(context: Context) {
         appCtx = context.applicationContext
+        _appVolumePercent.value = com.music.spotui.data.preferences.getAppVolumePercent(context.applicationContext)
         if (player == null) {
             val pipeline = createPlayerWithFilter(context, handleAudioFocus = true)
             val p = pipeline.player
@@ -2905,7 +3043,7 @@ object SongPlayer {
         secondaryPlayerFilter = null
         secondarySpatialProcessor = null
         secondaryPlayer = null
-        player?.volume = 1f
+        player?.volume = appVolumeGain()
         isCrossfading = false
     }
 
@@ -3075,9 +3213,10 @@ object SongPlayer {
                     if (!isActive) break
                     val progress = step.toFloat() / steps
                     val angle = (progress * PI / 2).toFloat()
+                    val targetGain = appVolumeGain()
                     withContext(Dispatchers.Main) {
-                        player?.volume = cos(angle)
-                        secondaryPlayer?.volume = sin(angle)
+                        player?.volume = cos(angle) * targetGain
+                        secondaryPlayer?.volume = sin(angle) * targetGain
                         if (djMode) {
                             val fp = sigmoid(progress)
                             currentPlayerFilter?.cutoffFrequencyHz = expInterpolate(CF_LPF_START_HZ, CF_LPF_END_HZ, fp)
@@ -3110,7 +3249,7 @@ object SongPlayer {
             secondaryDspProcessor = null
             secondaryPlayerFilter = null
             secondarySpatialProcessor = null
-            incoming.volume = 1f
+            incoming.volume = appVolumeGain()
             // The promoted player now owns audio focus / becoming-noisy handling & audio session effects.
             val ctx = appCtx ?: com.music.spotui.MyApplication.instanceOrNull
             val effectiveFocus = ctx == null || com.music.spotui.data.preferences.getAudioFocusMode(ctx) != com.music.spotui.data.preferences.AudioFocusMode.MIX_IGNORE_FOCUS

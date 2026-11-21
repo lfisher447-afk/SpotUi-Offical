@@ -27,10 +27,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
+import com.music.spotui.audio.UiSoundEngine
 import com.music.spotui.data.preferences.NavigationMode
 import com.music.spotui.ui.theme.AppPalette
+import com.music.spotui.util.DevConsoleManager
 
 private val appNavItems = listOf(
     Routes.Home,
@@ -49,6 +52,7 @@ fun MainTopNavigation(
     onSearchReselected: () -> Unit = {},
 ) {
     if (!visible) return
+    val context = LocalContext.current
     val currentRoute = currentRootRoute(navController)
     Row(
         modifier = Modifier
@@ -65,7 +69,11 @@ fun MainTopNavigation(
                 modifier = Modifier
                     .weight(1f)
                     .background(if (selected) AppPalette.copy(alpha = 0.18f) else Color.Transparent, RoundedCornerShape(cornerRadius))
-                    .clickable { navigateToRoot(navController, item, onSearchReselected) }
+                    .clickable {
+                        UiSoundEngine.playTabSound(context)
+                        DevConsoleManager.logButtonAction("TopNav", "switch_tab", item.route)
+                        navigateToRoot(navController, item, onSearchReselected)
+                    }
                     .padding(vertical = if (compact) 5.dp else 8.dp),
             ) {
                 Icon(
@@ -92,6 +100,7 @@ fun MainSideNavigation(
     onSearchReselected: () -> Unit = {},
 ) {
     if (!visible) return
+    val context = LocalContext.current
     val currentRoute = currentRootRoute(navController)
     val rail = mode == NavigationMode.NAVIGATION_RAIL
     if (rail) {
@@ -103,7 +112,11 @@ fun MainSideNavigation(
             appNavItems.forEach { item ->
                 NavigationRailItem(
                     selected = currentRoute == item.route,
-                    onClick = { navigateToRoot(navController, item, onSearchReselected) },
+                    onClick = {
+                        UiSoundEngine.playTabSound(context)
+                        DevConsoleManager.logButtonAction("NavRail", "switch_tab", item.route)
+                        navigateToRoot(navController, item, onSearchReselected)
+                    },
                     icon = {
                         Icon(
                             painter = painterResource(item.icon),
@@ -138,7 +151,11 @@ fun MainSideNavigation(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(if (selected) AppPalette.copy(alpha = 0.18f) else Color.Transparent, RoundedCornerShape(cornerRadius))
-                        .clickable { navigateToRoot(navController, item, onSearchReselected) }
+                        .clickable {
+                            UiSoundEngine.playTabSound(context)
+                            DevConsoleManager.logButtonAction("SideNav", "switch_tab", item.route)
+                            navigateToRoot(navController, item, onSearchReselected)
+                        }
                         .padding(horizontal = if (compact) 0.dp else 10.dp, vertical = if (compact) 10.dp else 11.dp),
                 ) {
                     Icon(

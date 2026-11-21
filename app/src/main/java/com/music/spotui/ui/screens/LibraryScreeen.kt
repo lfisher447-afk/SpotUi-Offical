@@ -42,27 +42,37 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -779,8 +789,70 @@ fun SumUpLibraryScreen(
     val albumEntries = entries.filter { !it.isPlaylist && it !in specialEntries }
     var playlistsExpanded by rememberSaveable { mutableStateOf(true) }
     var albumsExpanded by rememberSaveable { mutableStateOf(true) }
-    var youtubeMusicExpanded by rememberSaveable(youtubePlaylistEntries.isNotEmpty()) { mutableStateOf(youtubePlaylistEntries.isNotEmpty()) }
+    var youtubeMusicExpanded by rememberSaveable(youtubePlaylistEntries.isNotEmpty()) { mutableStateOf(true) }
     val libraryContext = LocalContext.current
+    val ytSyncScope = rememberCoroutineScope()
+    val ytSyncRev by com.music.spotui.data.youtube.YouTubeMusicSync.syncRevision.collectAsState()
+    val ytStatus = remember(ytSyncRev) { com.music.spotui.data.youtube.YouTubeMusicSync.status(libraryContext) }
+    var ytSyncBusy by remember { mutableStateOf(false) }
+    var showYtUrlImportDialog by remember { mutableStateOf(false) }
+    var ytUrlInput by remember { mutableStateOf("") }
+
+    if (showYtUrlImportDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!ytSyncBusy) showYtUrlImportDialog = false },
+            title = { Text("Import YouTube Playlist", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Paste any YouTube or YouTube Music playlist URL or ID (e.g. PL... or OLAK...) to import its tracks natively into SpotUI.",
+                        color = Color(0xFFB3B3B3),
+                        fontSize = 12.sp,
+                    )
+                    OutlinedTextField(
+                        value = ytUrlInput,
+                        onValueChange = { ytUrlInput = it },
+                        singleLine = true,
+                        placeholder = { Text("https://music.youtube.com/playlist?list=...", color = Color.Gray) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = Color(0xFF1ED760),
+                            unfocusedBorderColor = Color(0xFF444444),
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = ytUrlInput.isNotBlank() && !ytSyncBusy,
+                    onClick = {
+                        ytSyncBusy = true
+                        ytSyncScope.launch {
+                            val result = com.music.spotui.data.youtube.YouTubeMusicSync.importPlaylistUrl(libraryContext, ytUrlInput)
+                            ytSyncBusy = false
+                            showYtUrlImportDialog = false
+                            ytUrlInput = ""
+                            val msg = result.fold(
+                                onSuccess = { it.detail },
+                                onFailure = { it.message ?: "Import failed" },
+                            )
+                            android.widget.Toast.makeText(libraryContext, msg, android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    },
+                ) {
+                    Text(if (ytSyncBusy) "Importing…" else "Import", color = Color(0xFF1ED760), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(enabled = !ytSyncBusy, onClick = { showYtUrlImportDialog = false }) {
+                    Text("Cancel", color = Color.White)
+                }
+            },
+            containerColor = Color(0xFF1A1A20),
+        )
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -853,19 +925,102 @@ fun SumUpLibraryScreen(
                 items = youtubePlaylistEntries,
                 key = { i, entry -> "ytm_${entry.spotifyId}_${entry.name}_$i" },
             ) { _, entry -> LibraryListEntry(entry, navController) }
-            item(key = "ytm_web_companion_tile") {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(20.dp, 8.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF191E28))
-                    .clickable { libraryContext.startActivity(android.content.Intent(libraryContext, YouTubeMusicWebActivity::class.java)) }
-                    .padding(14.dp),
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("Open YouTube Music playlists", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    Text("Optional web companion — sign in on the official site and manage your YouTube Music library.", color = Color(0xFFB3B3B3), fontSize = 11.sp)
+            item(key = "ytm_native_sync_hub") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp, 8.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xFF171B24))
+                        .border(1.dp, Color(0xFF283042), RoundedCornerShape(14.dp))
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("YouTube Music Native Sync", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = when {
+                                    ytStatus.sessionReady || ytStatus.connected -> ytStatus.detail.ifBlank { "Connected — tap Sync YT Playlists to pull playlists, Liked Music & albums into your library." }
+                                    else -> "Sign in once to sync all your playlists, Liked Music & saved albums natively right into SpotUI."
+                                },
+                                color = if (ytStatus.sessionReady || ytStatus.connected) Color(0xFF81C784) else Color(0xFFB3B3B3),
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp,
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Button(
+                            onClick = {
+                                if (!ytStatus.sessionReady && !ytStatus.connected) {
+                                    libraryContext.startActivity(android.content.Intent(libraryContext, YouTubeMusicWebActivity::class.java))
+                                } else {
+                                    ytSyncBusy = true
+                                    ytSyncScope.launch {
+                                        val res = if (ytStatus.sessionReady) {
+                                            com.music.spotui.data.youtube.YouTubeMusicSync.syncFromSignedInSession(libraryContext)
+                                        } else {
+                                            com.music.spotui.data.youtube.YouTubeMusicSync.syncNow(libraryContext)
+                                        }
+                                        ytSyncBusy = false
+                                        val toastMsg = res.fold(
+                                            onSuccess = { it.detail },
+                                            onFailure = { it.message ?: "YouTube sync failed" },
+                                        )
+                                        android.widget.Toast.makeText(libraryContext, toastMsg, android.widget.Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            },
+                            enabled = !ytSyncBusy,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF1ED760),
+                                contentColor = Color.Black,
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("ytm_native_sync_button"),
+                        ) {
+                            if (ytSyncBusy) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.Black)
+                                Spacer(Modifier.width(6.dp))
+                                Text("Syncing…", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            } else {
+                                Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    if (ytStatus.sessionReady || ytStatus.connected) "Sync YT Playlists" else "Sign in to Sync",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = { showYtUrlImportDialog = true },
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("ytm_import_url_button"),
+                        ) {
+                            Icon(Icons.Default.Link, contentDescription = "Import URL", tint = Color.White, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("URL", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                libraryContext.startActivity(android.content.Intent(libraryContext, YouTubeMusicWebActivity::class.java))
+                            },
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("ytm_account_button"),
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "YouTube Music Account", tint = Color(0xFFFF3D4D), modifier = Modifier.size(16.dp))
+                        }
+                    }
                 }
-                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Open YouTube Music", tint = Color(0xFFFF3D4D))
-            }
             }
         }
         // ── Artists the user follows on Spotify ──

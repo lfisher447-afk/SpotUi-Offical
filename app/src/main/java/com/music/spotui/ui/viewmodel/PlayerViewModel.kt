@@ -217,6 +217,13 @@ class PlayerViewModel @Inject constructor(private val currentSongState: CurrentS
             nextIdx,
             nextSong.album
         )
+        com.music.spotui.data.api.ModuleLibsBridge.notifyTrackPlaying(
+            context,
+            nextSong.title,
+            nextSong.singer,
+            nextSong.album,
+            null,
+        )
         SongPlayer.playSong(nextSong.url, context)
     }
 
@@ -278,6 +285,7 @@ class PlayerViewModel @Inject constructor(private val currentSongState: CurrentS
                         val next = q[queueSongs.size]
                         withContext(Dispatchers.Main) {
                             updateSongState(next.coverUri, next.title, next.singer, true, next.id, queueSongs.size, next.album)
+                            com.music.spotui.data.api.ModuleLibsBridge.notifyTrackPlaying(context, next.title, next.singer, next.album, null)
                             SongPlayer.playSong(next.url, context)
                         }
                         return@launch
@@ -286,6 +294,7 @@ class PlayerViewModel @Inject constructor(private val currentSongState: CurrentS
                         val first = queueSongs.first()
                         withContext(Dispatchers.Main) {
                             updateSongState(first.coverUri, first.title, first.singer, true, first.id, 0, first.album)
+                            com.music.spotui.data.api.ModuleLibsBridge.notifyTrackPlaying(context, first.title, first.singer, first.album, null)
                             SongPlayer.playSong(first.url, context)
                         }
                         return@launch
@@ -296,6 +305,7 @@ class PlayerViewModel @Inject constructor(private val currentSongState: CurrentS
                 val first = queueSongs.first()
                 withContext(Dispatchers.Main) {
                     updateSongState(first.coverUri, first.title, first.singer, true, first.id, 0, first.album)
+                    com.music.spotui.data.api.ModuleLibsBridge.notifyTrackPlaying(context, first.title, first.singer, first.album, null)
                     SongPlayer.playSong(first.url, context)
                 }
             } finally {
@@ -316,6 +326,7 @@ class PlayerViewModel @Inject constructor(private val currentSongState: CurrentS
         if (song.id == currentSongId.value) return
         maybeExtendRadio(queueSongs, index)
         updateSongState(song.coverUri, song.title, song.singer, true, song.id, index, song.album)
+        com.music.spotui.data.api.ModuleLibsBridge.notifyTrackPlaying(context, song.title, song.singer, song.album, null)
         SongPlayer.playSong(song.url, context)
     }
 
@@ -354,6 +365,7 @@ class PlayerViewModel @Inject constructor(private val currentSongState: CurrentS
         
         val previousSong = queueSongs[prevIdx]
         updateSongState(previousSong.coverUri, previousSong.title, previousSong.singer, true, previousSong.id, prevIdx, previousSong.album)
+        com.music.spotui.data.api.ModuleLibsBridge.notifyTrackPlaying(context, previousSong.title, previousSong.singer, previousSong.album, null)
         SongPlayer.playSong(previousSong.url, context)
     }
 

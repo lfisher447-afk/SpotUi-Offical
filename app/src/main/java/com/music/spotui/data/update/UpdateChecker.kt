@@ -23,6 +23,10 @@ object UpdateChecker {
         val fingerprint: String,
         val releaseBody: String,
         val isPrerelease: Boolean = false,
+        val apkFileName: String = "",
+        val apkSizeBytes: Long = -1L,
+        val sha256Url: String = "",
+        val expectedSha256: String = "",
     )
 
     private val client = OkHttpClient.Builder()
@@ -72,12 +76,45 @@ object UpdateChecker {
         return "https://api.github.com/repos/$repoPath/releases/latest"
     }
 
-    internal fun selectBestApkUrl(assets: org.json.JSONArray?): String? {
+    internal data class ApkAssetMeta(
+        val name: String,
+        val url: String,
+        val sizeBytes: Long,
+        val sha256Url: String,
+    )
+
+    internal fun selectBestApkUrl(assets: org.json.JSONArray?): String? =
+        selectBestApkAsset(assets)?.url
+
+    internal fun selectBestApkAsset(assets: org.json.JSONArray?): ApkAssetMeta? {
         if (assets == null) return null
         val items = (0 until assets.length()).mapNotNull { assets.optJSONObject(it) }
         val apkItems = items.filter { it.optString("name").endsWith(".apk", ignoreCase = true) }
         val releaseApk = apkItems.firstOrNull { it.optString("name").contains("release", ignoreCase = true) }
-        return (releaseApk ?: apkItems.firstOrNull())?.optString("browser_download_url")?.ifBlank { null }
+        val chosen = releaseApk ?: apkItems.firstOrNull() ?: return null
+        val url = chosen.optString("browser_download_url").ifBlank { return null }
+        val name = chosen.optString("name")
+        val size = chosen.optLong("size", -1L)
+        val shaAsset = items.firstOrNull {
+            val n = it.optString("name")
+            n.equals("$name.sha256", ignoreCase = true) || n.endsWith(".sha256", ignoreCase = true)
+        }?.optString("browser_download_url").orEmpty()
+        return ApkAssetMeta(name = name, url = url, sizeBytes = size, sha256Url = shaAsset)
+    }
+
+    private fun fetchSha256Digest(url: String): String {
+        if (url.isBlank()) return ""
+        return runCatching {
+            val req = Request.Builder()
+                .url(url)
+                .header("User-Agent", "SpotUI/${BuildConfig.VERSION_NAME}")
+                .build()
+            client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@use ""
+                val text = resp.body?.string().orEmpty().trim()
+                Regex("""([A-Fa-f0-9]{64})""").find(text)?.groupValues?.getOrNull(1).orEmpty()
+            }
+        }.getOrDefault("")
     }
 
     internal fun parseReleasesAtom(xml: String, repoUrl: String): UpdateInfo? {
@@ -135,14 +172,19 @@ object UpdateChecker {
             val htmlUrl = json.optString("html_url", releasesPage)
                 .ifBlank { releasesPage }
             val assets = json.optJSONArray("assets")
-            val apkUrl = selectBestApkUrl(assets)
+            val apkMeta = selectBestApkAsset(assets)
+            val digest = apkMeta?.sha256Url?.takeIf { it.isNotBlank() }?.let(::fetchSha256Digest).orEmpty()
             val isPrerelease = json.optBoolean("prerelease", false)
             UpdateInfo(
                 version = version,
-                downloadUrl = apkUrl ?: htmlUrl,
+                downloadUrl = apkMeta?.url ?: htmlUrl,
                 fingerprint = "${json.optLong("id")}:${json.optString("updated_at")}:$version",
                 releaseBody = releaseBody,
                 isPrerelease = isPrerelease,
+                apkFileName = apkMeta?.name.orEmpty(),
+                apkSizeBytes = apkMeta?.sizeBytes ?: -1L,
+                sha256Url = apkMeta?.sha256Url.orEmpty(),
+                expectedSha256 = digest,
             )
         }
     }

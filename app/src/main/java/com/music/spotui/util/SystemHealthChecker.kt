@@ -57,8 +57,8 @@ data class HealthScanReport(
 }
 
 /**
- * Active 18-point runtime health, playback, DSP, network, authentication,
- * provider, and storage scanner with 1-tap remediation actions.
+ * Active 20-point runtime health, playback, DSP, Bluetooth headset, fault monitor,
+ * network, authentication, provider, and storage scanner with 1-tap remediation actions.
  */
 object SystemHealthChecker {
 
@@ -101,7 +101,7 @@ object SystemHealthChecker {
         if (prev != null && (nowMs - lastScanCompletedAtMs) in 0 until SCAN_COOLDOWN_MS) {
             DevConsoleManager.logInfo(
                 "HealthScanner",
-                "Returning cached 18-point report (${remainingCooldownMs(nowMs) / 1000 + 1}s cooldown remaining)",
+                "Returning cached 20-point report (${remainingCooldownMs(nowMs) / 1000 + 1}s cooldown remaining)",
             )
             return@withContext prev
         }
@@ -156,12 +156,14 @@ object SystemHealthChecker {
                 async { checkMediaCache(appCtx) },
                 async { checkCrashReports(appCtx) },
                 async { checkQueueIntegrity(appCtx) },
+                async { checkBluetoothSpecsAndConflicts(appCtx) },
+                async { checkComponentFaults() },
             ).awaitAll()
         }
         val elapsed = (System.currentTimeMillis() - start).coerceAtLeast(1L)
         DevConsoleManager.logInfo(
             "HealthScanner",
-            "18-point scan completed in ${elapsed}ms: ${results.count { it.severity == CheckSeverity.OK }} OK, " +
+            "20-point scan completed in ${elapsed}ms: ${results.count { it.severity == CheckSeverity.OK }} OK, " +
                 "${results.count { it.severity == CheckSeverity.WARNING }} WARN, " +
                 "${results.count { it.severity == CheckSeverity.FAIL }} FAIL",
         )
@@ -839,6 +841,71 @@ object SystemHealthChecker {
                 "Removed $removed duplicate track(s) from active queue."
             },
         )
+    }
+
+    private suspend fun checkBluetoothSpecsAndConflicts(context: Context): HealthCheckResult {
+        val bt = com.music.spotui.audio.BluetoothAudioInspector.inspect(context)
+        val firstFail = bt.conflicts.firstOrNull { it.severity == CheckSeverity.FAIL }
+            ?: bt.conflicts.firstOrNull { it.severity == CheckSeverity.WARNING }
+        return when {
+            firstFail != null -> HealthCheckResult(
+                id = "bluetooth_specs",
+                title = "Bluetooth & Output Specs",
+                category = "Audio FX",
+                severity = firstFail.severity,
+                summary = "${bt.deviceName} (${bt.codecName}) — ${firstFail.title}",
+                detail = "${bt.transportLabel} · ${bt.sampleRateKhz} · ${bt.bitsPerSample} · ${firstFail.explanation}",
+                fixLabel = firstFail.fixLabel,
+                autoFix = firstFail.applyFix?.let { fn ->
+                    { ctx -> fn(ctx) }
+                },
+            )
+            bt.isBluetoothConnected -> HealthCheckResult(
+                id = "bluetooth_specs",
+                title = "Bluetooth & Output Specs",
+                category = "Audio FX",
+                severity = CheckSeverity.OK,
+                summary = "${bt.deviceName} · ${bt.codecName} · ${bt.sampleRateKhz}",
+                detail = "${bt.bitsPerSample} · ${bt.channelMode} · BT-Safe=${bt.bluetoothSafeBypassActive} · Supported: ${bt.supportedRates}",
+            )
+            else -> HealthCheckResult(
+                id = "bluetooth_specs",
+                title = "Bluetooth & Output Specs",
+                category = "Audio FX",
+                severity = CheckSeverity.OK,
+                summary = "${bt.activeOutputType} · ${bt.sampleRateKhz}",
+                detail = "${bt.transportLabel} · ${bt.bitsPerSample} · Zero BT conflicts detected.",
+            )
+        }
+    }
+
+    private fun checkComponentFaults(): HealthCheckResult {
+        val unresolved = DevConsoleManager.faults.value.filter { !it.resolved }
+        return if (unresolved.isEmpty()) {
+            HealthCheckResult(
+                id = "component_faults",
+                title = "Component & Button Fault Monitor",
+                category = "Stability",
+                severity = CheckSeverity.OK,
+                summary = "Zero unresolved UI/action faults",
+                detail = "All monitored buttons, playback controls, playlists, and sheets responded normally.",
+            )
+        } else {
+            val latest = unresolved.first()
+            HealthCheckResult(
+                id = "component_faults",
+                title = "Component & Button Fault Monitor",
+                category = "Stability",
+                severity = CheckSeverity.WARNING,
+                summary = "${unresolved.size} fault(s): ${latest.component}.${latest.action}",
+                detail = latest.reason + if (latest.autoFixHint.isNotBlank()) " Hint: ${latest.autoFixHint}" else "",
+                fixLabel = "Clear Faults",
+                autoFix = {
+                    DevConsoleManager.clearFaults()
+                    "Cleared recorded component faults."
+                },
+            )
+        }
     }
 
     private fun pingUrl(url: String): Long {

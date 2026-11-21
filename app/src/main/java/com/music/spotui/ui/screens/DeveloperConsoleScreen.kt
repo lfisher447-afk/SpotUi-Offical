@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
 import androidx.navigation.NavController
+import com.music.spotui.audio.BluetoothAudioInspector
 import com.music.spotui.di.SongPlayer
 import com.music.spotui.ui.theme.AppBackground
 import com.music.spotui.ui.theme.AppPalette
@@ -86,6 +87,9 @@ import com.music.spotui.util.DevConsoleManager
 import com.music.spotui.util.HealthCheckResult
 import com.music.spotui.util.HealthScanReport
 import com.music.spotui.util.SystemHealthChecker
+import androidx.compose.material.icons.filled.BluetoothAudio
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material3.ScrollableTabRow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -97,12 +101,18 @@ fun DeveloperConsoleScreen(navController: NavController) {
     val logs by DevConsoleManager.logs.collectAsStateWithLifecycle()
     val diagnostics by DevConsoleManager.diagnostics.collectAsStateWithLifecycle()
 
+    val faults by DevConsoleManager.faults.collectAsStateWithLifecycle()
+
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    // Tab 1: 18-Point System Health Scanner State
+    // Tab 1: 20-Point System Health Scanner State
     var healthReport by remember { mutableStateOf<HealthScanReport?>(null) }
     var isScanning by remember { mutableStateOf(false) }
     var fixingId by remember { mutableStateOf<String?>(null) }
+
+    // Tab 4: Live Bluetooth Specs & Conflict Inspector State
+    var btReport by remember { mutableStateOf<BluetoothAudioInspector.BluetoothSpecsReport?>(null) }
+    var isInspectingBt by remember { mutableStateOf(false) }
 
     // Tab 2: Logger State
     var selectedFilter by remember { mutableStateOf<DevConsoleManager.LogLevel?>(null) }
@@ -138,16 +148,30 @@ fun DeveloperConsoleScreen(navController: NavController) {
         }
     }
 
-    LaunchedEffect(Unit) {
-        triggerScan()
+    fun refreshBtSpecs() {
+        if (isInspectingBt) return
+        isInspectingBt = true
+        scope.launch {
+            btReport = BluetoothAudioInspector.inspect(context)
+            isInspectingBt = false
+        }
     }
 
-    // Periodic live telemetry refresh while on Telemetry tab
+    LaunchedEffect(Unit) {
+        triggerScan()
+        refreshBtSpecs()
+    }
+
+    // Periodic live telemetry refresh while on Telemetry or BT tab
     LaunchedEffect(selectedTab) {
-        while (selectedTab == 2) {
+        if (selectedTab == 3) refreshBtSpecs()
+        while (selectedTab == 2 || selectedTab == 3) {
             telemetry = SongPlayer.telemetrySnapshot(context)
             hasCrashReports = CrashHandler.hasCrashReport(context)
-            delay(1_000L)
+            if (selectedTab == 3) {
+                btReport = BluetoothAudioInspector.inspect(context)
+            }
+            delay(if (selectedTab == 3) 2_500L else 1_000L)
         }
     }
 
@@ -221,15 +245,16 @@ fun DeveloperConsoleScreen(navController: NavController) {
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            TabRow(
+            ScrollableTabRow(
                 selectedTabIndex = selectedTab,
                 containerColor = Color(0xFF17171F),
                 contentColor = AppPalette,
+                edgePadding = 8.dp,
             ) {
                 Tab(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    text = { Text("Health (18)", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                    text = { Text("Health (20)", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
                     modifier = Modifier.testTag("dev_tab_health"),
                 )
                 Tab(
@@ -243,6 +268,22 @@ fun DeveloperConsoleScreen(navController: NavController) {
                     onClick = { selectedTab = 2 },
                     text = { Text("Telemetry", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
                     modifier = Modifier.testTag("dev_tab_telemetry"),
+                )
+                val unresolvedFaults = faults.count { !it.resolved }
+                val btIssues = btReport?.issueCount ?: 0
+                val badgeCount = unresolvedFaults + btIssues
+                Tab(
+                    selected = selectedTab == 3,
+                    onClick = { selectedTab = 3 },
+                    text = {
+                        Text(
+                            if (badgeCount > 0) "BT & Faults ($badgeCount)" else "BT & Faults",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (badgeCount > 0) Color(0xFFFFB74D) else Color.Unspecified,
+                        )
+                    },
+                    modifier = Modifier.testTag("dev_tab_bt_faults"),
                 )
             }
 
@@ -291,6 +332,20 @@ fun DeveloperConsoleScreen(navController: NavController) {
                         latestCrashText = CrashHandler.getLatestCrashReport(context)
                         showCrashDialog = true
                     },
+                )
+                3 -> BluetoothSpecsAndFaultsTab(
+                    btReport = btReport,
+                    isRefreshing = isInspectingBt,
+                    faults = faults,
+                    onRefreshBt = { refreshBtSpecs() },
+                    onApplyBtFix = { conflict ->
+                        val fix = conflict.applyFix ?: return@BluetoothSpecsAndFaultsTab
+                        val msg = runCatching { fix(context) }.getOrElse { "Fix failed: ${it.message}" }
+                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                        refreshBtSpecs()
+                    },
+                    onResolveFault = { DevConsoleManager.markFaultResolved(it) },
+                    onClearFaults = { DevConsoleManager.clearFaults() },
                 )
             }
         }
@@ -742,9 +797,230 @@ fun DevToggleRow(label: String, state: Boolean, onToggle: (Boolean) -> Unit) {
 }
 
 @Composable
+private fun BluetoothSpecsAndFaultsTab(
+    btReport: BluetoothAudioInspector.BluetoothSpecsReport?,
+    isRefreshing: Boolean,
+    faults: List<DevConsoleManager.ComponentFault>,
+    onRefreshBt: () -> Unit,
+    onApplyBtFix: (BluetoothAudioInspector.BluetoothConflict) -> Unit,
+    onResolveFault: (String) -> Unit,
+    onClearFaults: () -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item(key = "bt_header") {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0xFF1E2029))
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(
+                            Icons.Default.BluetoothAudio,
+                            contentDescription = "Bluetooth Audio",
+                            tint = if (btReport?.isBluetoothConnected == true) AppPalette else Color(0xFFB3B3B3),
+                        )
+                        Column {
+                            Text("BLUETOOTH & HEADSET SPECS", color = AppPalette, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(btReport?.deviceName ?: "Probing audio sink...", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Button(
+                        enabled = !isRefreshing,
+                        onClick = onRefreshBt,
+                        colors = ButtonDefaults.buttonColors(containerColor = AppPalette, contentColor = Color.Black),
+                        modifier = Modifier.heightIn(min = 48.dp).testTag("bt_specs_refresh"),
+                    ) {
+                        Text(if (isRefreshing) "…" else "Probe", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                btReport?.let { r ->
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        DiagnosticBadge("Codec", r.codecName)
+                        DiagnosticBadge("Rate", r.sampleRateKhz)
+                        DiagnosticBadge("Depth", r.bitsPerSample)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        DiagnosticBadge("Transport", r.transportLabel.substringAfter("Bluetooth ").take(18))
+                        DiagnosticBadge("Channels", r.channelMode.take(18))
+                        DiagnosticBadge("BT-Safe DSP", if (r.bluetoothSafeBypassActive) "Active" else "Standby")
+                    }
+                    Text(
+                        "Supported Rates: ${r.supportedRates}  ·  Formats: ${r.supportedEncodings}",
+                        color = Color(0xFFB3B8C8),
+                        fontSize = 11.sp,
+                    )
+                    if (r.selectableCodecs.isNotEmpty()) {
+                        Text(
+                            "Selectable Codecs: ${r.selectableCodecs.joinToString(" / ")}",
+                            color = Color(0xFF9ED4FF),
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
+            }
+        }
+
+        val conflicts = btReport?.conflicts.orEmpty()
+        item(key = "bt_conflicts_header") {
+            Text(
+                if (conflicts.isEmpty()) "BLUETOOTH ISSUE DETECTOR — NO CONFLICTS" else "DETECTED BLUETOOTH / DSP CONFLICTS (${conflicts.size})",
+                color = if (conflicts.isEmpty()) Color(0xFF81C784) else Color(0xFFFFB74D),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+
+        if (conflicts.isEmpty()) {
+            item(key = "bt_clean") {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF17221B))
+                        .padding(12.dp),
+                ) {
+                    Text(
+                        "No SpotUI DSP, Audio Offload, gain, or mono settings are interfering with your Bluetooth headset or speaker.",
+                        color = Color(0xFFA5D6A7),
+                        fontSize = 12.sp,
+                    )
+                }
+            }
+        } else {
+            itemsIndexed(conflicts, key = { _, c -> "conflict_${c.id}" }) { _, c ->
+                val tint = if (c.severity == CheckSeverity.FAIL) Color(0xFFFF5252) else Color(0xFFFFB74D)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF1F1C22))
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "${if (c.causedBySpotui) "[SpotUI Conflict] " else "[System] "}${c.title}",
+                            color = tint,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Text(c.explanation, color = Color(0xFFD0D3DC), fontSize = 11.sp, lineHeight = 15.sp)
+                    }
+                    if (c.fixLabel != null && c.applyFix != null) {
+                        TextButton(
+                            onClick = { onApplyBtFix(c) },
+                            modifier = Modifier.heightIn(min = 48.dp).testTag("bt_fix_${c.id}"),
+                        ) {
+                            Icon(Icons.Default.Build, contentDescription = null, tint = AppPalette, modifier = Modifier.size(15.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(c.fixLabel, color = AppPalette, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
+        item(key = "faults_header") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    "COMPONENT & BUTTON FAULTS (${faults.count { !it.resolved }} active)",
+                    color = Color(0xFFFF8B94),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                if (faults.isNotEmpty()) {
+                    TextButton(
+                        onClick = onClearFaults,
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) {
+                        Text("Clear Faults", color = Color(0xFFFF6B6B), fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+
+        if (faults.isEmpty()) {
+            item(key = "faults_empty") {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF1A1B23))
+                        .padding(12.dp),
+                ) {
+                    Text(
+                        "No broken buttons, playback stalls, or UI faults logged during this session.",
+                        color = Color(0xFFA5AAB8),
+                        fontSize = 12.sp,
+                    )
+                }
+            }
+        } else {
+            itemsIndexed(faults, key = { _, f -> f.id }) { _, fault ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (fault.resolved) Color(0xFF16181F) else Color(0xFF24181C))
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "${fault.timestamp} · ${fault.component}.${fault.action}${if (fault.resolved) " (Resolved)" else ""}",
+                            color = if (fault.resolved) Color(0xFF81C784) else Color(0xFFFF7676),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(fault.reason, color = Color.White, fontSize = 12.sp)
+                        if (fault.autoFixHint.isNotBlank()) {
+                            Text("Hint: ${fault.autoFixHint}", color = Color(0xFF9ED4FF), fontSize = 11.sp)
+                        }
+                    }
+                    if (!fault.resolved) {
+                        TextButton(
+                            onClick = { onResolveFault(fault.id) },
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) {
+                            Text("Resolve", color = AppPalette, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun LogItemRow(log: DevConsoleManager.LogEntry, onClick: () -> Unit) {
     val levelColor = when (log.level) {
         DevConsoleManager.LogLevel.ERROR -> Color(0xFFFF4D4D)
+        DevConsoleManager.LogLevel.COMPONENT_FAULT -> Color(0xFFFF6B9D)
+        DevConsoleManager.LogLevel.BT_DIAGNOSTIC -> Color(0xFF64B5F6)
         DevConsoleManager.LogLevel.WARNING -> Color(0xFFFFC107)
         DevConsoleManager.LogLevel.COLLISION -> Color(0xFFFF9800)
         DevConsoleManager.LogLevel.SANITIZATION -> Color(0xFF00E676)
@@ -767,11 +1043,11 @@ fun LogItemRow(log: DevConsoleManager.LogEntry, onClick: () -> Unit) {
             modifier = Modifier.width(72.dp),
         )
         Text(
-            "[${log.level.name.take(4)}]",
+            "[${log.level.name.take(5)}]",
             color = levelColor,
             fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.width(50.dp),
+            modifier = Modifier.width(58.dp),
         )
         Text(
             "${log.tag}: ${log.message}",

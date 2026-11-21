@@ -46,11 +46,15 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
@@ -67,8 +71,12 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
@@ -85,11 +93,13 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import kotlin.math.roundToInt
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -119,8 +129,12 @@ import androidx.navigation.NavController
 import com.bumptech.glide.integration.compose.ExperimentalGlideComposeApi
 import com.bumptech.glide.integration.compose.GlideImage
 import com.music.spotui.R
+import com.music.spotui.audio.UiSoundEngine
+import com.music.spotui.data.api.ModuleLibsBridge
 import com.music.spotui.data.api.Response
 import com.music.spotui.data.entity.SongsModel
+import com.music.spotui.data.preferences.ExperiencePreferences
+import com.music.spotui.data.preferences.PlayerUiStyle
 import com.music.spotui.data.preferences.addLikedSongId
 import com.music.spotui.data.preferences.alternativeStreamKey
 import com.music.spotui.data.preferences.clearAlternativeStream
@@ -135,9 +149,11 @@ import com.music.spotui.di.SongPlayer
 import com.music.spotui.ui.components.Snackbar
 import com.music.spotui.ui.navigation.Routes
 import com.music.spotui.ui.navigation.albumRoute
+import com.music.spotui.ui.screens.player.NewPlayerLayout
 import com.music.spotui.ui.theme.AppBackground
 import com.music.spotui.ui.theme.AppPalette
 import com.music.spotui.ui.viewmodel.PlayerViewModel
+import com.music.spotui.util.DevConsoleManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -372,6 +388,8 @@ fun PlayerScreen(navController: NavController) {
         playerViewModel.syncWithPlayer()
     }
     val context = LocalContext.current
+    val experienceRev by ExperiencePreferences.experienceRevision.collectAsState()
+    val playerUiStyle = remember(experienceRev) { ExperiencePreferences.getPlayerUiStyle(context) }
     val isLiked = remember(songId) {
         mutableStateOf(isSongLiked(context, songId.toString()))
     }
@@ -379,6 +397,7 @@ fun PlayerScreen(navController: NavController) {
     var showLyrics by remember { mutableStateOf(false) }
     var showSavedIn by remember { mutableStateOf(false) }
     var showArtistSheet by remember { mutableStateOf(false) }
+    var showAudioQuickSheet by remember { mutableStateOf(false) }
 
     if (showMenu) {
         PlayerOptionsSheet(
@@ -386,7 +405,16 @@ fun PlayerScreen(navController: NavController) {
             playerViewModel = playerViewModel,
             context = context,
             isLiked = isLiked,
+            onOpenAudioQuickSheet = { showAudioQuickSheet = true },
             onDismiss = { showMenu = false }
+        )
+    }
+
+    if (showAudioQuickSheet) {
+        PlayerAudioQuickSheet(
+            navController = navController,
+            context = context,
+            onDismiss = { showAudioQuickSheet = false },
         )
     }
 
@@ -519,6 +547,19 @@ fun PlayerScreen(navController: NavController) {
 
 
 
+    LaunchedEffect(songId, songTitle, songSinger) {
+        if (songTitle.isNotBlank() && songSinger.isNotBlank()) {
+            val durSec = (SongPlayer.getDuration() / 1000L).toInt().takeIf { it > 0 }
+            ModuleLibsBridge.notifyTrackPlaying(
+                context = context,
+                title = songTitle,
+                artist = songSinger,
+                album = playerViewModel.currentSongAlbum.value,
+                durationSec = durSec,
+            )
+        }
+    }
+
     LaunchedEffect(songId, songPlayingState) {
         while (true) {
             // Keep playing state continuously reconciled with physical audio engine state
@@ -530,6 +571,18 @@ fun PlayerScreen(navController: NavController) {
             val pos = SongPlayer.getCurrentPosition()
             songProgress = pos.toFloat()
             songProgressText = if (pos < 0) "0:00" else playerViewModel.formatDuration(pos)
+
+            if (songPlayingState && dur > 0L && pos > 0L) {
+                ModuleLibsBridge.maybeScrobbleTrack(
+                    context = context,
+                    trackKey = "${songId}_${songTitle}",
+                    title = songTitle,
+                    artist = songSinger,
+                    album = playerViewModel.currentSongAlbum.value,
+                    positionMs = pos,
+                    durationMs = dur,
+                )
+            }
 
             if (songPlayingState) {
                 delay(300L)
@@ -603,6 +656,45 @@ fun PlayerScreen(navController: NavController) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             item {
+                if (playerUiStyle == PlayerUiStyle.NEW_EXPRESSIVE) {
+                    NewPlayerLayout(
+                        navController = navController,
+                        playerViewModel = playerViewModel,
+                        context = context,
+                        dominantColor = dominentColor,
+                        canvasUrl = canvasUrl,
+                        songTitle = songTitle,
+                        songSinger = songSinger,
+                        songCoverUri = songCoverUri,
+                        songPlayingState = songPlayingState,
+                        songId = songId,
+                        currentTrack = queueSongs.firstOrNull { it.id == songId },
+                        queueSongs = queueSongs,
+                        artworkPagerState = artworkPagerState,
+                        isLiked = isLiked,
+                        shuffle = shuffle,
+                        repeat = repeat,
+                        songProgressText = songProgressText,
+                        songDurationText = songDurationText,
+                        onBackClick = { dismissPlayer() },
+                        onMenuClick = { showMenu = true },
+                        onOpenAudioQuickSheet = { showAudioQuickSheet = true },
+                        onShowSavedIn = { showSavedIn = true },
+                        onArtistClick = {
+                            val artists = songSinger.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                            val ids = playerViewModel.currentArtistIds.value.split(",").map { it.trim() }
+                            if (artists.size == 1) {
+                                navController.navigate(
+                                    com.music.spotui.ui.navigation.artistRoute(artists[0], ids.getOrElse(0) { "" })
+                                )
+                            } else {
+                                showArtistSheet = true
+                            }
+                        },
+                        onMessageToast = { msg -> Toast.makeText(context, msg, Toast.LENGTH_SHORT).show() },
+                        modifier = Modifier.fillParentMaxHeight(),
+                    )
+                } else {
                 Column(
                     verticalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier
@@ -722,6 +814,7 @@ fun PlayerScreen(navController: NavController) {
                             onValueChange = { newValue ->
                                 isDragging = true
                                 dragValue = newValue
+                                UiSoundEngine.playSliderTick(context, newValue)
                             },
                             onValueChangeFinished = {
                                 val dur = SongPlayer.getDuration()
@@ -794,11 +887,13 @@ fun PlayerScreen(navController: NavController) {
                         navController = navController,
                         context = context,
                         currentTrack = queueSongs.firstOrNull { it.id == playerViewModel.currentSongId.value },
+                        onOpenAudioSheet = { showAudioQuickSheet = true },
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
 
                     //PlayerEndInfo()
+                }
                 }
             }
             item {
@@ -1087,6 +1182,9 @@ fun PlayerInfo(
                             }
                             snackbarVisible = true
                             isLiked.value = isSongLiked(context, songId.toString())
+                            UiSoundEngine.playToggleSound(context, isLiked.value)
+                            DevConsoleManager.logButtonAction("LegacyPlayer", "toggle_like", "$songTitle -> ${isLiked.value}")
+                            ModuleLibsBridge.setLastFmLoveStatus(context, songTitle, songSinger, isLiked.value)
                             // Mirror the like to the real Spotify account.
                             com.music.spotui.data.api.SpotifySync.setTrackSaved(
                                 context,
@@ -1270,12 +1368,10 @@ fun PlayerFull(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
                 ) {
-                    if (shuffle) {
-                        playerViewModel.updateShuffleState(false)
-                    } else {
-                        playerViewModel.updateShuffleState(true)
-                    }
-
+                    val nextShuffle = !shuffle
+                    UiSoundEngine.playToggleSound(context, nextShuffle)
+                    DevConsoleManager.logButtonAction("LegacyPlayer", "shuffle", nextShuffle.toString())
+                    playerViewModel.updateShuffleState(nextShuffle)
                 },
             tint = if (shuffle) {
                 Color(0xFF1ED760)
@@ -1292,6 +1388,8 @@ fun PlayerFull(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
                 ) {
+                    UiSoundEngine.playTapChime(context)
+                    DevConsoleManager.logButtonAction("LegacyPlayer", "previous", "queue=${queueSongs.size}")
                     // The queue itself is already in shuffled order when shuffle
                     // is on (reordered once at toggle) — never re-shuffle per tap.
                     playerViewModel.playPreviousSong(queueSongs, context)
@@ -1310,8 +1408,10 @@ fun PlayerFull(
                 .clip(CircleShape)
                 .background(Color.White)
                 .clickable {
+                    UiSoundEngine.playTapChime(context)
                     if (songPlayingState) {
                         SongPlayer.pause()
+                        DevConsoleManager.logButtonAction("LegacyPlayer", "pause", playerViewModel.currentSongTitle.value)
                         playerViewModel.updateSongState(
                             playerViewModel.currentSongCoverUri.value,
                             playerViewModel.currentSongTitle.value,
@@ -1323,6 +1423,7 @@ fun PlayerFull(
                         )
                     } else {
                         SongPlayer.play()
+                        DevConsoleManager.logButtonAction("LegacyPlayer", "play", playerViewModel.currentSongTitle.value)
                         playerViewModel.updateSongState(
                             playerViewModel.currentSongCoverUri.value,
                             playerViewModel.currentSongTitle.value,
@@ -1365,7 +1466,8 @@ fun PlayerFull(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
                 ) {
-
+                    UiSoundEngine.playTapChime(context)
+                    DevConsoleManager.logButtonAction("LegacyPlayer", "next", "queue=${queueSongs.size}")
                     playerViewModel.playNextSongs(queueSongs, context)
                     isLiked.value =
                         isSongLiked(context, playerViewModel.currentSongId.value.toString())
@@ -1388,6 +1490,8 @@ fun PlayerFull(
                         RepeatMode.ALL -> RepeatMode.ONE
                         RepeatMode.ONE -> RepeatMode.OFF
                     }
+                    UiSoundEngine.playToggleSound(context, nextRepeat != RepeatMode.OFF)
+                    DevConsoleManager.logButtonAction("LegacyPlayer", "repeat", nextRepeat.name)
                     playerViewModel.updateRepeatState(nextRepeat)
                 }
         ) {
@@ -1457,8 +1561,13 @@ fun PlayerConnectRow(
     navController: NavController,
     context: Context,
     currentTrack: SongsModel?,
+    onOpenAudioSheet: () -> Unit = {},
 ) {
     val routeName = remember(currentTrack?.id) { currentAudioRoute(context) }
+    val appVol by SongPlayer.appVolumePercentFlow.collectAsState()
+    val spatialOn = remember(currentTrack?.id, appVol) {
+        com.music.spotui.data.preferences.isEqSpatialEnabled(context)
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1483,10 +1592,34 @@ fun PlayerConnectRow(
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 modifier = Modifier
                     .padding(start = 6.dp)
-                    .widthIn(max = 170.dp),
+                    .widthIn(max = 140.dp),
             )
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color.White.copy(alpha = 0.12f))
+                    .clickable { onOpenAudioSheet() }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+            ) {
+                Icon(
+                    imageVector = if (appVol == 0) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                    tint = if (spatialOn) Color(0xFF1ED760) else Color.White,
+                    modifier = Modifier.size(16.dp),
+                    contentDescription = "In-App Volume and 3D Spatial",
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = if (spatialOn) "$appVol% · 3D" else "$appVol%",
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Spacer(modifier = Modifier.width(16.dp))
             Icon(
                 painter = painterResource(id = R.drawable.ic_share),
                 tint = Color.White,
@@ -1508,7 +1641,7 @@ fun PlayerConnectRow(
                     },
                 contentDescription = "Share",
             )
-            Spacer(modifier = Modifier.width(22.dp))
+            Spacer(modifier = Modifier.width(20.dp))
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.List,
                 tint = Color.White,
@@ -1704,6 +1837,7 @@ fun PlayerOptionsSheet(
     playerViewModel: PlayerViewModel,
     context: Context,
     isLiked: MutableState<Boolean>,
+    onOpenAudioQuickSheet: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -1969,6 +2103,16 @@ fun PlayerOptionsSheet(
                     showAlternativeStream = true
                 }
                 PlayerMenuRow(
+                    icon = Icons.AutoMirrored.Filled.VolumeUp,
+                    iconTint = AppPalette,
+                    label = "In-App Volume & 3D Spatial",
+                    subtitle = "App gain ${SongPlayer.getAppVolumePercent(context)}% (non-OS) & live soundstage",
+                    trailingArrow = true,
+                ) {
+                    onDismiss()
+                    onOpenAudioQuickSheet()
+                }
+                PlayerMenuRow(
                     icon = Icons.Default.Tune,
                     label = "Audio & equalizer",
                     subtitle = "Configure active playback effects",
@@ -2177,6 +2321,230 @@ fun PlayerOptionsSheet(
                         onDismiss()
                     }
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PlayerAudioQuickSheet(
+    navController: NavController,
+    context: Context,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val appVolumePercent by SongPlayer.appVolumePercentFlow.collectAsState()
+    var lastNonZeroVol by remember { mutableIntStateOf(if (appVolumePercent > 0) appVolumePercent else 80) }
+    var spatialEnabled by remember { mutableStateOf(com.music.spotui.data.preferences.isEqSpatialEnabled(context)) }
+    var spatialProfile by remember { mutableStateOf(com.music.spotui.data.preferences.getSpatialProfile(context)) }
+    var spatialStrength by remember { mutableFloatStateOf(com.music.spotui.data.preferences.getSpatialStrength(context).toFloat()) }
+    var crossfeedEnabled by remember { mutableStateOf(com.music.spotui.data.preferences.isHeadphoneCrossfeedEnabled(context)) }
+    var telemetry by remember { mutableStateOf(SongPlayer.dspTelemetrySummary()) }
+
+    LaunchedEffect(spatialEnabled, spatialProfile, crossfeedEnabled) {
+        while (true) {
+            telemetry = SongPlayer.dspTelemetrySummary()
+            delay(1000L)
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF17171E),
+        dragHandle = null,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("In-App Volume & 3D Spatial", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "SpotUI internal audio engine — never alters Android OS media volume",
+                        color = Color(0xFFB3B8C4),
+                        fontSize = 11.sp,
+                    )
+                }
+                Text(
+                    "$appVolumePercent%",
+                    color = AppPalette,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                IconButton(
+                    onClick = {
+                        if (appVolumePercent > 0) {
+                            lastNonZeroVol = appVolumePercent
+                            SongPlayer.setAppVolumePercent(context, 0)
+                        } else {
+                            SongPlayer.setAppVolumePercent(context, lastNonZeroVol.coerceIn(10, 100))
+                        }
+                    },
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Icon(
+                        imageVector = if (appVolumePercent == 0) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                        contentDescription = if (appVolumePercent == 0) "Unmute in-app audio" else "Mute in-app audio",
+                        tint = if (appVolumePercent == 0) Color(0xFFFF8B94) else AppPalette,
+                    )
+                }
+                TextButton(
+                    onClick = {
+                        val next = (appVolumePercent - 5).coerceIn(0, 100)
+                        if (next > 0) lastNonZeroVol = next
+                        SongPlayer.setAppVolumePercent(context, next)
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("-5%", color = Color.White, fontWeight = FontWeight.Bold) }
+                Slider(
+                    value = appVolumePercent.toFloat(),
+                    onValueChange = {
+                        val pct = it.roundToInt().coerceIn(0, 100)
+                        if (pct > 0) lastNonZeroVol = pct
+                        SongPlayer.setAppVolumePercent(context, pct)
+                        UiSoundEngine.playSliderTick(context, pct / 100f)
+                    },
+                    valueRange = 0f..100f,
+                    modifier = Modifier.weight(1f),
+                    colors = SliderDefaults.colors(activeTrackColor = AppPalette, thumbColor = AppPalette),
+                )
+                TextButton(
+                    onClick = {
+                        val next = (appVolumePercent + 5).coerceIn(0, 100)
+                        if (next > 0) lastNonZeroVol = next
+                        SongPlayer.setAppVolumePercent(context, next)
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("+5%", color = Color.White, fontWeight = FontWeight.Bold) }
+            }
+
+            HorizontalDivider(color = Color(0xFF282834))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("3D Spatial Soundstage", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text("Binaural HRTF + room acoustics over Bluetooth & wired headphones", color = Color.Gray, fontSize = 11.sp)
+                }
+                Switch(
+                    checked = spatialEnabled,
+                    onCheckedChange = {
+                        spatialEnabled = it
+                        UiSoundEngine.playToggleSound(context, it)
+                        com.music.spotui.data.preferences.setEqSpatialEnabled(context, it)
+                        SongPlayer.refreshAudioEffects(context)
+                    },
+                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = AppPalette),
+                )
+            }
+
+            if (spatialEnabled) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    com.music.spotui.data.preferences.SpatialProfile.entries.forEach { profile ->
+                        val selected = spatialProfile == profile
+                        Box(
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(if (selected) AppPalette else Color.White.copy(alpha = 0.08f))
+                                .clickable {
+                                    spatialProfile = profile
+                                    com.music.spotui.data.preferences.setSpatialProfile(context, profile)
+                                    SongPlayer.refreshAudioEffects(context)
+                                }
+                                .padding(horizontal = 12.dp, vertical = 12.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(profile.label, color = if (selected) Color.Black else Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Spatial Width", color = Color.White, fontSize = 13.sp)
+                    Text("${(spatialStrength / 10f).roundToInt()}%", color = AppPalette, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+                Slider(
+                    value = spatialStrength,
+                    onValueChange = {
+                        spatialStrength = it
+                        com.music.spotui.data.preferences.setSpatialStrength(context, it.roundToInt())
+                        SongPlayer.refreshAudioEffects(context)
+                        UiSoundEngine.playSliderTick(context, it / 1000f)
+                    },
+                    valueRange = 0f..1000f,
+                    colors = SliderDefaults.colors(activeTrackColor = AppPalette, thumbColor = AppPalette),
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Headphone HRTF Crossfeed", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Reduces in-head listening fatigue with subtle interaural blend", color = Color.Gray, fontSize = 11.sp)
+                }
+                Switch(
+                    checked = crossfeedEnabled,
+                    onCheckedChange = {
+                        crossfeedEnabled = it
+                        UiSoundEngine.playToggleSound(context, it)
+                        com.music.spotui.data.preferences.setHeadphoneCrossfeedEnabled(context, it)
+                        SongPlayer.refreshAudioEffects(context)
+                    },
+                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = AppPalette),
+                )
+            }
+
+            Text(
+                text = telemetry,
+                color = Color(0xFF9FB0C7),
+                fontSize = 10.sp,
+            )
+
+            Button(
+                onClick = {
+                    onDismiss()
+                    navController.navigate(Routes.Settings.route)
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF252632), contentColor = Color.White),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp),
+            ) {
+                Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Open Full 7-Band EQ & Studio DSP", fontWeight = FontWeight.Bold)
             }
         }
     }

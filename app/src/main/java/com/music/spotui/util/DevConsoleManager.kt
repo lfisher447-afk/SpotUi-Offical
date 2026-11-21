@@ -24,8 +24,18 @@ object DevConsoleManager {
     )
 
     enum class LogLevel {
-        INFO, DEBUG, SANITIZATION, WATCHDOG, COLLISION, WARNING, ERROR
+        INFO, DEBUG, SANITIZATION, WATCHDOG, COLLISION, COMPONENT_FAULT, BT_DIAGNOSTIC, WARNING, ERROR
     }
+
+    data class ComponentFault(
+        val id: String,
+        val timestamp: String,
+        val component: String,
+        val action: String,
+        val reason: String,
+        val autoFixHint: String = "",
+        val resolved: Boolean = false,
+    )
 
     data class PlaybackDiagnostics(
         var activeSource: String = "Idle",
@@ -36,14 +46,19 @@ object DevConsoleManager {
         var isBuffering: Boolean = false,
         var totalCollisionsDetected: Int = 0,
         var sanitizationCount: Int = 0,
-        var activeEngine: String = "ExoPlayer (Media3)"
+        var activeEngine: String = "ExoPlayer (Media3)",
+        var totalComponentFaults: Int = 0,
+        var bluetoothSummary: String = "Probing...",
     )
 
     private val dateFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
-    private val maxLogs = 500
+    private val maxLogs = 600
 
     private val _logs = MutableStateFlow<List<LogEntry>>(emptyList())
     val logs: StateFlow<List<LogEntry>> = _logs.asStateFlow()
+
+    private val _faults = MutableStateFlow<List<ComponentFault>>(emptyList())
+    val faults: StateFlow<List<ComponentFault>> = _faults.asStateFlow()
 
     private val _diagnostics = MutableStateFlow(PlaybackDiagnostics())
     val diagnostics: StateFlow<PlaybackDiagnostics> = _diagnostics.asStateFlow()
@@ -57,7 +72,7 @@ object DevConsoleManager {
     val watchdogEnabled = MutableStateFlow(true)
 
     init {
-        logInfo("DevConsoleManager", "Developer Console & Telemetry Engine initialized.")
+        logInfo("DevConsoleManager", "Developer Console, BT & Component Fault Telemetry initialized.")
     }
 
     @Synchronized
@@ -89,6 +104,51 @@ object DevConsoleManager {
         log(LogLevel.COLLISION, tag, message)
         updateDiagnostics { copy(totalCollisionsDetected = totalCollisionsDetected + 1) }
     }
+    fun logBluetoothDiagnostic(message: String) = log(LogLevel.BT_DIAGNOSTIC, "BluetoothInspector", message)
+    fun logButtonAction(component: String, action: String, detail: String = "") {
+        val suffix = if (detail.isNotBlank()) " — $detail" else ""
+        log(LogLevel.DEBUG, "UI:$component", "Action [$action]$suffix")
+    }
+
+    @Synchronized
+    fun reportComponentFault(
+        component: String,
+        action: String,
+        reason: String,
+        autoFixHint: String = "",
+        exception: Throwable? = null,
+    ) {
+        val ts = dateFormat.format(Date())
+        val id = "${component}_${action}_${System.currentTimeMillis()}"
+        val fault = ComponentFault(
+            id = id,
+            timestamp = ts,
+            component = component,
+            action = action,
+            reason = reason,
+            autoFixHint = autoFixHint,
+        )
+        val list = _faults.value.toMutableList()
+        if (list.size >= 100) list.removeAt(0)
+        list.add(0, fault)
+        _faults.value = list
+        log(LogLevel.COMPONENT_FAULT, component, "[$action] FAULT: $reason", exception)
+        updateDiagnostics { copy(totalComponentFaults = _faults.value.count { !it.resolved }) }
+    }
+
+    @Synchronized
+    fun markFaultResolved(id: String) {
+        _faults.value = _faults.value.map { if (it.id == id) it.copy(resolved = true) else it }
+        updateDiagnostics { copy(totalComponentFaults = _faults.value.count { !it.resolved }) }
+    }
+
+    @Synchronized
+    fun clearFaults() {
+        _faults.value = emptyList()
+        updateDiagnostics { copy(totalComponentFaults = 0) }
+        logInfo("DevConsoleManager", "Component fault ledger cleared.")
+    }
+
     fun logWarning(tag: String, message: String) = log(LogLevel.WARNING, tag, message)
     fun logError(tag: String, message: String, exception: Throwable? = null) =
         log(LogLevel.ERROR, tag, message, exception)

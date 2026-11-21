@@ -15,8 +15,8 @@ android {
         applicationId = "com.music.spotui"
         minSdk = 26
         targetSdk = 36
-        versionCode = 202611180
-        versionName = "2.3.0"
+        versionCode = 202611220
+        versionName = "2.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -98,6 +98,13 @@ dependencies {
     // Spotify metadata + YouTube streaming, ported from Meld (replaces Firebase data layer)
     implementation(project(":spotify"))
     implementation(project(":innertube"))
+    implementation(project(":betterlyrics"))
+    implementation(project(":kugou"))
+    implementation(project(":lastfm"))
+    implementation(project(":lrclib"))
+    implementation(project(":paxsenix"))
+    implementation(project(":shazamkit"))
+    implementation(project(":simpmusic"))
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core.ktx)

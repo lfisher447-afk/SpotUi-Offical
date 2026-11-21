@@ -19,11 +19,13 @@ object MrbeanNovaAcController {
     enum class Profile(
         val archiveBufferBytes: Int,
         val deliveryBufferBytes: Int,
+        val framePlaintextBytes: Int,
+        val zeroDeflateAudio: Boolean,
         val label: String,
     ) {
-        FAST(256 * 1024, 512 * 1024, "Fast"),
-        BALANCED(128 * 1024, 256 * 1024, "Balanced"),
-        RESILIENT(64 * 1024, 128 * 1024, "Resilient"),
+        FAST(4 * 1024 * 1024, 4 * 1024 * 1024, 2 * 1024 * 1024, true, "Fast"),
+        BALANCED(1 * 1024 * 1024, 1 * 1024 * 1024, 512 * 1024, false, "Balanced"),
+        RESILIENT(256 * 1024, 512 * 1024, 64 * 1024, false, "Resilient"),
     }
 
     data class Snapshot(
@@ -31,8 +33,10 @@ object MrbeanNovaAcController {
         val profile: Profile,
         val keepRecoveryCopies: Boolean,
     ) {
-        val archiveBufferBytes: Int get() = if (enabled) profile.archiveBufferBytes else 128 * 1024
-        val deliveryBufferBytes: Int get() = if (enabled) profile.deliveryBufferBytes else 256 * 1024
+        val archiveBufferBytes: Int get() = if (enabled) profile.archiveBufferBytes else 1 * 1024 * 1024
+        val deliveryBufferBytes: Int get() = if (enabled) profile.deliveryBufferBytes else 1 * 1024 * 1024
+        val framePlaintextBytes: Int get() = if (enabled) profile.framePlaintextBytes else 512 * 1024
+        val zeroDeflateAudio: Boolean get() = enabled && profile.zeroDeflateAudio
     }
 
     data class OperationRecord(

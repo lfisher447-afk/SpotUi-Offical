@@ -127,6 +127,15 @@ class MainActivity : ComponentActivity() {
             .onFailure { AppDiagnostics.warning("DeepLink", "New deep-link handling failed", it) }
     }
 
+    override fun onStop() {
+        super.onStop()
+        if (!isChangingConfigurations &&
+            com.music.spotui.data.preferences.isBackgroundExitNotificationEnabled(this)
+        ) {
+            com.music.spotui.engine.MediaNotificationAdapter.showOrUpdateExitMiniNotification(applicationContext)
+        }
+    }
+
     override fun onDestroy() {
         AppDiagnostics.info("MainActivity", "onDestroy")
         // The MediaLibraryService owns the active engine, SpotifyWebPlayer WebView, and

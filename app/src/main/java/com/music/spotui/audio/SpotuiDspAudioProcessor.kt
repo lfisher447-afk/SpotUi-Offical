@@ -126,8 +126,15 @@ class SpotuiDspAudioProcessor : BaseAudioProcessor() {
         return anyEqGain || bassBoostDb > 0.15f || abs(preampDb) > 0.15f || normalizerEnabled
     }
 
+    @Volatile var processedFrames: Long = 0L
+        private set
+
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
-        if (inputAudioFormat.encoding !in setOf(C.ENCODING_PCM_16BIT, C.ENCODING_PCM_FLOAT)) {
+        val supported = inputAudioFormat.encoding == C.ENCODING_PCM_16BIT ||
+            inputAudioFormat.encoding == C.ENCODING_PCM_24BIT ||
+            inputAudioFormat.encoding == C.ENCODING_PCM_32BIT ||
+            inputAudioFormat.encoding == C.ENCODING_PCM_FLOAT
+        if (!supported) {
             return AudioProcessor.AudioFormat.NOT_SET
         }
         sampleRate = inputAudioFormat.sampleRate
@@ -166,9 +173,84 @@ class SpotuiDspAudioProcessor : BaseAudioProcessor() {
                 if (channelCount == 2) processStereoPcm16(inputBuffer, output, preampLinear)
                 else processMonoPcm16(inputBuffer, output, preampLinear)
             }
+            C.ENCODING_PCM_24BIT -> {
+                if (channelCount == 2) processStereoPcm24(inputBuffer, output, preampLinear)
+                else processMonoPcm24(inputBuffer, output, preampLinear)
+            }
+            C.ENCODING_PCM_32BIT -> {
+                if (channelCount == 2) processStereoPcm32(inputBuffer, output, preampLinear)
+                else processMonoPcm32(inputBuffer, output, preampLinear)
+            }
             else -> copyBuffer(inputBuffer, output, remaining)
         }
         output.flip()
+    }
+
+    private fun readPcm24(buf: ByteBuffer): Double {
+        val b0 = buf.get().toInt() and 0xFF
+        val b1 = buf.get().toInt() and 0xFF
+        val b2 = buf.get().toInt()
+        val raw = b0 or (b1 shl 8) or (b2 shl 16)
+        return raw.toDouble() / 8388607.0
+    }
+
+    private fun writePcm24(buf: ByteBuffer, sample: Double) {
+        val q = (sample.coerceIn(-1.0, 1.0) * 8388607.0).roundToInt().coerceIn(-8388608, 8388607)
+        buf.put((q and 0xFF).toByte())
+        buf.put(((q ushr 8) and 0xFF).toByte())
+        buf.put(((q ushr 16) and 0xFF).toByte())
+    }
+
+    private fun processMonoPcm24(input: ByteBuffer, output: ByteBuffer, preampLinear: Double) {
+        while (input.remaining() >= 3) {
+            val s = readPcm24(input)
+            val safe = if (s.isFinite()) s else 0.0
+            val processed = processChannelSample(0, safe * preampLinear)
+            val norm = applyNormalizerAndLimiter(processed, processed).first
+            writePcm24(output, norm)
+            processedFrames++
+        }
+    }
+
+    private fun processStereoPcm24(input: ByteBuffer, output: ByteBuffer, preampLinear: Double) {
+        while (input.remaining() >= 6) {
+            val lRaw = readPcm24(input)
+            val rRaw = readPcm24(input)
+            val lIn = if (lRaw.isFinite()) lRaw else 0.0
+            val rIn = if (rRaw.isFinite()) rRaw else 0.0
+            val lEq = processChannelSample(0, lIn * preampLinear)
+            val rEq = processChannelSample(1, rIn * preampLinear)
+            val (lOut, rOut) = applyNormalizerAndLimiter(lEq, rEq)
+            writePcm24(output, lOut)
+            writePcm24(output, rOut)
+            processedFrames++
+        }
+    }
+
+    private fun processMonoPcm32(input: ByteBuffer, output: ByteBuffer, preampLinear: Double) {
+        while (input.remaining() >= 4) {
+            val s = input.int.toDouble() / 2147483647.0
+            val safe = if (s.isFinite()) s else 0.0
+            val processed = processChannelSample(0, safe * preampLinear)
+            val norm = applyNormalizerAndLimiter(processed, processed).first
+            output.putInt((norm.coerceIn(-1.0, 1.0) * 2147483647.0).roundToInt())
+            processedFrames++
+        }
+    }
+
+    private fun processStereoPcm32(input: ByteBuffer, output: ByteBuffer, preampLinear: Double) {
+        while (input.remaining() >= 8) {
+            val lRaw = input.int.toDouble() / 2147483647.0
+            val rRaw = input.int.toDouble() / 2147483647.0
+            val lIn = if (lRaw.isFinite()) lRaw else 0.0
+            val rIn = if (rRaw.isFinite()) rRaw else 0.0
+            val lEq = processChannelSample(0, lIn * preampLinear)
+            val rEq = processChannelSample(1, rIn * preampLinear)
+            val (lOut, rOut) = applyNormalizerAndLimiter(lEq, rEq)
+            output.putInt((lOut.coerceIn(-1.0, 1.0) * 2147483647.0).roundToInt())
+            output.putInt((rOut.coerceIn(-1.0, 1.0) * 2147483647.0).roundToInt())
+            processedFrames++
+        }
     }
 
     private fun processMonoPcm16(input: ByteBuffer, output: ByteBuffer, preampLinear: Double) {
@@ -178,6 +260,7 @@ class SpotuiDspAudioProcessor : BaseAudioProcessor() {
             val processed = processChannelSample(0, safe * preampLinear)
             val norm = applyNormalizerAndLimiter(processed, processed).first
             output.putShort((norm.coerceIn(-1.0, 1.0) * Short.MAX_VALUE).roundToInt().toShort())
+            processedFrames++
         }
     }
 
@@ -192,6 +275,7 @@ class SpotuiDspAudioProcessor : BaseAudioProcessor() {
             val (lOut, rOut) = applyNormalizerAndLimiter(lEq, rEq)
             output.putShort((lOut.coerceIn(-1.0, 1.0) * Short.MAX_VALUE).roundToInt().toShort())
             output.putShort((rOut.coerceIn(-1.0, 1.0) * Short.MAX_VALUE).roundToInt().toShort())
+            processedFrames++
         }
     }
 
@@ -202,6 +286,7 @@ class SpotuiDspAudioProcessor : BaseAudioProcessor() {
             val processed = processChannelSample(0, s * preampLinear)
             val norm = applyNormalizerAndLimiter(processed, processed).first
             output.putFloat(norm.coerceIn(-1.0, 1.0).toFloat())
+            processedFrames++
         }
     }
 
@@ -216,6 +301,7 @@ class SpotuiDspAudioProcessor : BaseAudioProcessor() {
             val (lOut, rOut) = applyNormalizerAndLimiter(lEq, rEq)
             output.putFloat(lOut.coerceIn(-1.0, 1.0).toFloat())
             output.putFloat(rOut.coerceIn(-1.0, 1.0).toFloat())
+            processedFrames++
         }
     }
 

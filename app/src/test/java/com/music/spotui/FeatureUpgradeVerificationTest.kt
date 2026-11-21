@@ -122,27 +122,27 @@ class FeatureUpgradeVerificationTest {
 
         val assets = JSONArray()
             .put(JSONObject().put("name", "app-debug.apk").put("browser_download_url", "https://example.com/app-debug.apk"))
-            .put(JSONObject().put("name", "SpotUI-v2.1.8-release.apk").put("browser_download_url", "https://example.com/SpotUI-v2.1.8-release.apk"))
-        assertEquals("https://example.com/SpotUI-v2.1.8-release.apk", UpdateChecker.selectBestApkUrl(assets))
+            .put(JSONObject().put("name", "SpotUI-v2.5.0-release.apk").put("browser_download_url", "https://example.com/SpotUI-v2.5.0-release.apk"))
+        assertEquals("https://example.com/SpotUI-v2.5.0-release.apk", UpdateChecker.selectBestApkUrl(assets))
 
         val atom = """
             <?xml version="1.0" encoding="UTF-8"?>
             <feed xmlns="http://www.w3.org/2005/Atom">
               <entry>
-                <title>SpotUI v2.2.0 Stable</title>
-                <link rel="alternate" href="https://github.com/lfisher447-afk/SpotUi-Offical/releases/tag/v2.2.0"/>
-                <updated>2026-11-12T00:00:00Z</updated>
+                <title>SpotUI v2.5.0 Stable</title>
+                <link rel="alternate" href="https://github.com/lfisher447-afk/SpotUi-Offical/releases/tag/v2.5.0"/>
+                <updated>2026-11-22T00:00:00Z</updated>
                 <content type="html">&lt;p&gt;Maintained by Andrew&lt;/p&gt;</content>
               </entry>
             </feed>
         """.trimIndent()
         val parsed = UpdateChecker.parseReleasesAtom(atom, "https://github.com/lfisher447-afk/SpotUi-Offical")
-        assertEquals("2.2.0", parsed?.version)
+        assertEquals("2.5.0", parsed?.version)
         assertEquals("Maintained by Andrew", parsed?.releaseBody)
         assertFalse(parsed?.isPrerelease ?: true)
 
-        assertTrue(UpdateChecker.isNewer("2.1.8", "2.1.7"))
-        assertTrue(UpdateChecker.isNewer("2.1.7", "2.1.7-debug"))
-        assertFalse(UpdateChecker.isNewer("2.1.7", "2.1.7"))
+        assertTrue(UpdateChecker.isNewer("2.5.0", "2.4.0"))
+        assertTrue(UpdateChecker.isNewer("2.5.0", "2.5.0-debug"))
+        assertFalse(UpdateChecker.isNewer("2.5.0", "2.5.0"))
     }
 }

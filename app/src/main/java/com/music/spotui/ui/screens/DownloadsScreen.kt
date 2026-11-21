@@ -26,14 +26,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.heightIn
 
 
 import androidx.compose.material3.AlertDialog
@@ -592,11 +597,108 @@ fun DownloadsScreen(navController: NavController) {
                     }
                 }
 
+                val playDownloadedTrack = remember(displayedSongs) {
+                    { song: com.music.spotui.data.entity.SongsModel, idx: Int ->
+                        val verifiedPath = com.music.spotui.data.preferences.downloadedPathForQuery(context, song.id.toString())
+                            ?: com.music.spotui.data.preferences.downloadedPathForQuery(context, song.url)
+                        if (verifiedPath == null) {
+                            val (validCount, prunedCount) = com.music.spotui.data.preferences.verifyAndPruneDownloads(context)
+                            songs = getDownloadedSongs(context)
+                            android.widget.Toast.makeText(
+                                context,
+                                "Local file unavailable; repaired list ($validCount valid, $prunedCount removed)",
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                        } else {
+                            playerViewModel.updateQueue(displayedSongs)
+                            playerViewModel.updateSongState(
+                                song.coverUri, song.title, song.singer,
+                                true, song.id, idx, "Downloaded"
+                            )
+                            val playQuery = song.url.ifBlank { "song/${song.id}" }
+                            SongPlayer.playSong(playQuery, context, "song/${song.id}")
+                        }
+                    }
+                }
+
+                // ── Quick playback & integrity controls ──
+                if (displayedSongs.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 20.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(accent)
+                                .clickable {
+                                    playerViewModel.updateShuffleState(false)
+                                    playDownloadedTrack(displayedSongs.first(), 0)
+                                }
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = "Play all downloads", tint = Color.Black, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Play All", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(Color(0xFF23252F))
+                                .clickable {
+                                    playerViewModel.updateShuffleState(true)
+                                    val pickIdx = kotlin.random.Random.nextInt(displayedSongs.size)
+                                    playDownloadedTrack(displayedSongs[pickIdx], pickIdx)
+                                }
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                        ) {
+                            Icon(Icons.Default.Shuffle, contentDescription = "Shuffle downloads", tint = Color.White, modifier = Modifier.size(17.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Shuffle", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(Color(0xFF23252F))
+                                .clickable {
+                                    val appContext = context.applicationContext
+                                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                        val (valid, fixed) = com.music.spotui.data.preferences.verifyAndPruneDownloads(appContext)
+                                        val refreshed = getDownloadedSongs(appContext)
+                                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                            songs = refreshed
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "Verified $valid downloads · Repaired/pruned $fixed",
+                                                android.widget.Toast.LENGTH_SHORT,
+                                            ).show()
+                                        }
+                                    }
+                                }
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                        ) {
+                            Icon(Icons.Default.Build, contentDescription = "Verify and repair downloads", tint = accent, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Verify & Repair", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+
                 // ── Library actions: sort, bulk Music export, archive tools, and clear ──
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(20.dp, 0.dp, 20.dp, 8.dp),
+                        .padding(20.dp, 4.dp, 20.dp, 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -810,6 +912,18 @@ fun DownloadsScreen(navController: NavController) {
                         val currentColor = if (song.id == playerViewModel.currentSongId.value)
                             Color(AppPalette.toArgb()) else Color.White
 
+                        val fileBadge = remember(song.id, songs.size) {
+                            val p = com.music.spotui.data.preferences.downloadedPathForQuery(context, song.id.toString())
+                            if (p != null) {
+                                val f = java.io.File(p)
+                                if (f.exists()) {
+                                    val (ext, _) = com.music.spotui.data.preferences.detectAudioContainerAndMime(f)
+                                    val sizeLabel = com.music.spotui.data.preferences.formatBytesReadable(f.length())
+                                    "${ext.uppercase()} · $sizeLabel"
+                                } else ""
+                            } else ""
+                        }
+
                         SwipeToPlayNextWrapper(
                             onPlayNext = {
                                 playerViewModel.playNext(song)
@@ -830,14 +944,7 @@ fun DownloadsScreen(navController: NavController) {
                                         interactionSource = remember { MutableInteractionSource() },
                                         indication = null,
                                         onLongClick = { menuSong = song },
-                                        onClick = {
-                                            playerViewModel.updateQueue(displayedSongs)
-                                            SongPlayer.playSong(song.url, context)
-                                            playerViewModel.updateSongState(
-                                                song.coverUri, song.title, song.singer,
-                                                true, song.id, index, "Downloaded"
-                                            )
-                                        },
+                                        onClick = { playDownloadedTrack(song, index) },
                                     )
                                     .padding(20.dp, 8.dp)
                             ) {
@@ -869,7 +976,7 @@ fun DownloadsScreen(navController: NavController) {
                                         )
                                     }
                                     Text(
-                                        text = song.singer,
+                                        text = if (fileBadge.isNotBlank()) "${song.singer} · $fileBadge" else song.singer,
                                         color = Color.Gray,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Medium,

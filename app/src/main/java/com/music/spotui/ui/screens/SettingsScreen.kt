@@ -146,12 +146,16 @@ import com.music.spotui.util.DefaultLinkHelper
 import com.music.spotui.util.PermissionHelper
 import com.music.spotui.ui.theme.AppBackground
 import com.music.spotui.ui.theme.AppPalette
+import com.music.spotui.audio.UiSoundEngine
 import com.music.spotui.data.cache.CacheStorageManager
 import com.music.spotui.data.export.NovaAcExportManager
 import com.music.spotui.di.SongPlayer
+import com.music.spotui.ui.components.PatchNotesDialog
 import com.music.spotui.ui.screens.settings.AudioDspSection
 import com.music.spotui.ui.screens.settings.LosslessProviderSection
+import com.music.spotui.ui.screens.settings.ModuleLibsSettingsSection
 import com.music.spotui.ui.screens.settings.PlaybackAndToolsSection
+import com.music.spotui.ui.screens.settings.UiSoundAndStyleSection
 import com.music.spotui.util.AppDiagnostics
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -252,6 +256,7 @@ fun SettingsScreen(navController: NavController) {
     var hasNotifPerm by remember { mutableStateOf(PermissionHelper.hasNotificationPermission(context)) }
     var hasMediaPerm by remember { mutableStateOf(PermissionHelper.hasMediaReadPermission(context)) }
     var hasBluetoothPerm by remember { mutableStateOf(PermissionHelper.hasBluetoothConnectPermission(context)) }
+    var exitMiniNotifEnabled by remember { mutableStateOf(com.music.spotui.data.preferences.isBackgroundExitNotificationEnabled(context)) }
     var playbackSpeed by remember { mutableStateOf(getPlaybackSpeedPref(context)) }
     var playbackPitch by remember { mutableStateOf(getPlaybackPitchPref(context)) }
     var skipSilence by remember { mutableStateOf(isSkipSilenceEnabled(context)) }
@@ -260,6 +265,9 @@ fun SettingsScreen(navController: NavController) {
     var manualUpdateBusy by remember { mutableStateOf(false) }
     var manualUpdateStatus by remember { mutableStateOf("") }
     var manualUpdateInfo by remember { mutableStateOf<UpdateChecker.UpdateInfo?>(null) }
+    var showPatchNotesModal by remember { mutableStateOf(false) }
+    var uiAndStyleExpanded by rememberSaveable { mutableStateOf(true) }
+    var moduleLibsExpanded by rememberSaveable { mutableStateOf(true) }
 
     fun refreshCacheSummary() {
         val summary = CacheStorageManager.summarize(context)
@@ -623,9 +631,9 @@ fun SettingsScreen(navController: NavController) {
                     Spacer(Modifier.height(2.dp))
                     Text(
                         text = if (advancedSettingsEnabled) {
-                            "Showing 7-Band EQ, Lossless Priority, Network/DoH, MrBean, Theme Studio & Diagnostics"
+                            "Showing SongPlay v2.5 Style, UI Sounds, All 10 Library Modules, Studio DSP, Lossless, Network/DoH & NovaAc"
                         } else {
-                            "Tap to unlock Studio DSP, Lossless Mirrors, Network Tuning, Themes & Health Scanner"
+                            "Tap to unlock SongPlay UI Toggle, Tactile Sounds, 10 Library Modules, 7-Band EQ & Health Scanner"
                         },
                         color = Color(0xFFB3B3B3),
                         fontSize = 12.sp,
@@ -637,6 +645,7 @@ fun SettingsScreen(navController: NavController) {
                     onCheckedChange = { enabled ->
                         advancedSettingsEnabled = enabled
                         setAdvancedSettingsEnabled(context, enabled)
+                        UiSoundEngine.playToggleSound(context, enabled)
                     },
                     modifier = Modifier.testTag("advanced_settings_switch"),
                     colors = SwitchDefaults.colors(
@@ -656,6 +665,31 @@ fun SettingsScreen(navController: NavController) {
                 exit = shrinkVertically(),
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
+            SectionTitle("Experience, Style & Library Modules")
+            CollapsibleSettingsSection(
+                title = "SongPlay UI, Live Clock & Tactile Sounds",
+                subtitle = "Switch New Expressive / Legacy Classic UI, tab/toggle/slider audio, and patch notes",
+                expanded = uiAndStyleExpanded,
+                onExpandedChange = { uiAndStyleExpanded = it },
+            ) {
+                UiSoundAndStyleSection(
+                    onShowPatchNotes = { showPatchNotesModal = true },
+                )
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            CollapsibleSettingsSection(
+                title = "Library Submodules (modules/app/libs)",
+                subtitle = "Configure Spotify, InnerTube, LRCLIB, BetterLyrics, KuGou, SimpMusic, Paxsenix, Last.fm, ShazamKit & Fastlane",
+                expanded = moduleLibsExpanded,
+                onExpandedChange = { moduleLibsExpanded = it },
+            ) {
+                ModuleLibsSettingsSection()
+            }
+
+            Spacer(Modifier.height(16.dp))
+            SectionTitle("System, Protection & Studio Audio")
             CollapsibleSettingsSection(
                 title = "One UI & Android 16 System Integration",
                 subtitle = "Predictive back gestures, squircle geometry, edge-to-edge, and battery guard",
@@ -1428,7 +1462,7 @@ fun SettingsScreen(navController: NavController) {
                             }
                         }
                         Text(
-                            "${novaAcMrbeanSnapshot.profile.label}: ${novaAcMrbeanSnapshot.archiveBufferBytes / 1024} KiB payload I/O · ${novaAcMrbeanSnapshot.deliveryBufferBytes / 1024} KiB delivery I/O · 64 KiB authenticated encryption frames",
+                            "${novaAcMrbeanSnapshot.profile.label}: ${novaAcMrbeanSnapshot.archiveBufferBytes / 1024} KiB payload I/O · ${novaAcMrbeanSnapshot.deliveryBufferBytes / 1024} KiB delivery I/O · ${novaAcMrbeanSnapshot.framePlaintextBytes / 1024} KiB AEAD frames${if (novaAcMrbeanSnapshot.zeroDeflateAudio) " · Zero-Deflate Multi-MB/s" else ""}",
                             color = Color(0xFFB7C4CE), fontSize = 11.sp,
                         )
                         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -1955,8 +1989,39 @@ fun SettingsScreen(navController: NavController) {
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFF1A1A20)).padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("YouTube playlist sync", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                Text("Optional official Google OAuth import. It syncs playlist metadata and video references into the collapsible YouTube Music library section; it does not download protected media.", color = Color(0xFFB3B3B3), fontSize = 11.sp)
+                Text("YouTube Music Native Playlist & Album Sync", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text("Syncs all your YouTube Music playlists, Liked Music & saved albums directly into SpotUI's Library via signed-in session cookies or official Google OAuth—no need to browse the website to play.", color = Color(0xFFB3B3B3), fontSize = 11.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(
+                        enabled = !youtubeSyncBusy,
+                        onClick = {
+                            if (!youtubeSyncStatus.sessionReady && !youtubeSyncStatus.connected) {
+                                context.startActivity(Intent(context, com.music.spotui.ui.screens.YouTubeMusicWebActivity::class.java))
+                            } else {
+                                youtubeSyncBusy = true
+                                scope.launch {
+                                    if (youtubeSyncStatus.sessionReady) {
+                                        com.music.spotui.data.youtube.YouTubeMusicSync.syncFromSignedInSession(context)
+                                    } else {
+                                        com.music.spotui.data.youtube.YouTubeMusicSync.syncNow(context)
+                                    }
+                                    youtubeSyncStatus = com.music.spotui.data.youtube.YouTubeMusicSync.status(context)
+                                    youtubeSyncBusy = false
+                                }
+                            }
+                        },
+                    ) {
+                        Text(
+                            when {
+                                youtubeSyncBusy -> "Syncing…"
+                                youtubeSyncStatus.sessionReady || youtubeSyncStatus.connected -> "Sync All YT Playlists Now"
+                                else -> "Sign in to YT Music"
+                            },
+                            color = AppPalette,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
                 androidx.compose.material3.OutlinedTextField(
                     value = youtubeOAuthClientId,
                     onValueChange = { youtubeOAuthClientId = it },
@@ -2213,6 +2278,20 @@ fun SettingsScreen(navController: NavController) {
             }
 
             Spacer(Modifier.height(12.dp))
+            SectionTitle("Background Notifications")
+            SettingsSwitchRow(
+                title = "Exit Play/Pause Mini-Notification",
+                subtitle = "When you exit SpotUI, show a lightweight notification with Play/Pause, Next, and Previous buttons without opening the app",
+                checked = exitMiniNotifEnabled,
+            ) { enabled ->
+                exitMiniNotifEnabled = enabled
+                com.music.spotui.data.preferences.setBackgroundExitNotificationEnabled(context, enabled)
+                if (!enabled) {
+                    com.music.spotui.engine.MediaNotificationAdapter.dismissExitMiniNotification(context)
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
             SectionTitle("Crossfade")
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -2367,31 +2446,62 @@ fun SettingsScreen(navController: NavController) {
             }
             if (manualUpdateStatus.isNotBlank()) {
                 Spacer(Modifier.height(6.dp))
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
                         .background(Color(0xFF1A1A20))
                         .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text(
-                        manualUpdateStatus,
-                        color = if (manualUpdateInfo != null) Color(0xFF81C784) else Color(0xFFD0D6E0),
-                        fontSize = 12.sp,
-                        modifier = Modifier.weight(1f),
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            manualUpdateStatus,
+                            color = if (manualUpdateInfo != null) Color(0xFF81C784) else Color(0xFFD0D6E0),
+                            fontSize = 12.sp,
+                            modifier = Modifier.weight(1f),
+                        )
+                        manualUpdateInfo?.let { info ->
+                            TextButton(
+                                modifier = Modifier.heightIn(min = 48.dp),
+                                onClick = {
+                                    UiSoundEngine.playTapChime(context)
+                                    runCatching {
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(info.downloadUrl)))
+                                    }
+                                },
+                            ) {
+                                Text("Download APK", color = AppPalette, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                     manualUpdateInfo?.let { info ->
-                        TextButton(
-                            modifier = Modifier.heightIn(min = 48.dp),
-                            onClick = {
-                                runCatching {
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(info.downloadUrl)))
-                                }
-                            },
-                        ) {
-                            Text("Download APK", color = AppPalette, fontWeight = FontWeight.Bold)
+                        if (info.apkFileName.isNotBlank() || info.expectedSha256.isNotBlank()) {
+                            val mbText = if (info.apkSizeBytes > 0L) " · %.1f MB".format(info.apkSizeBytes / (1024.0 * 1024.0)) else ""
+                            if (info.apkFileName.isNotBlank()) {
+                                Text(
+                                    text = "Release asset: ${info.apkFileName}$mbText",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                            if (info.expectedSha256.isNotBlank()) {
+                                Text(
+                                    text = "SHA-256 (tap to copy): ${info.expectedSha256.take(24)}…",
+                                    color = Color(0xFF9ED4FF),
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.clickable {
+                                        val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                        cm.setPrimaryClip(android.content.ClipData.newPlainText("SpotUI SHA256", info.expectedSha256))
+                                        android.widget.Toast.makeText(context, "SHA-256 digest copied", android.widget.Toast.LENGTH_SHORT).show()
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -2401,7 +2511,10 @@ fun SettingsScreen(navController: NavController) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
-                    .clickable { navController.navigate(com.music.spotui.ui.navigation.Routes.UpdateRoadmap.route) }
+                    .clickable {
+                        UiSoundEngine.playTapChime(context)
+                        navController.navigate(com.music.spotui.ui.navigation.Routes.UpdateRoadmap.route)
+                    }
                     .background(Color(0xFF1A1A20))
                     .padding(horizontal = 12.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -2410,7 +2523,7 @@ fun SettingsScreen(navController: NavController) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Roadmap & Update Master Plan", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
-                    Text("View complete release history and version changelogs (v1.5.1 through v2.3.0)", color = Color(0xFFB3B3B3), fontSize = 12.sp)
+                    Text("View complete release history and version changelogs (v1.5.1 through v2.5.0)", color = Color(0xFFB3B3B3), fontSize = 12.sp)
                 }
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.OpenInNew,
@@ -2675,6 +2788,16 @@ fun SettingsScreen(navController: NavController) {
             Spacer(Modifier.height(40.dp))
         }
 
+        if (showPatchNotesModal) {
+            PatchNotesDialog(
+                onDismiss = { showPatchNotesModal = false },
+                onOpenDiagnostics = {
+                    showPatchNotesModal = false
+                    navController.navigate(com.music.spotui.ui.navigation.Routes.DeveloperConsole.route)
+                },
+            )
+        }
+
         if (showDefaultGuide) {
             DefaultAppPrompt(
                 forceShow = true,
@@ -2789,7 +2912,10 @@ private fun CollapsibleSettingsSection(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { onExpandedChange(!expanded) }
+                .clickable {
+                    UiSoundEngine.playTapChime(accessibilityContext)
+                    onExpandedChange(!expanded)
+                }
                 .padding(horizontal = 14.dp, vertical = expandedPadding),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -2856,7 +2982,10 @@ private fun SettingsSwitchRow(
         }
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
+            onCheckedChange = {
+                UiSoundEngine.playToggleSound(targetContext, it)
+                onCheckedChange(it)
+            },
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color.White,
                 checkedTrackColor = AppPalette,

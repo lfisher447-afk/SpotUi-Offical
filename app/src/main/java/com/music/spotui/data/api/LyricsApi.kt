@@ -106,21 +106,42 @@ object LyricsApi {
         val primaryArtist = artist.substringBefore(",").trim()
         val cleaned = cleanTitle(title)
 
+        val appContext = MyApplication.instanceOrNull
+        if (appContext != null) {
+            ModuleLibsBridge.syncRuntimeConfiguration(appContext)
+        }
+        val spotifyAllowed = appContext == null || com.music.spotui.data.preferences.ModuleLibsConfig.isModuleEnabled(
+            appContext,
+            com.music.spotui.data.preferences.SpotuiModuleId.SPOTIFY,
+        )
+        val innertubeAllowed = appContext == null || com.music.spotui.data.preferences.ModuleLibsConfig.isModuleEnabled(
+            appContext,
+            com.music.spotui.data.preferences.SpotuiModuleId.INNERTUBE,
+        )
+
         // 1) Spotify's own color-lyrics — the exact synced lyrics the official app
         //    shows, keyed by track id, so no title/artist matching can go wrong.
-        // 2) LRCLIB fallback: exact get + fuzzy search fired CONCURRENTLY, then a
-        //    title-only search. Serial fallbacks used to stack 3 × 5s timeouts.
-        val result = fromSpotify(key) ?: (kotlinx.coroutines.coroutineScope {
-            val exact = async(kotlinx.coroutines.Dispatchers.IO) {
-                getExact(cleaned, primaryArtist, album, durationSec)
-            }
-            val fuzzy = async(kotlinx.coroutines.Dispatchers.IO) {
-                search(cleaned, primaryArtist, durationSec)
-            }
-            exact.await()
-                ?: fuzzy.await()
-                ?: searchTitleOnly(cleaned, primaryArtist, durationSec)
-        } ?: fromYouTube(cleaned, primaryArtist))
+        // 2) Full `modules/app/libs` waterfall (BetterLyrics TTML, Paxsenix, LrcLib, SimpMusic, KuGou).
+        // 3) Direct LRCLIB concurrent exact + fuzzy fallback & InnerTube lyrics fallback.
+        val result = (if (spotifyAllowed) fromSpotify(key) else null)
+            ?: ModuleLibsBridge.fetchModuleLyrics(
+                context = appContext,
+                title = cleaned,
+                artist = primaryArtist,
+                album = album,
+                durationSec = durationSec,
+            )
+            ?: (kotlinx.coroutines.coroutineScope {
+                val exact = async(kotlinx.coroutines.Dispatchers.IO) {
+                    getExact(cleaned, primaryArtist, album, durationSec)
+                }
+                val fuzzy = async(kotlinx.coroutines.Dispatchers.IO) {
+                    search(cleaned, primaryArtist, durationSec)
+                }
+                exact.await()
+                    ?: fuzzy.await()
+                    ?: searchTitleOnly(cleaned, primaryArtist, durationSec)
+            } ?: (if (innertubeAllowed) fromYouTube(cleaned, primaryArtist) else null))
         cache[key] = result ?: when (cache[key]) {
             is Lyrics -> return cache[key] as Lyrics
             else -> Miss()

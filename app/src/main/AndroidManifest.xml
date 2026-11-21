@@ -212,6 +212,12 @@
             android:name=".widget.WidgetKeyRelay"
             android:exported="false" />
 
+        <!-- Background/exit mini-notification transport receiver: toggles Play/Pause/Prev/Next
+             strictly in background without launching MainActivity. -->
+        <receiver
+            android:name=".ui.notification.ExitPlaybackControlReceiver"
+            android:exported="false" />
+
         <!-- Compact 2x2 Glance Home Screen Widget -->
         <receiver
             android:name=".widget.SpotuiCompactWidgetReceiver"

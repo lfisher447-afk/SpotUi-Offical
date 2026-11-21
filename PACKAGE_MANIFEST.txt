@@ -1,6 +1,6 @@
 Spotui Android source package
 Repository: lfisher447-afk/SpotUi-Offical
-Version: 2.3.0 (202611180)
+Version: 2.4.0 (202611210)
 Included: Android source and supporting project configuration
 Excluded: APK/AAB binaries, HTML/web player files, Gradle/build caches, local environments, keystores, and external metroserver source.
-Documentation: Consolidated in README.md (v2.3.0)
+Documentation: Consolidated in README.md (v2.4.0)

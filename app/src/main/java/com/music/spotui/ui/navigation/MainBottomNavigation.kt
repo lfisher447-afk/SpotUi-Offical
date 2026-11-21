@@ -34,9 +34,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
+import com.music.spotui.audio.UiSoundEngine
 import com.music.spotui.ui.components.MiniPlayer
+import com.music.spotui.util.DevConsoleManager
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 
@@ -58,7 +61,7 @@ fun MainBottomNavigation(
     cornerRadius: androidx.compose.ui.unit.Dp = 16.dp,
     onSearchReselected: () -> Unit = {},
 ) {
-
+    val context = LocalContext.current
     val navItems = listOf(
         Routes.Home,
         Routes.Search,
@@ -145,6 +148,8 @@ fun MainBottomNavigation(
                                     }
                                 },
                                 onClick = {
+                                    UiSoundEngine.playTabSound(context)
+                                    DevConsoleManager.logButtonAction("BottomNav", "switch_tab", item.route)
                                     if (currentTab != item.route) {
                                         navController.navigate(item.route) {
                                             navController.graph.startDestinationRoute?.let { startRoute ->

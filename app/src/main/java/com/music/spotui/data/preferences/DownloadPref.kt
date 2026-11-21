@@ -104,11 +104,42 @@ fun removeDownload(context: Context, songId: String) {
     prefs.edit().remove(songId).apply()
 }
 
-fun isDownloaded(context: Context, songId: String): Boolean =
-    context.getSharedPreferences(PREF, Context.MODE_PRIVATE).contains(songId)
+fun isValidAudioDownloadFile(file: File): Boolean {
+    if (!file.exists() || !file.isFile || file.length() < 8192L) return false
+    val head = runCatching {
+        file.inputStream().use { input ->
+            val buf = ByteArray(128)
+            val n = input.read(buf)
+            if (n > 0) String(buf, 0, n, Charsets.US_ASCII) else ""
+        }
+    }.getOrDefault("")
+    val trimmed = head.trimStart()
+    if (trimmed.startsWith("<", ignoreCase = true) ||
+        trimmed.startsWith("{", ignoreCase = true) ||
+        trimmed.startsWith("<!DOCTYPE", ignoreCase = true) ||
+        trimmed.startsWith("ERROR", ignoreCase = true)
+    ) {
+        return false
+    }
+    return true
+}
+
+fun isDownloaded(context: Context, songId: String): Boolean {
+    val prefs = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+    val raw = prefs.getString(songId, null) ?: return false
+    val (_, path) = parse(raw) ?: return false
+    if (path.isNotBlank() && isValidAudioDownloadFile(File(path))) return true
+    val downloadsDir = File(context.filesDir, "downloads")
+    val repaired = downloadsDir.listFiles()?.firstOrNull { f ->
+        f.name.startsWith("$songId.") && !f.name.endsWith(".part") && !f.name.endsWith(".flacpart") && isValidAudioDownloadFile(f)
+    }
+    return repaired != null
+}
 
 fun getDownloadedSongs(context: Context): List<SongsModel> {
-    val entries = getDownloadedEntries(context)
+    val entries = getDownloadedEntries(context).filter { (_, path) ->
+        path.isNotBlank() && isValidAudioDownloadFile(File(path))
+    }
     entries.forEach { (song, _) ->
         com.music.spotui.util.ArtworkHelper.ensureDownloadedCover(context, song)
     }
@@ -121,17 +152,106 @@ fun getDownloadedSongs(context: Context): List<SongsModel> {
     }
 }
 
-/** Local file path for a track query (SongsModel.url), if downloaded and present on disk. */
+/** Local file path for a track query (`SongsModel.url`, id, or `spotify:track:`), verified on disk. */
 fun downloadedPathForQuery(context: Context, query: String): String? {
+    val trimmed = query.trim()
+    if (trimmed.isEmpty()) return null
+    val normalizedId = trimmed.removePrefix("song/")
     val prefs = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-    for (v in prefs.all.values) {
-        val (song, path) = (v as? String)?.let(::parse) ?: continue
-        if (song.url == query && path.isNotBlank() && File(path).exists()) {
+    val downloadsDir = File(context.filesDir, "downloads")
+
+    for ((key, value) in prefs.all) {
+        val (song, path) = (value as? String)?.let(::parse) ?: continue
+        val matches = song.url == trimmed ||
+            song.id.toString() == trimmed ||
+            song.id.toString() == normalizedId ||
+            (song.spotifyTrackId.isNotBlank() &&
+                (trimmed == song.spotifyTrackId || trimmed.contains("spotify:track:${song.spotifyTrackId}")))
+        if (!matches) continue
+
+        if (path.isNotBlank()) {
+            val f = File(path)
+            if (isValidAudioDownloadFile(f)) {
+                com.music.spotui.util.ArtworkHelper.ensureDownloadedCover(context, song)
+                return f.absolutePath
+            }
+        }
+        // Attempt on-disk path recovery if file moved or extension was corrected
+        val recovered = downloadsDir.listFiles()?.firstOrNull { candidate ->
+            val name = candidate.name
+            (name.startsWith("${song.id}.") || name.startsWith("${key}.")) &&
+                !name.endsWith(".part") &&
+                !name.endsWith(".flacpart") &&
+                !name.endsWith(".jpg") &&
+                isValidAudioDownloadFile(candidate)
+        }
+        if (recovered != null) {
+            addDownload(context, song, recovered.absolutePath)
             com.music.spotui.util.ArtworkHelper.ensureDownloadedCover(context, song)
-            return path
+            return recovered.absolutePath
         }
     }
     return null
+}
+
+/** Verifies every stored download file on disk, repairs extensions/paths, and prunes corrupt stubs. */
+fun verifyAndPruneDownloads(context: Context): Pair<Int, Int> {
+    val prefs = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+    val downloadsDir = File(context.filesDir, "downloads")
+    var valid = 0
+    var fixedOrRemoved = 0
+    val keys = prefs.all.keys.toList()
+    for (key in keys) {
+        if (key == KEY_DL_SORT || key == KEY_DL_DESC) continue
+        val raw = prefs.getString(key, null) ?: continue
+        val parsed = parse(raw) ?: continue
+        val (song, path) = parsed
+        val currentFile = if (path.isNotBlank()) File(path) else null
+        if (currentFile != null && isValidAudioDownloadFile(currentFile)) {
+            val (sniffedExt, _) = detectAudioContainerAndMime(currentFile)
+            val currentExt = currentFile.extension.lowercase()
+            if (sniffedExt.isNotBlank() && sniffedExt != currentExt && currentExt.isNotBlank()) {
+                val targetFile = File(currentFile.parentFile, "${song.id}.$sniffedExt")
+                if (!targetFile.exists() && currentFile.renameTo(targetFile)) {
+                    addDownload(context, song, targetFile.absolutePath)
+                    fixedOrRemoved++
+                    valid++
+                    continue
+                }
+            }
+            valid++
+            continue
+        }
+        val fallback = downloadsDir.listFiles()?.firstOrNull { candidate ->
+            candidate.name.startsWith("${song.id}.") &&
+                !candidate.name.endsWith(".part") &&
+                !candidate.name.endsWith(".flacpart") &&
+                !candidate.name.endsWith(".jpg") &&
+                isValidAudioDownloadFile(candidate)
+        }
+        if (fallback != null) {
+            addDownload(context, song, fallback.absolutePath)
+            fixedOrRemoved++
+            valid++
+        } else {
+            removeDownload(context, key)
+            fixedOrRemoved++
+        }
+    }
+    return valid to fixedOrRemoved
+}
+
+fun formatBytesReadable(bytes: Long): String {
+    if (bytes <= 0L) return "0 B"
+    val kb = bytes / 1024.0
+    val mb = kb / 1024.0
+    val gb = mb / 1024.0
+    return when {
+        gb >= 1.0 -> String.format("%.2f GB", gb)
+        mb >= 1.0 -> String.format("%.1f MB", mb)
+        kb >= 1.0 -> String.format("%.0f KB", kb)
+        else -> "$bytes B"
+    }
 }
 
 /** Every downloaded track paired with its on-disk file path. */

@@ -555,6 +555,20 @@ class Api @Inject constructor(
         if (albumName.isBlank()) {
             emit(Response.Success(emptyList())); return@flow
         }
+        val syncedYtAlbum = com.music.spotui.data.preferences.OfflineCollectionsPref
+            .getOfflineCollections(context)
+            .firstOrNull { col ->
+                !col.isPlaylist &&
+                    col.id.startsWith("youtube_api_album_") &&
+                    col.name.equals(albumName, ignoreCase = true) &&
+                    (artist.isBlank() ||
+                        col.artists.contains(artist, ignoreCase = true) ||
+                        artist.contains(col.artists, ignoreCase = true))
+            }
+        if (syncedYtAlbum != null && syncedYtAlbum.songs.isNotEmpty()) {
+            emit(Response.Success(syncedYtAlbum.songs))
+            return@flow
+        }
         if (!SpotifyTokenProvider.ensureToken(context)) {
             val col = com.music.spotui.data.preferences.OfflineCollectionsPref.getCollection(context, "album:$albumName|$artist")
             if (col != null) {
@@ -730,10 +744,17 @@ class Api @Inject constructor(
                     isPlaylist = true,
                 )
                 val offlineEntries = com.music.spotui.data.preferences.OfflineCollectionsPref.getOfflineCollections(context).map { col ->
+                    val trackWord = if (col.songs.size == 1) "track" else "tracks"
+                    val subtitle = when {
+                        col.id.startsWith("youtube_api_") && col.isPlaylist -> "YouTube Playlist · ${col.songs.size} $trackWord"
+                        col.id.startsWith("youtube_api_") -> "YouTube Album · ${col.artists.ifBlank { "YouTube Music" }} · ${col.songs.size} $trackWord"
+                        col.isPlaylist -> "Playlist • Available offline"
+                        else -> "Album • ${col.artists} • Available offline"
+                    }
                     com.music.spotui.data.entity.LibraryEntry(
                         spotifyId = col.id,
                         name = col.name,
-                        subtitle = if (col.isPlaylist) "Playlist • Available offline" else "Album • ${col.artists} • Available offline",
+                        subtitle = subtitle,
                         coverUri = col.coverUri,
                         isPlaylist = col.isPlaylist,
                         artists = col.artists,
@@ -793,10 +814,17 @@ class Api @Inject constructor(
                     (entry.isPlaylist || entry.artists.equals(col.artists, ignoreCase = true)))
             }
         }.map { col ->
+            val trackWord = if (col.songs.size == 1) "track" else "tracks"
+            val subtitle = when {
+                col.id.startsWith("youtube_api_") && col.isPlaylist -> "YouTube Playlist · ${col.songs.size} $trackWord"
+                col.id.startsWith("youtube_api_") -> "YouTube Album · ${col.artists.ifBlank { "YouTube Music" }} · ${col.songs.size} $trackWord"
+                col.isPlaylist -> "Playlist • Available offline"
+                else -> "Album • ${col.artists} • Available offline"
+            }
             com.music.spotui.data.entity.LibraryEntry(
                 spotifyId = col.id,
                 name = col.name,
-                subtitle = if (col.isPlaylist) "Playlist • Available offline" else "Album • ${col.artists} • Available offline",
+                subtitle = subtitle,
                 coverUri = col.coverUri,
                 isPlaylist = col.isPlaylist,
                 artists = col.artists,

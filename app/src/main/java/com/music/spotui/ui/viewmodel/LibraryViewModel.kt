@@ -57,6 +57,16 @@ class LibraryViewModel @Inject constructor(private val repository: AppRepository
         load()
         loadAccount()
         loadFollowedArtists()
+        viewModelScope.launch {
+            var first = true
+            com.music.spotui.data.youtube.YouTubeMusicSync.syncRevision.collect { rev ->
+                if (first) {
+                    first = false
+                } else if (rev > 0) {
+                    load()
+                }
+            }
+        }
     }
 
     fun setFilterType(type: LibraryFilterType) {

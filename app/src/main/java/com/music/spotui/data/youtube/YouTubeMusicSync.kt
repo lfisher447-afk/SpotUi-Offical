@@ -12,17 +12,28 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.metrolist.innertube.YouTube
+import com.metrolist.innertube.models.AlbumItem
 import com.metrolist.innertube.models.PlaylistItem
 import com.metrolist.innertube.network.AuthSessionStore
 import com.metrolist.innertube.utils.YouTubeUrlParser
+import com.music.spotui.data.api.Api
 import com.music.spotui.data.entity.SongsModel
 import com.music.spotui.data.preferences.OfflineCollectionsPref
+import com.music.spotui.data.preferences.getYoutubeCookie
 import com.music.spotui.data.preferences.signalUiSettingsChanged
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -81,6 +92,9 @@ object YouTubeMusicSync {
     private const val UNIQUE_WORK = "spotui_youtube_music_sync"
 
     private val loopbackScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val _syncRevision = MutableStateFlow(0)
+    val syncRevision: StateFlow<Int> = _syncRevision.asStateFlow()
 
     @Volatile
     private var activeLoopbackJob: Job? = null
@@ -144,16 +158,30 @@ object YouTubeMusicSync {
         signalUiSettingsChanged()
     }
 
+    private fun ensureCookiesHydrated(context: Context) {
+        if (!AuthSessionStore.current().hasLoginCookie) {
+            val saved = getYoutubeCookie(context).trim()
+            if (saved.isNotBlank()) {
+                AuthSessionStore.updateFromWebViewCookies(saved)
+            }
+        }
+    }
+
     fun isConfigured(context: Context): Boolean = clientId(context).contains(".apps.googleusercontent.com")
     fun isConnected(context: Context): Boolean = TokenVault.read(context) != null
     fun isSessionReady(): Boolean = AuthSessionStore.current().hasLoginCookie
+    fun isSessionReady(context: Context): Boolean {
+        ensureCookiesHydrated(context)
+        return isSessionReady()
+    }
 
     fun status(context: Context): Status {
         val mode = redirectMode(context)
+        val ready = isSessionReady(context)
         val defaultDetail = when {
             isConnected(context) -> "Connected via Google OAuth (${mode.label})."
-            isSessionReady() -> "YouTube Music account cookie active. Tap Sync from YTM Session anytime."
-            else -> "Use 1-Tap YTM Session Sync, Playlist URL Import, or Google OAuth (${mode.label})."
+            ready -> "YouTube Music account connected. Tap Sync to import all playlists natively."
+            else -> "Sign in to YouTube Music, import a playlist URL, or use Google OAuth (${mode.label})."
         }
         return Status(
             configured = isConfigured(context),
@@ -161,59 +189,162 @@ object YouTubeMusicSync {
             autoSync = prefs(context).getBoolean(AUTO, false),
             lastSync = prefs(context).getString(LAST_SYNC, "Never").orEmpty(),
             detail = prefs(context).getString(LAST_STATUS, defaultDetail).orEmpty(),
-            sessionReady = isSessionReady(),
+            sessionReady = ready,
             redirectMode = mode,
             hasClientSecret = hasClientSecret(context),
         )
     }
 
     /**
-     * Syncs all user playlists directly from the active YouTube Music session
-     * (from YouTubeMusicWebActivity cookies) via :innertube without requiring a Google Cloud Client ID.
+     * Syncs all user playlists (including Liked Music `LM`) and saved albums directly
+     * from the active YouTube Music session cookies via `:innertube` natively into SpotUI's Library.
      */
     suspend fun syncFromSignedInSession(context: Context): Result<Status> = withContext(Dispatchers.IO) {
         runCatching {
+            ensureCookiesHydrated(context)
             require(AuthSessionStore.current().hasLoginCookie) {
-                "Sign in to YouTube Music Web Companion first (Settings -> Open YouTube Music playlists), or import a playlist URL directly."
+                "Sign in to YouTube Music first (Library / Settings -> Sync YouTube Account), or import a playlist URL directly."
             }
             val playlistItems = mutableListOf<PlaylistItem>()
-            var libraryPage = YouTube.library("FEmusic_liked_playlists").getOrThrow()
-            playlistItems += libraryPage.items.filterIsInstance<PlaylistItem>()
-            var continuation = libraryPage.continuation
-            var guard = 0
-            while (!continuation.isNullOrBlank() && guard < 10) {
-                val nextPage = YouTube.libraryContinuation(continuation).getOrNull() ?: break
-                playlistItems += nextPage.items.filterIsInstance<PlaylistItem>()
-                continuation = nextPage.continuation
-                guard++
+            runCatching {
+                val libraryPage = YouTube.library("FEmusic_liked_playlists").getOrThrow()
+                playlistItems += libraryPage.items.filterIsInstance<PlaylistItem>()
+                var continuation = libraryPage.continuation
+                var guard = 0
+                while (!continuation.isNullOrBlank() && guard < 10) {
+                    val nextPage = YouTube.libraryContinuation(continuation).getOrNull() ?: break
+                    playlistItems += nextPage.items.filterIsInstance<PlaylistItem>()
+                    continuation = nextPage.continuation
+                    guard++
+                }
             }
+
+            val savedAlbums = mutableListOf<AlbumItem>()
+            runCatching {
+                val albumsPage = YouTube.library("FEmusic_liked_albums").getOrNull()
+                if (albumsPage != null) {
+                    savedAlbums += albumsPage.items.filterIsInstance<AlbumItem>()
+                    var albCont = albumsPage.continuation
+                    var guard = 0
+                    while (!albCont.isNullOrBlank() && guard < 6) {
+                        val nextAlb = YouTube.libraryContinuation(albCont).getOrNull() ?: break
+                        savedAlbums += nextAlb.items.filterIsInstance<AlbumItem>()
+                        albCont = nextAlb.continuation
+                        guard++
+                    }
+                }
+            }
+
             val uniquePlaylists = playlistItems.distinctBy { it.id.removePrefix("VL") }
-            require(uniquePlaylists.isNotEmpty()) {
-                "No YouTube Music playlists returned for the current session. Re-open YouTube Music Web Companion to refresh cookies, or paste a playlist URL."
+            val semaphore = Semaphore(4)
+            var syncedPlaylists = 0
+            var syncedAlbums = 0
+
+            coroutineScope {
+                val playlistJobs = uniquePlaylists.map { playlistSummary ->
+                    async {
+                        semaphore.withPermit {
+                            val cleanId = playlistSummary.id.removePrefix("VL")
+                            val fullTracks = fetchInnertubePlaylistTracks(cleanId, playlistSummary.title)
+                            if (fullTracks.isNotEmpty() || cleanId.isNotBlank()) {
+                                OfflineCollectionsPref.saveCollection(
+                                    context = context,
+                                    id = "youtube_api_$cleanId",
+                                    name = playlistSummary.title.ifBlank { "YouTube Playlist" },
+                                    coverUri = playlistSummary.thumbnail.orEmpty(),
+                                    artists = playlistSummary.author?.name?.takeIf { it.isNotBlank() } ?: "YouTube Music",
+                                    isPlaylist = true,
+                                    songs = fullTracks,
+                                )
+                                true
+                            } else false
+                        }
+                    }
+                }
+
+                // Also ensure YouTube Music Liked Songs ("LM") are synced even if omitted from shelf
+                val hasLikedPlaylist = uniquePlaylists.any { it.id.removePrefix("VL") == "LM" }
+                val likedJob = if (!hasLikedPlaylist) {
+                    async {
+                        semaphore.withPermit {
+                            val page = YouTube.playlist("LM").getOrNull() ?: return@withPermit false
+                            val tracks = collectPlaylistSongs(
+                                "LM",
+                                page.songs,
+                                page.songsContinuation ?: page.continuation,
+                                page.playlist.title.ifBlank { "YouTube Liked Music" },
+                            )
+                            if (tracks.isNotEmpty()) {
+                                OfflineCollectionsPref.saveCollection(
+                                    context = context,
+                                    id = "youtube_api_LM",
+                                    name = page.playlist.title.ifBlank { "YouTube Liked Music" },
+                                    coverUri = page.playlist.thumbnail ?: tracks.firstOrNull()?.coverUri.orEmpty(),
+                                    artists = "YouTube Music",
+                                    isPlaylist = true,
+                                    songs = tracks,
+                                )
+                                true
+                            } else false
+                        }
+                    }
+                } else null
+
+                val albumJobs = savedAlbums.distinctBy { it.browseId }.take(40).map { albumSummary ->
+                    async {
+                        semaphore.withPermit {
+                            val albumPage = YouTube.album(albumSummary.browseId).getOrNull()
+                            val albumSongs = albumPage?.songs?.map { item ->
+                                SongsModel(
+                                    id = ("yt:${albumSummary.browseId}:${item.id}").hashCode() and 0x7fffffff,
+                                    title = item.title,
+                                    album = albumSummary.title.ifBlank { "YouTube Album" },
+                                    singer = item.artists.joinToString(", ") { it.name }
+                                        .ifBlank { albumSummary.artists?.joinToString(", ") { it.name }.orEmpty() }
+                                        .ifBlank { "YouTube Music" },
+                                    coverUri = item.thumbnail.ifBlank { albumSummary.thumbnail },
+                                    url = "https://music.youtube.com/watch?v=${item.id}",
+                                    durationMs = (item.duration ?: 0) * 1000,
+                                )
+                            }.orEmpty()
+                            if (albumSongs.isNotEmpty()) {
+                                OfflineCollectionsPref.saveCollection(
+                                    context = context,
+                                    id = "youtube_api_album_${albumSummary.browseId}",
+                                    name = albumSummary.title,
+                                    coverUri = albumSummary.thumbnail,
+                                    artists = albumSummary.artists?.joinToString(", ") { it.name }.orEmpty().ifBlank { "YouTube Music" },
+                                    isPlaylist = false,
+                                    songs = albumSongs,
+                                )
+                                true
+                            } else false
+                        }
+                    }
+                }
+
+                syncedPlaylists = playlistJobs.awaitAll().count { it } + if (likedJob?.await() == true) 1 else 0
+                syncedAlbums = albumJobs.awaitAll().count { it }
             }
 
-            var syncedCount = 0
-            uniquePlaylists.forEach { playlistSummary ->
-                val cleanId = playlistSummary.id.removePrefix("VL")
-                val fullTracks = fetchInnertubePlaylistTracks(cleanId, playlistSummary.title)
-                OfflineCollectionsPref.saveCollection(
-                    context = context,
-                    id = "youtube_api_$cleanId",
-                    name = playlistSummary.title,
-                    coverUri = playlistSummary.thumbnail.orEmpty(),
-                    artists = playlistSummary.author?.name?.takeIf { it.isNotBlank() } ?: "YouTube Music",
-                    isPlaylist = true,
-                    songs = fullTracks,
-                )
-                syncedCount++
+            require(syncedPlaylists + syncedAlbums > 0) {
+                "No YouTube Music playlists or albums returned for the current session. Refresh your YouTube Music login or paste a playlist URL."
             }
 
+            val total = syncedPlaylists + syncedAlbums
             val now = Instant.now().toString()
             prefs(context).edit()
                 .putString(LAST_SYNC, now)
-                .putString(LAST_STATUS, "Synced $syncedCount YouTube Music playlist(s) via signed-in session.")
+                .putString(
+                    LAST_STATUS,
+                    "Synced $syncedPlaylists playlist(s)" +
+                        (if (syncedAlbums > 0) " & $syncedAlbums album(s)" else "") +
+                        " natively to SpotUI Library ($total total).",
+                )
                 .remove(LAST_ERROR)
                 .apply()
+            Api.HomeCache.library = null
+            _syncRevision.value += 1
             signalUiSettingsChanged()
             status(context)
         }.onFailure { saveFailure(context, it) }
@@ -247,6 +378,8 @@ object YouTubeMusicSync {
                 .putString(LAST_STATUS, "Imported '${page.playlist.title.ifBlank { cleanId }}' (${tracks.size} tracks).")
                 .remove(LAST_ERROR)
                 .apply()
+            Api.HomeCache.library = null
+            _syncRevision.value += 1
             signalUiSettingsChanged()
             status(context)
         }.onFailure { saveFailure(context, it) }
@@ -425,12 +558,12 @@ object YouTubeMusicSync {
     }
 
     suspend fun syncNow(context: Context): Result<Status> = withContext(Dispatchers.IO) {
-        // If user has an active YouTube Music WebView session and hasn't connected OAuth, use session sync automatically.
-        if (!isConnected(context) && isSessionReady()) {
+        // Prefer native session sync whenever WebView cookies are saved/hydrated and OAuth isn't connected.
+        if (!isConnected(context) && isSessionReady(context)) {
             return@withContext syncFromSignedInSession(context)
         }
         runCatching {
-            require(isConfigured(context)) { "Choose Sync from YTM Session, Playlist URL Import, or configure a Google OAuth client ID." }
+            require(isConfigured(context)) { "Sign in to YouTube Music, use Playlist URL Import, or configure Google OAuth." }
             val token = freshToken(context)
             val playlists = fetchAllPlaylists(token.accessToken)
             playlists.forEach { playlist ->
@@ -448,9 +581,11 @@ object YouTubeMusicSync {
             val now = Instant.now().toString()
             prefs(context).edit()
                 .putString(LAST_SYNC, now)
-                .putString(LAST_STATUS, "Synced ${playlists.size} YouTube playlist(s) at $now.")
+                .putString(LAST_STATUS, "Synced ${playlists.size} YouTube playlist(s) natively at $now.")
                 .remove(LAST_ERROR)
                 .apply()
+            Api.HomeCache.library = null
+            _syncRevision.value += 1
             signalUiSettingsChanged()
             status(context)
         }.onFailure { saveFailure(context, it) }

@@ -61,6 +61,7 @@ import com.music.spotui.data.entity.ArtistsModel
 import com.music.spotui.data.entity.HomeFeedModel
 import com.music.spotui.data.entity.HomeItem
 import com.music.spotui.data.entity.HomeSection
+import com.music.spotui.ui.components.LiveLocationClockCard
 import com.music.spotui.ui.components.Loader
 import com.music.spotui.ui.components.ThanksgivingCountdownBanner
 import com.music.spotui.ui.navigation.Routes
@@ -205,6 +206,9 @@ fun HomeFeedContent(navController: NavController, feed: HomeFeedModel) {
     ) {
         item {
             HomeHeaderRow(navController)
+        }
+        item {
+            LiveLocationClockCard()
         }
         item {
             ThanksgivingCountdownBanner(
@@ -438,6 +442,7 @@ fun SumUpHomeScreen(navController : NavController, albums: List<AlbumsModel>, ar
     ){
 
         GreetingSection()
+        LiveLocationClockCard()
         ThanksgivingCountdownBanner(
             onAutumnMixClick = {
                 navController.navigate(

@@ -82,6 +82,7 @@ object NovaAcExportManager {
     private const val OP_AUDIO_CONTAINER: Byte = 0x21
     private const val OP_AUDIO_FILE_NAME: Byte = 0x22
     private const val OP_AUDIO_SHA256: Byte    = 0x23
+    private const val OP_AUDIO_TRAILER: Byte   = 0x24
     private const val OP_TRACK_END: Byte       = 0x1F
     private const val OP_ARCHIVE_END: Byte     = -0x01
 
@@ -267,6 +268,7 @@ object NovaAcExportManager {
         val kdfSaltBase64: String = "",
         val kdfIterations: Int = 0,
         val protocol: String = LEGACY_PROTOCOL,
+        val framePlaintextBytes: Int = FRAME_PLAINTEXT_BYTES,
     ) {
         val compatibilityWarning: String?
             get() = when {
@@ -343,6 +345,8 @@ object NovaAcExportManager {
         var lastSpeedSampleAt = startedAt
         var lastSpeedSampleBytes = 0L
         var bytesPerSecond = 0L
+        var lastPublishAt = 0L
+        var lastPublishedStage: ExportStage? = null
         fun publish(
             stage: ExportStage,
             index: Int = 0,
@@ -358,8 +362,18 @@ object NovaAcExportManager {
             recovery: String? = null,
         ) {
             val now = System.currentTimeMillis()
+            val stageChanged = stage != lastPublishedStage
+            val isTerminalOrBoundary = stageChanged ||
+                stage == ExportStage.COMPLETED ||
+                stage == ExportStage.FAILED ||
+                (currentTotal > 0L && currentBytes >= currentTotal)
+            if (!isTerminalOrBoundary && (now - lastPublishAt) < 150L) {
+                return
+            }
+            lastPublishAt = now
+            lastPublishedStage = stage
             val elapsed = now - lastSpeedSampleAt
-            if (elapsed >= 500L) {
+            if (elapsed >= 350L) {
                 val bytesDelta = (sourceProcessed - lastSpeedSampleBytes).coerceAtLeast(0L)
                 bytesPerSecond = if (elapsed > 0L) (bytesDelta * 1000L) / elapsed else 0L
                 lastSpeedSampleAt = now
@@ -412,10 +426,10 @@ object NovaAcExportManager {
                 archiveWritten = stage.archiveBytes,
                 included = stage.counters.includedAudioTrackCount,
                 skipped = stage.counters.skippedAudioTrackCount,
-                message = "Authenticating every encrypted archive frame",
+                message = "Authenticating archive frames",
             )
             verifyFramedStageArchive(context, stage.file, plan)
-            val stageDigest = sha256Of(stage.file)
+            val stageDigest = stage.archiveSha256
             val recovery = writeRecoveryRecord(
                 context = context,
                 id = recoveryId,
@@ -505,6 +519,7 @@ object NovaAcExportManager {
         val header: Header,
         val counters: StreamingCounters,
         val archiveBytes: Long,
+        val archiveSha256: String,
     )
 
     private data class DeliveryOutcome(
@@ -541,6 +556,7 @@ object NovaAcExportManager {
         completeFile.delete()
         val createdAt = Instant.now().toString()
         val includeAudio = plan.mode != AudioPayloadMode.METADATA_ONLY
+        val mrbeanSnapshot = MrbeanNovaAcController.snapshot(context)
         val salt = if (plan.securityMode == ArchiveSecurityMode.WEB_PASSPHRASE) ByteArray(16).also(SecureRandom()::nextBytes) else ByteArray(0)
         val encryptionKey = if (plan.securityMode == ArchiveSecurityMode.WEB_PASSPHRASE) {
             derivePassphraseKey(plan.browserPassphrase.orEmpty(), salt)
@@ -565,17 +581,23 @@ object NovaAcExportManager {
             kdfSaltBase64 = if (salt.isNotEmpty()) Base64.encodeToString(salt, Base64.NO_WRAP) else "",
             kdfIterations = if (salt.isNotEmpty()) WEB_KDF_ITERATIONS else 0,
             protocol = FRAMED_PROTOCOL,
+            framePlaintextBytes = mrbeanSnapshot.framePlaintextBytes,
         )
         publish(ExportStage.BUILDING_STAGE, 0, "Preparing fixed staged archive", 0L, 0L, 0L, 0L, 0, 0, "Creating private archive stage", null, recoveryId)
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
         val counters = try {
             FileOutputStream(partialFile).use { fileOutput ->
+                val teeOutput = TeeDigestOutputStream(fileOutput, digest)
                 val counters = writeFramedStreamingContainer(
-                    rawOutput = CloseShieldOutputStream(fileOutput),
+                    rawOutput = CloseShieldOutputStream(teeOutput),
                     header = header,
                     plan = plan,
                     encryptionKey = encryptionKey,
                     baseNonce = frameNonce,
-                    payloadBufferBytes = MrbeanNovaAcController.archiveBufferBytes(context),
+                    payloadBufferBytes = mrbeanSnapshot.archiveBufferBytes,
+                    framePlaintextBytes = mrbeanSnapshot.framePlaintextBytes,
+                    zeroDeflateAudio = mrbeanSnapshot.zeroDeflateAudio,
+                    profileLabel = mrbeanSnapshot.profile.label,
                     publish = { stage, index, title, currentBytes, currentTotal, sourceProcessed, archiveWritten, included, skipped, message ->
                         publish(stage, index, title, currentBytes, currentTotal, sourceProcessed, archiveWritten, included, skipped, message, null, recoveryId)
                     },
@@ -601,7 +623,8 @@ object NovaAcExportManager {
             partialFile.delete()
             throw NovaAcExportException(ExportFailureCode.STAGING_WRITE_FAILED, "Unable to finalize staged archive file")
         }
-        return StagedArchive(completeFile, header, counters, bytes)
+        val stageDigest = digest.digest().joinToString("") { "%02x".format(it) }
+        return StagedArchive(completeFile, header, counters, bytes, stageDigest)
     }
 
     private fun verifyFramedStageArchive(
@@ -610,7 +633,8 @@ object NovaAcExportManager {
         plan: FullAudioArchivePlan,
     ) {
         try {
-            DataInputStream(BufferedInputStream(FileInputStream(stagedFile), MrbeanNovaAcController.archiveBufferBytes(context))).use { input ->
+            val readBuffer = MrbeanNovaAcController.archiveBufferBytes(context)
+            DataInputStream(BufferedInputStream(FileInputStream(stagedFile), readBuffer)).use { input ->
                 val header = readHeader(input)
                 require(header.protocol == FRAMED_PROTOCOL) { "Staged archive protocol was not finalized as framed NovaAc" }
                 val nonceSize = input.readUnsignedByte()
@@ -625,6 +649,10 @@ object NovaAcExportManager {
                 } else {
                     getOrCreateKey()
                 }
+                val maxFrameBytes = header.framePlaintextBytes.coerceIn(FRAME_PLAINTEXT_BYTES, 4 * 1024 * 1024)
+                val cipher = Cipher.getInstance(AES_TRANSFORMATION)
+                val encryptedBuf = ByteArray(maxFrameBytes + 64)
+                val plainOutBuf = ByteArray(maxFrameBytes + 32)
                 var expectedIndex = 0L
                 val frameAad = ByteArray(8)
                 val aadHeader = if (header.protocol == FRAMED_PROTOCOL) header.toMetaString().encodeToByteArray() else ByteArray(0)
@@ -637,19 +665,17 @@ object NovaAcExportManager {
                         break
                     }
                     require(frameIndex == expectedIndex) { "Framed archive sequence interrupted at frame $expectedIndex" }
-                    require(plainLength in 1..FRAME_PLAINTEXT_BYTES) { "Invalid framed archive plaintext length" }
+                    require(plainLength in 1..maxFrameBytes) { "Invalid framed archive plaintext length" }
                     require(cipherLength in (plainLength + 16)..(plainLength + 32)) { "Invalid framed archive ciphertext length" }
-                    val encrypted = ByteArray(cipherLength)
-                    input.readFully(encrypted)
-                    val cipher = Cipher.getInstance(AES_TRANSFORMATION)
+                    input.readFully(encryptedBuf, 0, cipherLength)
                     cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, frameNonce(baseNonce, frameIndex)))
                     if (aadHeader.isNotEmpty()) {
                         cipher.updateAAD(aadHeader)
                         writeLongBigEndian(frameAad, frameIndex)
                         cipher.updateAAD(frameAad)
                     }
-                    val plaintext = cipher.doFinal(encrypted)
-                    require(plaintext.size == plainLength) { "Framed archive plaintext length mismatch at frame $frameIndex" }
+                    val decryptedSize = cipher.doFinal(encryptedBuf, 0, cipherLength, plainOutBuf)
+                    require(decryptedSize == plainLength) { "Framed archive plaintext length mismatch at frame $frameIndex" }
                     expectedIndex++
                 }
                 require(expectedIndex > 0L) { "Framed archive contained no encrypted body frames" }
@@ -1042,9 +1068,11 @@ object NovaAcExportManager {
         browserPassphrase: String?,
     ): ImportResult {
         return context.contentResolver.openInputStream(source)?.use { rawInput ->
-            val headerInput = DataInputStream(BufferedInputStream(rawInput, ARCHIVE_BUFFER_BYTES))
+            val headerInput = DataInputStream(BufferedInputStream(rawInput, 1024 * 1024))
             val header = readHeader(headerInput)
-            require(header.protocol == FRAMED_PROTOCOL) { "This archive does not use the framed NovaAc protocol" }
+            require(header.protocol == FRAMED_PROTOCOL || header.protocol == LEGACY_FRAMED_PROTOCOL) {
+                "This archive does not use the framed NovaAc protocol"
+            }
             val nonceLength = headerInput.readUnsignedByte()
             require(nonceLength == 12) { "Invalid framed archive nonce" }
             val baseNonce = ByteArray(nonceLength)
@@ -1059,9 +1087,10 @@ object NovaAcExportManager {
                 getOrCreateKey()
             }
             val frameAadHeader = if (header.protocol == FRAMED_PROTOCOL) header.toMetaString().encodeToByteArray() else ByteArray(0)
-            FramedCipherInputStream(headerInput, key, baseNonce, frameAadHeader).use { framedInput ->
-                GZIPInputStream(framedInput, ARCHIVE_BUFFER_BYTES).use { gzipInput ->
-                    DataInputStream(BufferedInputStream(gzipInput, ARCHIVE_BUFFER_BYTES)).use { bytecode ->
+            val maxFrameBytes = header.framePlaintextBytes.coerceIn(FRAME_PLAINTEXT_BYTES, 4 * 1024 * 1024)
+            FramedCipherInputStream(headerInput, key, baseNonce, frameAadHeader, maxFrameBytes).use { framedInput ->
+                GZIPInputStream(framedInput, 512 * 1024).use { gzipInput ->
+                    DataInputStream(BufferedInputStream(gzipInput, 512 * 1024)).use { bytecode ->
                         interpretFramedBytecode(context, bytecode, header, saveToOfflineLibrary)
                     }
                 }
@@ -1094,6 +1123,10 @@ object NovaAcExportManager {
         var audioFileName = ""
         var audioSha256 = ""
         var restoredAudio: File? = null
+        var pendingStreamCrc: Long? = null
+        var pendingStreamSha256: String? = null
+        var pendingStreamPartial: File? = null
+        var pendingStreamDest: File? = null
 
         fun resetTrack() {
             stableId = ""
@@ -1108,6 +1141,10 @@ object NovaAcExportManager {
             audioFileName = ""
             audioSha256 = ""
             restoredAudio = null
+            pendingStreamCrc = null
+            pendingStreamSha256 = null
+            pendingStreamPartial = null
+            pendingStreamDest = null
         }
 
         while (true) {
@@ -1139,7 +1176,7 @@ object NovaAcExportManager {
                     val digest = java.security.MessageDigest.getInstance("SHA-256")
                     val crc = CRC32()
                     var remaining = payloadLength
-                    FileOutputStream(partial).buffered(ARCHIVE_BUFFER_BYTES).use { output ->
+                    FileOutputStream(partial).buffered(512 * 1024).use { output ->
                         while (remaining > 0L) {
                             val requested = minOf(transferBuffer.size.toLong(), remaining).toInt()
                             val read = input.read(transferBuffer, 0, requested)
@@ -1152,11 +1189,36 @@ object NovaAcExportManager {
                         output.flush()
                     }
                     val digestHex = digest.digest().joinToString("") { "%02x".format(it) }
-                    require(crc.value == expectedCrc) { "NovaAc payload CRC32 mismatch for $title" }
-                    require(audioSha256.isBlank() || digestHex.equals(audioSha256, ignoreCase = true)) { "NovaAc payload SHA-256 mismatch for $title" }
+                    if (expectedCrc == -1L) {
+                        // Single-pass streaming payload: integrity trailer follows immediately.
+                        pendingStreamCrc = crc.value
+                        pendingStreamSha256 = digestHex
+                        pendingStreamPartial = partial
+                        pendingStreamDest = destination
+                    } else {
+                        require(crc.value == expectedCrc) { "NovaAc payload CRC32 mismatch for $title" }
+                        require(audioSha256.isBlank() || digestHex.equals(audioSha256, ignoreCase = true)) { "NovaAc payload SHA-256 mismatch for $title" }
+                        if (destination.exists()) destination.delete()
+                        require(partial.renameTo(destination)) { "Unable to finalize restored audio for $title" }
+                        restoredAudio = destination
+                    }
+                }
+                OP_AUDIO_TRAILER -> {
+                    val trailerSha256 = input.readUTF()
+                    val trailerCrc = input.readLong()
+                    val computedCrc = pendingStreamCrc ?: error("Unexpected NovaAc audio trailer for $title")
+                    val computedSha = pendingStreamSha256.orEmpty()
+                    val partial = pendingStreamPartial ?: error("Missing streamed payload buffer for $title")
+                    val destination = pendingStreamDest ?: error("Missing destination file for $title")
+                    require(computedCrc == trailerCrc) { "NovaAc streamed CRC32 mismatch for $title" }
+                    require(trailerSha256.isBlank() || computedSha.equals(trailerSha256, ignoreCase = true)) { "NovaAc streamed SHA-256 mismatch for $title" }
                     if (destination.exists()) destination.delete()
                     require(partial.renameTo(destination)) { "Unable to finalize restored audio for $title" }
                     restoredAudio = destination
+                    pendingStreamCrc = null
+                    pendingStreamSha256 = null
+                    pendingStreamPartial = null
+                    pendingStreamDest = null
                 }
                 OP_TRACK_END -> {
                     val songId = stableId.hashCode() and 0x7fffffff
@@ -1446,18 +1508,46 @@ object NovaAcExportManager {
         }
     }
 
+    /** Splits an output stream into an inline SHA-256 MessageDigest with zero extra file reads. */
+    private class TeeDigestOutputStream(
+        output: OutputStream,
+        private val digest: java.security.MessageDigest,
+    ) : FilterOutputStream(output) {
+        override fun write(value: Int) {
+            out.write(value)
+            digest.update(value.toByte())
+        }
+
+        override fun write(buffer: ByteArray, offset: Int, length: Int) {
+            out.write(buffer, offset, length)
+            if (length > 0) {
+                digest.update(buffer, offset, length)
+            }
+        }
+    }
+
+    /** Standard GZIP stream in NO_COMPRESSION mode for multi-MB/s already-compressed audio formats (M4A/FLAC/MP3/OPUS). */
+    private class NoDeflateGzipOutputStream(output: OutputStream, bufferSize: Int) : GZIPOutputStream(output, bufferSize) {
+        init {
+            def.setLevel(java.util.zip.Deflater.NO_COMPRESSION)
+        }
+    }
+
     /**
-     * Each frame is AES-GCM authenticated independently. This prevents provider-level buffering
-     * of a playlist-sized message while retaining authenticated encryption for every byte.
+     * Each frame is AES-GCM authenticated independently. Larger frame sizes (e.g. 2 MiB in Fast mode)
+     * slash per-frame GCM cipher resets and enable multi-MB/s sustained encryption throughput.
      */
     private class FramedCipherOutputStream(
         output: OutputStream,
         private val key: SecretKey,
         private val baseNonce: ByteArray,
         private val aadHeader: ByteArray = ByteArray(0),
+        framePlaintextBytes: Int = FRAME_PLAINTEXT_BYTES,
     ) : OutputStream() {
+        private val frameCapacity = framePlaintextBytes.coerceIn(FRAME_PLAINTEXT_BYTES, 4 * 1024 * 1024)
         private val data = DataOutputStream(output)
-        private val buffer = ByteArray(FRAME_PLAINTEXT_BYTES)
+        private val buffer = ByteArray(frameCapacity)
+        private val cipherBuffer = ByteArray(frameCapacity + 64)
         private val frameAad = ByteArray(8)
         private val cipher = Cipher.getInstance(AES_TRANSFORMATION)
         private var buffered = 0
@@ -1504,11 +1594,11 @@ object NovaAcExportManager {
                 writeLongBigEndian(frameAad, frameIndex)
                 cipher.updateAAD(frameAad)
             }
-            val encrypted = cipher.doFinal(buffer, 0, buffered)
+            val encryptedLength = cipher.doFinal(buffer, 0, buffered, cipherBuffer)
             data.writeLong(frameIndex)
             data.writeInt(buffered)
-            data.writeInt(encrypted.size)
-            data.write(encrypted)
+            data.writeInt(encryptedLength)
+            data.write(cipherBuffer, 0, encryptedLength)
             frameIndex++
             buffered = 0
         }
@@ -1529,25 +1619,29 @@ object NovaAcExportManager {
         private val key: SecretKey,
         private val baseNonce: ByteArray,
         private val aadHeader: ByteArray = ByteArray(0),
+        framePlaintextBytes: Int = FRAME_PLAINTEXT_BYTES,
     ) : InputStream() {
-        private val data = DataInputStream(BufferedInputStream(input, ARCHIVE_BUFFER_BYTES))
+        private val maxFrameBytes = framePlaintextBytes.coerceIn(FRAME_PLAINTEXT_BYTES, 4 * 1024 * 1024)
+        private val data = DataInputStream(BufferedInputStream(input, 512 * 1024))
         private val frameAad = ByteArray(8)
         private val cipher = Cipher.getInstance(AES_TRANSFORMATION)
-        private var plaintext = ByteArray(0)
+        private val encryptedBuf = ByteArray(maxFrameBytes + 64)
+        private val plainBuf = ByteArray(maxFrameBytes + 32)
+        private var plainLengthCurrent = 0
         private var position = 0
         private var expectedIndex = 0L
         private var finished = false
 
         override fun read(): Int {
             if (!ensureFrame()) return -1
-            return plaintext[position++].toInt() and 0xFF
+            return plainBuf[position++].toInt() and 0xFF
         }
 
         override fun read(target: ByteArray, offset: Int, length: Int): Int {
             if (length == 0) return 0
             if (!ensureFrame()) return -1
-            val copied = minOf(length, plaintext.size - position)
-            System.arraycopy(plaintext, position, target, offset, copied)
+            val copied = minOf(length, plainLengthCurrent - position)
+            System.arraycopy(plainBuf, position, target, offset, copied)
             position += copied
             return copied
         }
@@ -1557,8 +1651,8 @@ object NovaAcExportManager {
         }
 
         private fun ensureFrame(): Boolean {
-            while (position >= plaintext.size && !finished) loadFrame()
-            return position < plaintext.size
+            while (position >= plainLengthCurrent && !finished) loadFrame()
+            return position < plainLengthCurrent
         }
 
         private fun loadFrame() {
@@ -1568,23 +1662,23 @@ object NovaAcExportManager {
             if (frameIndex == -1L) {
                 require(plainLength == 0 && cipherLength == 0) { "Malformed framed archive terminator" }
                 finished = true
-                plaintext = ByteArray(0)
+                plainLengthCurrent = 0
                 position = 0
                 return
             }
             require(frameIndex == expectedIndex) { "Framed archive sequence interrupted at frame $expectedIndex" }
-            require(plainLength in 1..FRAME_PLAINTEXT_BYTES) { "Invalid framed archive plaintext length" }
+            require(plainLength in 1..maxFrameBytes) { "Invalid framed archive plaintext length" }
             require(cipherLength in (plainLength + 16)..(plainLength + 32)) { "Invalid framed archive ciphertext length" }
-            val encrypted = ByteArray(cipherLength)
-            data.readFully(encrypted)
+            data.readFully(encryptedBuf, 0, cipherLength)
             cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, frameNonce(baseNonce, frameIndex)))
             if (aadHeader.isNotEmpty()) {
                 cipher.updateAAD(aadHeader)
                 writeLongBigEndian(frameAad, frameIndex)
                 cipher.updateAAD(frameAad)
             }
-            plaintext = cipher.doFinal(encrypted)
-            require(plaintext.size == plainLength) { "Framed archive plaintext length mismatch at frame $frameIndex" }
+            val decrypted = cipher.doFinal(encryptedBuf, 0, cipherLength, plainBuf)
+            require(decrypted == plainLength) { "Framed archive plaintext length mismatch at frame $frameIndex" }
+            plainLengthCurrent = decrypted
             position = 0
             expectedIndex++
         }
@@ -1597,6 +1691,9 @@ object NovaAcExportManager {
         encryptionKey: SecretKey,
         baseNonce: ByteArray,
         payloadBufferBytes: Int,
+        framePlaintextBytes: Int,
+        zeroDeflateAudio: Boolean,
+        profileLabel: String,
         publish: (ExportStage, Int, String, Long, Long, Long, Long, Int, Int, String) -> Unit,
         shouldCancel: () -> Boolean,
     ): StreamingCounters {
@@ -1613,11 +1710,27 @@ object NovaAcExportManager {
         var sourceBytesCopied = 0L
         var included = 0
         var skipped = if (plan.mode == AudioPayloadMode.INCLUDE_AVAILABLE_LOCAL_AUDIO) plan.missingTrackCount else 0
-        val reusablePayloadBuffer = ByteArray(payloadBufferBytes.coerceIn(64 * 1024, 512 * 1024))
-        val profileLabel = com.music.spotui.MyApplication.instanceOrNull?.let { MrbeanNovaAcController.snapshot(it).profile.label } ?: "default"
-        publish(ExportStage.WRITING_METADATA, 0, "Preparing framed encrypted NovaAc stream", 0L, 0L, 0L, countingOutput.bytesWritten, included, skipped, "MrBean $profileLabel profile · archive header written")
-        FramedCipherOutputStream(countingOutput, encryptionKey, baseNonce, headerBytes).use { frameOutput ->
-            GZIPOutputStream(frameOutput).use { gzipOutput ->
+        val effectiveBuffer = payloadBufferBytes.coerceIn(ARCHIVE_BUFFER_BYTES, 4 * 1024 * 1024)
+        val reusablePayloadBuffer = ByteArray(effectiveBuffer)
+        publish(
+            ExportStage.WRITING_METADATA,
+            0,
+            "Preparing framed encrypted NovaAc stream",
+            0L,
+            0L,
+            0L,
+            countingOutput.bytesWritten,
+            included,
+            skipped,
+            "MrBean $profileLabel profile · ${formatBytes(framePlaintextBytes.toLong())} frames",
+        )
+        FramedCipherOutputStream(countingOutput, encryptionKey, baseNonce, headerBytes, framePlaintextBytes).use { frameOutput ->
+            val gzipStream: GZIPOutputStream = if (zeroDeflateAudio) {
+                NoDeflateGzipOutputStream(frameOutput, effectiveBuffer.coerceAtMost(1024 * 1024))
+            } else {
+                GZIPOutputStream(frameOutput, effectiveBuffer.coerceAtMost(1024 * 1024))
+            }
+            gzipStream.use { gzipOutput ->
                 DataOutputStream(gzipOutput).use { out ->
                     out.writeByte(OP_META_NAME.toInt())
                     out.writeUTF(plan.collectionName)
@@ -1638,6 +1751,7 @@ object NovaAcExportManager {
                             publish = publish,
                             shouldCancel = shouldCancel,
                             reusableBuffer = reusablePayloadBuffer,
+                            singlePassStreaming = true,
                         )
                         sourceBytesCopied += outcome.sourceBytesCopied
                         if (outcome.includedPayload) included++
@@ -1726,6 +1840,7 @@ object NovaAcExportManager {
         publish: (ExportStage, Int, String, Long, Long, Long, Long, Int, Int, String) -> Unit,
         shouldCancel: () -> Boolean,
         reusableBuffer: ByteArray,
+        singlePassStreaming: Boolean = false,
     ): StreamingTrackOutcome {
         out.writeByte(OP_TRACK_BEGIN.toInt())
         out.writeByte(OP_TRACK_STABLE_ID.toInt())
@@ -1746,9 +1861,40 @@ object NovaAcExportManager {
         out.writeUTF(song.artistIds)
 
         val localFile = localPath?.let(::File)?.takeIf { it.isFile && it.length() > 0L }
-        // A downloaded entry can be cleared or replaced between planning and writing. Verify the
-        // file before emitting any audio frames; in best-effort mode an unavailable payload is
-        // omitted while the track metadata remains exportable instead of failing the whole archive.
+        if (localFile != null && singlePassStreaming) {
+            val expectedLen = localFile.length()
+            out.writeByte(OP_AUDIO_CONTAINER.toInt())
+            out.writeUTF(safeAudioExtension(localFile.extension))
+            out.writeByte(OP_AUDIO_FILE_NAME.toInt())
+            out.writeUTF(localFile.name)
+            out.writeByte(OP_AUDIO_PAYLOAD.toInt())
+            out.writeLong(-1L) // Streaming sentinel: SHA-256 + CRC32 emitted in OP_AUDIO_TRAILER
+            writeVarLong(out, expectedLen)
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            val crc = CRC32()
+            var copied = 0L
+            FileInputStream(localFile).use { input ->
+                while (true) {
+                    if (shouldCancel()) throw java.util.concurrent.CancellationException("NovaAc export cancelled")
+                    val read = input.read(reusableBuffer)
+                    if (read < 0) break
+                    digest.update(reusableBuffer, 0, read)
+                    crc.update(reusableBuffer, 0, read)
+                    out.write(reusableBuffer, 0, read)
+                    copied += read.toLong()
+                    publish(ExportStage.COPYING_PAYLOAD, trackIndex, song.title, copied, expectedLen, sourceBytesAlreadyCopied + copied, archiveBytesWritten(), 0, 0, "Streaming payload (single-pass)")
+                }
+            }
+            require(copied == expectedLen) { "Local payload changed while exporting ${song.title}" }
+            val sha256Hex = digest.digest().joinToString("") { "%02x".format(it) }
+            out.writeByte(OP_AUDIO_TRAILER.toInt())
+            out.writeUTF(sha256Hex)
+            out.writeLong(crc.value)
+            out.writeByte(OP_TRACK_END.toInt())
+            return StreamingTrackOutcome(includedPayload = true, skippedPayload = false, sourceBytesCopied = copied)
+        }
+
+        // Legacy two-pass path for unframed streaming containers
         val payloadIntegrity = localFile?.let { file ->
             runCatching {
                 publish(ExportStage.HASHING_PAYLOAD, trackIndex, song.title, 0L, file.length(), sourceBytesAlreadyCopied, archiveBytesWritten(), 0, 0, "Verifying local payload")
@@ -1905,6 +2051,7 @@ object NovaAcExportManager {
             kdfSaltBase64 = kvMap["kdfSaltBase64"] ?: "",
             kdfIterations = kvMap["kdfIterations"]?.toIntOrNull() ?: 0,
             protocol = kvMap["protocol"] ?: LEGACY_PROTOCOL,
+            framePlaintextBytes = kvMap["framePlaintextBytes"]?.toIntOrNull() ?: FRAME_PLAINTEXT_BYTES,
         )
     }
 
@@ -1979,6 +2126,7 @@ object NovaAcExportManager {
         append("kdfSaltBase64=").append(kdfSaltBase64).append("\n")
         append("kdfIterations=").append(kdfIterations).append("\n")
         append("protocol=").append(protocol).append("\n")
+        append("framePlaintextBytes=").append(framePlaintextBytes).append("\n")
     }
 
     private fun toNovaTrack(song: SongsModel, audioBytes: ByteArray?, localFile: File?): NovaAcTrack = NovaAcTrack(

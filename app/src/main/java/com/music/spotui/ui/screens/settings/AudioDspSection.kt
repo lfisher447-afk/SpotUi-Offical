@@ -13,8 +13,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
@@ -22,11 +29,14 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -144,6 +154,15 @@ fun AudioDspSection(
     }
 
     val routeInfo by AudioEffectController.routeState.collectAsState()
+    val appVolumePercent by SongPlayer.appVolumePercentFlow.collectAsState()
+    var lastNonZeroVolume by remember { mutableIntStateOf(if (appVolumePercent > 0) appVolumePercent else 80) }
+    var dspTelemetry by remember { mutableStateOf(SongPlayer.dspTelemetrySummary()) }
+    LaunchedEffect(eqEnabled, eqSpatial, headphoneCrossfeed, routeInfo) {
+        while (true) {
+            dspTelemetry = SongPlayer.dspTelemetrySummary()
+            delay(1200L)
+        }
+    }
     val capabilities = remember(
         eqEnabled, eqSubBass, eqBass, eqLowMid, eqVocal, eqHighMid, eqTreble, eqBrilliance,
         preampDb, bassBoostStrength, limiterEnabled, audioNormalizer, eqSpatial, spatialProfile,
@@ -160,6 +179,121 @@ fun AudioDspSection(
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        // In-App Volume Changer (0–100%, Non-OS)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFF12161D))
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    IconButton(
+                        onClick = {
+                            if (appVolumePercent > 0) {
+                                lastNonZeroVolume = appVolumePercent
+                                SongPlayer.setAppVolumePercent(context, 0)
+                            } else {
+                                SongPlayer.setAppVolumePercent(context, lastNonZeroVolume.coerceIn(10, 100))
+                            }
+                        },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("in_app_volume_mute_button"),
+                    ) {
+                        Icon(
+                            imageVector = if (appVolumePercent == 0) {
+                                Icons.AutoMirrored.Filled.VolumeOff
+                            } else {
+                                Icons.AutoMirrored.Filled.VolumeUp
+                            },
+                            contentDescription = if (appVolumePercent == 0) "Unmute in-app audio" else "Mute in-app audio",
+                            tint = if (appVolumePercent == 0) Color(0xFFFF8B94) else AppPalette,
+                        )
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    Column {
+                        Text(
+                            "In-App Volume",
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "Internal app gain only — does not alter Android OS volume",
+                            color = Color(0xFFB3B8C4),
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(AppPalette.copy(alpha = 0.16f))
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                ) {
+                    Text(
+                        "$appVolumePercent%",
+                        color = AppPalette,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                TextButton(
+                    onClick = {
+                        val next = (appVolumePercent - 5).coerceIn(0, 100)
+                        if (next > 0) lastNonZeroVolume = next
+                        SongPlayer.setAppVolumePercent(context, next)
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text("-5%", color = Color(0xFFD6DAE6), fontWeight = FontWeight.Bold)
+                }
+                Slider(
+                    value = appVolumePercent.toFloat(),
+                    onValueChange = {
+                        val pct = it.roundToInt().coerceIn(0, 100)
+                        if (pct > 0) lastNonZeroVolume = pct
+                        SongPlayer.setAppVolumePercent(context, pct)
+                    },
+                    valueRange = 0f..100f,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("in_app_volume_slider"),
+                    colors = SliderDefaults.colors(
+                        activeTrackColor = AppPalette,
+                        inactiveTrackColor = Color.White.copy(alpha = 0.2f),
+                        thumbColor = AppPalette,
+                    ),
+                )
+                TextButton(
+                    onClick = {
+                        val next = (appVolumePercent + 5).coerceIn(0, 100)
+                        if (next > 0) lastNonZeroVolume = next
+                        SongPlayer.setAppVolumePercent(context, next)
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text("+5%", color = Color(0xFFD6DAE6), fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
         // Master DSP Status Card
         Row(
             modifier = Modifier
@@ -507,6 +641,12 @@ fun AudioDspSection(
                     fontWeight = FontWeight.Bold,
                 )
             }
+            Text(
+                text = dspTelemetry,
+                color = Color(0xFF9FB0C7),
+                fontSize = 10.sp,
+                modifier = Modifier.padding(horizontal = 2.dp),
+            )
 
             if (eqSpatial) {
                 Row(

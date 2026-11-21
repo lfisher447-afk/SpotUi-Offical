@@ -45,6 +45,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -56,7 +57,9 @@ import com.bumptech.glide.integration.compose.placeholder
 import com.metrolist.spotify.Spotify
 import com.metrolist.spotify.models.SpotifyPlaylist
 import com.music.spotui.R
+import com.music.spotui.audio.UiSoundEngine
 import com.music.spotui.data.api.Api
+import com.music.spotui.data.api.ModuleLibsBridge
 import com.music.spotui.data.api.SpotifySync
 import com.music.spotui.data.entity.SongsModel
 import com.music.spotui.data.preferences.LocalPlaylist
@@ -64,6 +67,7 @@ import com.music.spotui.data.preferences.LocalPlaylistPref
 import com.music.spotui.data.preferences.addLikedSongId
 import com.music.spotui.data.preferences.isSongLiked
 import com.music.spotui.data.preferences.removeLikedSongId
+import com.music.spotui.util.DevConsoleManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -118,13 +122,35 @@ fun SavedInSheet(
 
     fun createNow() {
         val name = newName.trim().ifBlank { "My Playlist" }
+        if (song.title.isBlank()) {
+            DevConsoleManager.reportComponentFault(
+                component = "SavedInSheet",
+                action = "create_playlist",
+                reason = "Attempted to create playlist '$name' for a track with blank title",
+                autoFixHint = "Verify search result metadata mapping before opening SavedInSheet",
+            )
+            android.widget.Toast.makeText(context, "Unable to save track (missing title)", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
         isCreatingPlaylist = true
         newName = ""
-        val created = LocalPlaylistPref.createPlaylist(context, name, song)
-        localPlaylists = LocalPlaylistPref.getLocalPlaylists(context)
-        membership[created.id] = true
-        Api.HomeCache.library = null
-        android.widget.Toast.makeText(context, "Playlist '$name' created", android.widget.Toast.LENGTH_SHORT).show()
+        runCatching {
+            val created = LocalPlaylistPref.createPlaylist(context, name, song)
+            localPlaylists = LocalPlaylistPref.getLocalPlaylists(context)
+            membership[created.id] = true
+            Api.HomeCache.library = null
+            UiSoundEngine.playToggleSound(context, true)
+            DevConsoleManager.logButtonAction("SavedInSheet", "create_playlist", "$name (${song.title})")
+            android.widget.Toast.makeText(context, "Added '${song.title}' to '$name'", android.widget.Toast.LENGTH_SHORT).show()
+        }.onFailure { err ->
+            DevConsoleManager.reportComponentFault(
+                component = "SavedInSheet",
+                action = "create_playlist",
+                reason = "Failed creating local playlist '$name': ${err.message}",
+                exception = err,
+            )
+            android.widget.Toast.makeText(context, "Couldn't create playlist '$name'", android.widget.Toast.LENGTH_SHORT).show()
+        }
         creating = false
         isCreatingPlaylist = false
     }
@@ -228,9 +254,19 @@ fun SavedInSheet(
                         },
                     ) {
                         liked = !liked
+                        UiSoundEngine.playToggleSound(context, liked)
                         if (liked) addLikedSongId(context, song.id.toString())
                         else removeLikedSongId(context, song.id.toString())
-                        SpotifySync.setTrackSaved(context, song.spotifyTrackId, liked)
+                        if (song.spotifyTrackId.isNotBlank()) {
+                            SpotifySync.setTrackSaved(context, song.spotifyTrackId, liked)
+                        }
+                        ModuleLibsBridge.setLastFmLoveStatus(context, song.title, song.singer, liked)
+                        DevConsoleManager.logButtonAction("SavedInSheet", "toggle_liked", "${song.title} -> $liked")
+                        android.widget.Toast.makeText(
+                            context,
+                            if (liked) "Saved '${song.title}' to Liked Songs" else "Removed from Liked Songs",
+                            android.widget.Toast.LENGTH_SHORT,
+                        ).show()
                         onLikedChanged(liked)
                     }
                 }
@@ -258,15 +294,35 @@ fun SavedInSheet(
                         },
                     ) {
                         val isCurrentlySaved = membership[pl.id] ?: LocalPlaylistPref.isSongInPlaylist(context, pl.id, song.id, song.spotifyTrackId)
-                        if (isCurrentlySaved) {
-                            LocalPlaylistPref.removeSongFromPlaylist(context, pl.id, song.id, song.spotifyTrackId)
-                            membership[pl.id] = false
-                        } else {
-                            LocalPlaylistPref.addSongToPlaylist(context, pl.id, song)
-                            membership[pl.id] = true
+                        runCatching {
+                            if (isCurrentlySaved) {
+                                LocalPlaylistPref.removeSongFromPlaylist(context, pl.id, song.id, song.spotifyTrackId)
+                                membership[pl.id] = false
+                            } else {
+                                LocalPlaylistPref.addSongToPlaylist(context, pl.id, song)
+                                membership[pl.id] = true
+                            }
+                            UiSoundEngine.playToggleSound(context, !isCurrentlySaved)
+                            localPlaylists = LocalPlaylistPref.getLocalPlaylists(context)
+                            Api.HomeCache.library = null
+                            DevConsoleManager.logButtonAction(
+                                "SavedInSheet",
+                                if (isCurrentlySaved) "remove_local_playlist" else "add_local_playlist",
+                                "${pl.name} (${song.title})",
+                            )
+                            android.widget.Toast.makeText(
+                                context,
+                                if (isCurrentlySaved) "Removed '${song.title}' from '${pl.name}'" else "Added '${song.title}' to '${pl.name}'",
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                        }.onFailure { err ->
+                            DevConsoleManager.reportComponentFault(
+                                component = "SavedInSheet",
+                                action = "toggle_local_playlist",
+                                reason = "Playlist '${pl.name}' mutation threw: ${err.message}",
+                                exception = err,
+                            )
                         }
-                        localPlaylists = LocalPlaylistPref.getLocalPlaylists(context)
-                        Api.HomeCache.library = null
                     }
                 }
 
@@ -300,10 +356,57 @@ fun SavedInSheet(
                             )
                         },
                     ) {
-                        if (song.spotifyTrackId.isBlank()) return@SavedInRow
+                        if (song.spotifyTrackId.isBlank()) {
+                            // Never drop the tap silently: mirror into a matching local playlist on device
+                            runCatching {
+                                val existingLocal = localPlaylists.firstOrNull {
+                                    it.name.equals(pl.name, ignoreCase = true)
+                                }
+                                if (existingLocal != null) {
+                                    LocalPlaylistPref.addSongToPlaylist(context, existingLocal.id, song)
+                                    membership[existingLocal.id] = true
+                                } else {
+                                    val created = LocalPlaylistPref.createPlaylist(context, pl.name, song)
+                                    membership[created.id] = true
+                                }
+                                localPlaylists = LocalPlaylistPref.getLocalPlaylists(context)
+                                membership[pl.id] = true
+                                Api.HomeCache.library = null
+                                UiSoundEngine.playToggleSound(context, true)
+                                DevConsoleManager.logButtonAction(
+                                    "SavedInSheet",
+                                    "mirror_remote_playlist_local",
+                                    "${pl.name} (blank spotifyTrackId for ${song.title})",
+                                )
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "Saved '${song.title}' locally in '${pl.name}'",
+                                    android.widget.Toast.LENGTH_SHORT,
+                                ).show()
+                            }.onFailure { err ->
+                                DevConsoleManager.reportComponentFault(
+                                    component = "SavedInSheet",
+                                    action = "mirror_remote_playlist_local",
+                                    reason = "Track missing Spotify URI and local fallback failed: ${err.message}",
+                                    exception = err,
+                                )
+                            }
+                            return@SavedInRow
+                        }
                         membership[pl.id] = !saved
+                        UiSoundEngine.playToggleSound(context, !saved)
                         if (saved) SpotifySync.removeTrackFromPlaylist(context, pl.id, song.spotifyTrackId)
                         else SpotifySync.addTrackToPlaylist(context, pl.id, song.spotifyTrackId)
+                        DevConsoleManager.logButtonAction(
+                            "SavedInSheet",
+                            if (saved) "remove_spotify_playlist" else "add_spotify_playlist",
+                            "${pl.name} (${song.title})",
+                        )
+                        android.widget.Toast.makeText(
+                            context,
+                            if (saved) "Removed '${song.title}' from '${pl.name}'" else "Added '${song.title}' to '${pl.name}'",
+                            android.widget.Toast.LENGTH_SHORT,
+                        ).show()
                     }
                 }
             }
@@ -325,6 +428,7 @@ private fun SavedInRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 56.dp)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,

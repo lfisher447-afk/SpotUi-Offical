@@ -103,6 +103,44 @@ fun UpdatePrompt() {
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
+                if (info.apkFileName.isNotBlank() || info.expectedSha256.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1D1F28)),
+                        shape = RoundedCornerShape(10.dp),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            val sizeLabel = if (info.apkSizeBytes > 0L) {
+                                " · %.1f MB".format(info.apkSizeBytes / (1024.0 * 1024.0))
+                            } else ""
+                            if (info.apkFileName.isNotBlank()) {
+                                Text(
+                                    text = "${info.apkFileName}$sizeLabel",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                            if (info.expectedSha256.isNotBlank()) {
+                                Text(
+                                    text = "SHA-256: ${info.expectedSha256.take(24)}…",
+                                    color = Color(0xFF9ED4FF),
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.clickable {
+                                        val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                        cm.setPrimaryClip(android.content.ClipData.newPlainText("SpotUI SHA256", info.expectedSha256))
+                                        android.widget.Toast.makeText(context, "SHA-256 digest copied", android.widget.Toast.LENGTH_SHORT).show()
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
                 Spacer(modifier = Modifier.height(10.dp))
                 if (info.releaseBody.isNotBlank()) {
                     RenderMarkdown(info.releaseBody)
@@ -117,6 +155,7 @@ fun UpdatePrompt() {
         },
         confirmButton = {
             TextButton(onClick = {
+                com.music.spotui.audio.UiSoundEngine.playTapChime(context)
                 runCatching {
                     context.startActivity(
                         Intent(Intent.ACTION_VIEW, Uri.parse(info.downloadUrl))
@@ -124,7 +163,7 @@ fun UpdatePrompt() {
                 }
                 update = null
             }) {
-                Text("Update", color = Color(0xFF1DB954))
+                Text("Download APK", color = Color(0xFF1DB954), fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {

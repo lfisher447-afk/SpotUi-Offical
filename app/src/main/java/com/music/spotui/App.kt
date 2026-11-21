@@ -93,6 +93,46 @@ fun App() {
     val useSideNavigation = navigationMode == com.music.spotui.data.preferences.NavigationMode.SIDE_BAR ||
         navigationMode == com.music.spotui.data.preferences.NavigationMode.NAVIGATION_RAIL
 
+    val expRevision by com.music.spotui.data.preferences.ExperiencePreferences.experienceRevision.collectAsState()
+    var showPatchNotes by remember(expRevision, currentRoute) {
+        mutableStateOf(
+            currentRoute != null &&
+                currentRoute != Routes.Login.route &&
+                com.music.spotui.data.preferences.ExperiencePreferences.shouldShowPatchNotes(
+                    context,
+                    BuildConfig.VERSION_NAME,
+                ),
+        )
+    }
+
+    if (showPatchNotes) {
+        com.music.spotui.ui.components.PatchNotesDialog(
+            onDismiss = {
+                com.music.spotui.data.preferences.ExperiencePreferences.setLastSeenPatchNotesVersion(
+                    context,
+                    BuildConfig.VERSION_NAME,
+                )
+                showPatchNotes = false
+            },
+            onOpenDiagnostics = {
+                com.music.spotui.data.preferences.ExperiencePreferences.setLastSeenPatchNotesVersion(
+                    context,
+                    BuildConfig.VERSION_NAME,
+                )
+                showPatchNotes = false
+                navController.navigate(Routes.DeveloperConsole.route)
+            },
+            onOpenSettings = {
+                com.music.spotui.data.preferences.ExperiencePreferences.setLastSeenPatchNotesVersion(
+                    context,
+                    BuildConfig.VERSION_NAME,
+                )
+                showPatchNotes = false
+                navController.navigate(Routes.Settings.route)
+            },
+        )
+    }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {

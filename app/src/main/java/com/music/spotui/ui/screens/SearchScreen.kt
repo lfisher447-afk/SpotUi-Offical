@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
@@ -789,11 +790,23 @@ fun SearchSongRow(
     val context = LocalContext.current
     var isLiked by remember { mutableStateOf(isSongLiked(context, song.id.toString())) }
     var showSavedIn by remember { mutableStateOf(false) }
+    var isInAnyLocalPlaylist by remember(song.id, song.spotifyTrackId) {
+        mutableStateOf(
+            com.music.spotui.data.preferences.LocalPlaylistPref.getLocalPlaylists(context).any { pl ->
+                com.music.spotui.data.preferences.LocalPlaylistPref.isSongInPlaylist(context, pl.id, song.id, song.spotifyTrackId)
+            }
+        )
+    }
     if (showSavedIn) {
         SavedInSheet(
             song = song,
             context = context,
-            onDismiss = { showSavedIn = false },
+            onDismiss = {
+                showSavedIn = false
+                isInAnyLocalPlaylist = com.music.spotui.data.preferences.LocalPlaylistPref.getLocalPlaylists(context).any { pl ->
+                    com.music.spotui.data.preferences.LocalPlaylistPref.isSongInPlaylist(context, pl.id, song.id, song.spotifyTrackId)
+                }
+            },
             onLikedChanged = { isLiked = it },
         )
     }
@@ -805,6 +818,8 @@ fun SearchSongRow(
 
     SwipeToPlayNextWrapper(
         onPlayNext = {
+            com.music.spotui.audio.UiSoundEngine.playTapChime(context)
+            com.music.spotui.util.DevConsoleManager.logButtonAction("Search", "swipe_play_next", song.title)
             playerViewModel.playNext(song)
             android.widget.Toast.makeText(
                 context,
@@ -823,6 +838,8 @@ fun SearchSongRow(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                 ) {
+                    com.music.spotui.audio.UiSoundEngine.playTapChime(context)
+                    com.music.spotui.util.DevConsoleManager.logButtonAction("Search", "play_song", song.title)
                     onPlayed()
                     // Start a radio from the tapped track (queue = this song + Spotify
                     // recommendations) rather than queuing the whole search list.
@@ -838,7 +855,7 @@ fun SearchSongRow(
                         song.album,
                     )
                 }
-                .padding(16.dp, 8.dp),
+                .padding(start = 16.dp, top = 8.dp, end = 6.dp, bottom = 8.dp),
         ) {
             Row(
                 horizontalArrangement = Arrangement.Start,
@@ -881,6 +898,8 @@ fun SearchSongRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(
                     onClick = {
+                        com.music.spotui.audio.UiSoundEngine.playTapChime(context)
+                        com.music.spotui.util.DevConsoleManager.logButtonAction("Search", "play_next", song.title)
                         playerViewModel.playNext(song)
                         android.widget.Toast.makeText(
                             context,
@@ -888,7 +907,9 @@ fun SearchSongRow(
                             android.widget.Toast.LENGTH_SHORT,
                         ).show()
                     },
-                    modifier = Modifier.testTag("search_play_next_${song.id}"),
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("search_play_next_${song.id}"),
                 ) {
                     Icon(
                         imageVector = Icons.Default.QueueMusic,
@@ -898,24 +919,44 @@ fun SearchSongRow(
                     )
                 }
                 IconButton(
-                    onClick = { showSavedIn = true },
-                    modifier = Modifier.testTag("search_save_in_${song.id}"),
+                    onClick = {
+                        com.music.spotui.audio.UiSoundEngine.playTapChime(context)
+                        if (song.title.isBlank()) {
+                            com.music.spotui.util.DevConsoleManager.reportComponentFault(
+                                component = "SearchScreen",
+                                action = "add_to_playlist",
+                                reason = "Cannot open SavedInSheet for track id=${song.id} with blank title",
+                            )
+                        } else {
+                            com.music.spotui.util.DevConsoleManager.logButtonAction("Search", "open_add_to_playlist", song.title)
+                            showSavedIn = true
+                        }
+                    },
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("search_save_in_${song.id}"),
                 ) {
                     Icon(
-                        imageVector = Icons.Default.PlaylistAdd,
-                        contentDescription = "Save to playlist",
-                        tint = Color(0xFFB3B3B3),
-                        modifier = Modifier.size(20.dp),
+                        imageVector = if (isInAnyLocalPlaylist) Icons.Default.PlaylistAddCheck else Icons.Default.PlaylistAdd,
+                        contentDescription = "Add to playlist",
+                        tint = if (isInAnyLocalPlaylist) AppPalette else Color(0xFFB3B3B3),
+                        modifier = Modifier.size(22.dp),
                     )
                 }
                 IconButton(
                     onClick = {
+                        val nextLiked = !isLiked
+                        com.music.spotui.audio.UiSoundEngine.playToggleSound(context, nextLiked)
                         if (isLiked) removeLikedSongId(context, song.id.toString())
                         else addLikedSongId(context, song.id.toString())
                         isLiked = isSongLiked(context, song.id.toString())
+                        com.music.spotui.data.api.ModuleLibsBridge.setLastFmLoveStatus(context, song.title, song.singer, isLiked)
+                        com.music.spotui.util.DevConsoleManager.logButtonAction("Search", "toggle_like", "${song.title} -> $isLiked")
                         searchViewModel.updateLikeState(!searchViewModel.likeState.value)
                     },
-                    modifier = Modifier.testTag("search_like_${song.id}"),
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("search_like_${song.id}"),
                 ) {
                     Icon(
                         painter = if (isLiked) painterResource(id = R.drawable.added) else painterResource(id = R.drawable.ic_add),

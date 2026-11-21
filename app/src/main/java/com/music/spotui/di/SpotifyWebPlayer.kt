@@ -556,4 +556,19 @@ object SpotifyWebPlayer {
           return t2s(pe&&pe.textContent)+'|'+t2s(de&&de.textContent)+'|'+playing;
         })();
         """.trimIndent()
+
+    @Volatile private var targetWebVolume: Float = 1f
+
+    /** Adjusts only the in-app web player's HTML media volume [0f..1f] without touching OS volume. */
+    fun setVolume(gain: Float) {
+        val g = gain.coerceIn(0f, 1f)
+        targetWebVolume = g
+        val wv = webView ?: return
+        wv.post {
+            wv.evaluateJavascript(
+                "(function(){var v=$g;document.querySelectorAll('audio,video').forEach(function(el){try{el.volume=v;}catch(e){}});})();",
+                null,
+            )
+        }
+    }
 }

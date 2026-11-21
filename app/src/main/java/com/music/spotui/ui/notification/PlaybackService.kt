@@ -237,6 +237,10 @@ class PlaybackService : MediaLibraryService() {
             // updatePlayingState internally guards against stale callbacks: when ExoPlayer
             // reports "playing" after the user already paused, it's dropped.
             if (!showingWeb) currentSongState.updatePlayingState(isPlaying)
+            com.music.spotui.engine.MediaNotificationAdapter.syncExitMiniIfShowing(
+                applicationContext,
+                isPlayingOverride = isPlaying,
+            )
             scheduleIdleStopCheck()
         }
 
@@ -259,6 +263,13 @@ class PlaybackService : MediaLibraryService() {
             SongPlayer.invalidateResolvedStream(current.url)
             val attempts = (retryCountByQuery[current.url] ?: 0) + 1
             retryCountByQuery[current.url] = attempts
+            if (attempts == 1 && com.music.spotui.data.preferences.downloadedPathForQuery(applicationContext, current.url) != null) {
+                AppDiagnostics.warning(
+                    "PlaybackService",
+                    "Local download failed to decode for '${current.title}'; removing corrupt file and streaming fresh source",
+                )
+                com.music.spotui.data.preferences.removeDownload(applicationContext, current.id.toString())
+            }
             if (attempts <= 1) {
                 serviceScope.launch {
                     kotlinx.coroutines.delay(650)
@@ -595,6 +606,7 @@ class PlaybackService : MediaLibraryService() {
             }
         }
         syncSessionStateFromApp()
+        com.music.spotui.engine.MediaNotificationAdapter.syncExitMiniIfShowing(applicationContext)
         android.util.Log.d(
             "PlaybackService",
             "Updated MediaMetadata: title='$title', artist='$artist', album='$album', durationMs=$durationMs"
@@ -719,6 +731,9 @@ class PlaybackService : MediaLibraryService() {
         const val ACTION_REFRESH_NOTIFICATION = "com.music.spotui.action.REFRESH_NOTIFICATION"
         const val ACTION_LOCAL_BIND = "com.music.spotui.action.LOCAL_BIND"
         const val ACTION_MEDIA_NOTIFICATION_DISMISSED = "com.music.spotui.action.MEDIA_NOTIFICATION_DISMISSED"
+        const val ACTION_BACKGROUND_PLAY_PAUSE = "com.music.spotui.action.BACKGROUND_PLAY_PAUSE"
+        const val ACTION_BACKGROUND_NEXT = "com.music.spotui.action.BACKGROUND_NEXT"
+        const val ACTION_BACKGROUND_PREV = "com.music.spotui.action.BACKGROUND_PREV"
 
         private const val ROOT = "root"
         private const val NODE_LIKED = "liked"
@@ -759,6 +774,27 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
+        fun triggerBackgroundCommand(context: Context, commandAction: String) {
+            val appContext = context.applicationContext
+            val existing = activeInstance
+            if (existing != null) {
+                if (Looper.myLooper() == Looper.getMainLooper()) {
+                    existing.handleBackgroundCommand(commandAction)
+                } else {
+                    mainHandler.post { existing.handleBackgroundCommand(commandAction) }
+                }
+                return
+            }
+            val intent = Intent(appContext, PlaybackService::class.java).apply {
+                action = commandAction
+            }
+            runCatching {
+                ContextCompat.startForegroundService(appContext, intent)
+            }.onFailure {
+                runCatching { appContext.startService(intent) }
+            }
+        }
+
         fun notifyPlaybackStateChanged(context: Context) {
             val service = activeInstance
             if (service != null) {
@@ -777,6 +813,40 @@ class PlaybackService : MediaLibraryService() {
         fun refreshNotification(context: Context) {
             notifyPlaybackStateChanged(context)
         }
+    }
+
+    internal fun handleBackgroundCommand(commandAction: String) {
+        when (commandAction) {
+            ACTION_BACKGROUND_PLAY_PAUSE -> {
+                if (SongPlayer.isPlaying()) {
+                    SongPlayer.pause()
+                } else if (currentSongState.queue.value.isEmpty() || (SongPlayer.exoPlayer?.mediaItemCount ?: 0) == 0) {
+                    val resumed = resumeFromPersistence(skipFirst = false)
+                    if (resumed == null) {
+                        SongPlayer.play()
+                    }
+                } else {
+                    SongPlayer.play()
+                }
+            }
+            ACTION_BACKGROUND_NEXT -> {
+                if (currentSongState.queue.value.isEmpty()) {
+                    resumeFromPersistence(skipFirst = true)
+                } else {
+                    SongPlayer.next(applicationContext)
+                }
+            }
+            ACTION_BACKGROUND_PREV -> {
+                if (currentSongState.queue.value.isEmpty()) {
+                    resumeFromPersistence(skipFirst = false)
+                } else {
+                    SongPlayer.previous(applicationContext)
+                }
+            }
+        }
+        syncSessionStateFromApp()
+        scheduleIdleStopCheck()
+        com.music.spotui.engine.MediaNotificationAdapter.syncExitMiniIfShowing(applicationContext)
     }
 
     private fun scheduleIdleStopCheck() {
@@ -1400,6 +1470,11 @@ class PlaybackService : MediaLibraryService() {
                     scheduleIdleStopCheck()
                 }
             }
+        } else if (action == ACTION_BACKGROUND_PLAY_PAUSE ||
+            action == ACTION_BACKGROUND_NEXT ||
+            action == ACTION_BACKGROUND_PREV
+        ) {
+            handleBackgroundCommand(action)
         } else if (action == ACTION_ENSURE_FOREGROUND || action == ACTION_REFRESH_NOTIFICATION) {
             scheduleIdleStopCheck()
         }
@@ -1411,7 +1486,8 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         // Keep playing seamlessly in background if playback is active or resolving a track.
-        // Stop cleanly if playback is paused/idle so the notification isn't left orphaned.
+        // Stop cleanly if playback is paused/idle so the notification isn't left orphaned,
+        // and show the quick Play/Pause mini-notification if enabled.
         val p = mediaSession?.player
         val keepAlive = ServiceSessionHolder.isResumable(p) &&
             (p?.playWhenReady == true || SongPlayer.isResolvingTrack || SpotifyWebPlayer.isPlaying)
@@ -1421,6 +1497,12 @@ class PlaybackService : MediaLibraryService() {
             widgetSink?.serviceStopped()
             PlaybackSessionBus.onServiceStopping()
             runCatching { ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE) }
+            if (com.music.spotui.data.preferences.isBackgroundExitNotificationEnabled(applicationContext)) {
+                com.music.spotui.engine.MediaNotificationAdapter.showOrUpdateExitMiniNotification(
+                    applicationContext,
+                    isPlayingOverride = false,
+                )
+            }
             stopSelf()
         }
         super.onTaskRemoved(rootIntent)
