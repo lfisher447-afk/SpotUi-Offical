@@ -53,11 +53,11 @@ private data class PatchNoteItem(
 
 private val v25IssuesFixed = listOf(
     PatchNoteItem(
-        title = "Sequential Downloads & Unpooled HTTP Bottlenecks (v1.5.2)",
+        title = "Sequential Downloads & Unpooled HTTP Bottlenecks (v2.5.2)",
         detail = "Replaced single-thread HttpURLConnection transfers and low-concurrency pools with MrBean's pooled HTTP/2 + 206 multi-range downloader, parallel DASH-FLAC segment batches, and non-blocking metadata prefetch.",
     ),
     PatchNoteItem(
-        title = "3D Spatial Comb-Filtering & Head-Stage Flatness (v1.5.2)",
+        title = "3D Spatial Comb-Filtering & Head-Stage Flatness (v2.5.2)",
         detail = "Replaced single-delay Haas widening with a 3-stage cascaded Schroeder all-pass decorrelator tank, sub-120 Hz mono-bass anchor, Woodworth spherical-head HRTF, and automatic correlation guard.",
     ),
     PatchNoteItem(
@@ -100,15 +100,15 @@ private val v25IssuesFixed = listOf(
 
 private val v25Improvements = listOf(
     PatchNoteItem(
-        title = "Eclipse MrBean Turbo Downloader (1–10 Concurrent Tracks) (v1.5.2)",
+        title = "Eclipse MrBean Turbo Downloader (1–10 Concurrent Tracks) (v2.5.2)",
         detail = "Configure 1–10 simultaneous song downloads live from Downloads or Settings, paired with up to 6 parallel HTTP 206 FileChannel range workers per track, HTTP/2 multiplexing, TTL DNS caching, and live MB/s telemetry.",
     ),
     PatchNoteItem(
-        title = "3D Spatial Soundstage v2 + 8D Binaural Orbit (v1.5.2)",
+        title = "3D Spatial Soundstage v2 + 8D Binaural Orbit (v2.5.2)",
         detail = "Added cascaded Schroeder all-pass room acoustics, Woodworth HRTF + Pinna elevation cues, optional 8D Binaural Orbit LFO (0.10–1.50 Hz), phase correlation protection, and Android 13–17 Spatializer telemetry.",
     ),
     PatchNoteItem(
-        title = "Native Android PackageInstaller Auto-Updater (v1.5.2)",
+        title = "Native Android PackageInstaller Auto-Updater (v2.5.2)",
         detail = "Downloads GitHub Release APKs via HTTP/2 multi-range slices with live MB/s & ETA telemetry, verifies PK header + SHA-256 checksums, and installs in-place through Android's native PackageInstaller Session API with live progress & status callbacks.",
     ),
     PatchNoteItem(
@@ -143,7 +143,7 @@ private val v25Improvements = listOf(
 
 /**
  * First-login / post-update "What's New & Patch Notes" UI modal displaying explicit root-cause
- * fixes and feature improvements for SpotUI v1.5.2.
+ * fixes and feature improvements for SpotUI v2.5.2.
  */
 @Composable
 fun PatchNotesDialog(

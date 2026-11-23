@@ -11,7 +11,7 @@ import java.util.concurrent.TimeUnit
 data class AudioFeatures(val bpm: Int, val key: String, val valence: Float, val energy: Float, val loudness: Float)
 
 /**
- * Version 1.5.2 - AudioFeaturesClient
+ * Version 2.5.2 - AudioFeaturesClient
  * Pooled HTTP/2 API fetcher parsing track acoustic attributes from Spotify Audio Features endpoint.
  */
 object AudioFeaturesClient {

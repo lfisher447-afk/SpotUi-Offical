@@ -1,6 +1,6 @@
 <div align="center">
 
-# SpotUI Android — v1.5.2 (`202611232`)
+# SpotUI Android — v2.5.2 (`202611232`)
 
 ### Expressive Jetpack Compose Audio Workstation for Android 8 – 17 & Samsung One UI 9.0
 
@@ -16,7 +16,7 @@
 
 **SpotUI (`com.music.spotui`) is an all-in-one Kotlin & Jetpack Compose Android audio player powered by Media3 `1.11.0`, the Eclipse MrBean HTTP/2 multi-range download engine (`1–10` concurrent songs), a next-generation 3D Binaural Soundstage & 8D Orbit DSP, a native `android.content.pm.PackageInstaller` in-app auto-updater, a Samsung One UI 9.0 Accessibility floating mini-player for full-screen games, 10 configurable `modules/app/libs` submodules, multi-MB/s NovaAc v8 AEAD archives, and deep Bluetooth/component diagnostics.**
 
-[User Guide & Highlights](#-user-guide--key-features) · [What's New in v1.5.2](#-whats-new-in-v152-202611232) · [Complete Library & SDK Inventory](#-complete-library--sdk-inventory) · [App Modules & Submodules](#-modulesapplibs--10-integrated-submodules) · [Architecture](#-project-architecture--module-map) · [Build & CI](#-build--release-workflows) · [Permissions](#-permissions-overview) · [Version History](#-version-history)
+[User Guide & Highlights](#-user-guide--key-features) · [What's New in v2.5.2](#-whats-new-in-v252-202611232) · [Complete Library & SDK Inventory](#-complete-library--sdk-inventory) · [App Modules & Submodules](#-modulesapplibs--10-integrated-submodules) · [Architecture](#-project-architecture--module-map) · [Build & CI](#-build--release-workflows) · [Permissions](#-permissions-overview) · [Version History](#-version-history)
 
 </div>
 
@@ -27,7 +27,7 @@
 | Item | Current Value |
 | :--- | :--- |
 | **Application ID** | `com.music.spotui` (`com.music.spotui.debug` for debug builds) |
-| **Version Name** | `1.5.2` |
+| **Version Name** | `2.5.2` |
 | **Build Version Code** | `202611232` |
 | **SDK Range** | `minSdk 26` (Android 8.0) · `compileSdk / targetSdk 36` · Tested & hardened for **Android 17 (API 37) / One UI 9.0** |
 | **Toolchain** | Java `21` · Kotlin `2.2.0` · AGP `8.13.2` · KSP `2.2.0-2.0.2` · Hilt `2.57.1` · Compose BOM `2024.12.01` |
@@ -77,7 +77,7 @@
 
 ---
 
-## What's New in v1.5.2 (`202611232`)
+## What's New in v2.5.2 (`202611232`)
 
 1. **Eclipse MrBean Turbo Network Engine (`1–10` Concurrent Song Downloads)**:
    - Shared HTTP/2 warm `ConnectionPool` (`24` sockets / `5m` keep-alive) and raised `Dispatcher` (`maxRequests = 96`, `maxRequestsPerHost = 24`) with a **5-minute TTL DNS cache**.
@@ -226,9 +226,9 @@ SpotUi-Offical/
 ## Build & Release Workflows
 
 ### Option A — Automated GitHub Actions (`.github/workflows/release-apk.yml`)
-1. Push a commit to `main`/`master`, push a tag matching `v*` (e.g., `git tag v1.5.2 && git push origin v1.5.2`), or manually trigger **Actions -> Build & Publish Release APK -> Run workflow**.
+1. Push a commit to `main`/`master`, push a tag matching `v*` (e.g., `git tag v2.5.2 && git push origin v2.5.2`), or manually trigger **Actions -> Build & Publish Release APK -> Run workflow**.
 2. **Default Fast Builds (`skip_tests: true` by default)**: Tag/branch builds and default manual dispatches skip unit tests so release APKs build quickly and reliably. To run `:spotify:test`, `:innertube:testDebugUnitTest`, and `:app:testDebugUnitTest`, trigger **Run workflow** manually and **uncheck** `Skip unit tests`.
-3. CI builds `:app:assembleRelease`, verifies signatures with `apksigner`, generates a `.sha256` checksum, uploads build artifacts, and (on `v*` tags or `workflow_dispatch`) publishes **`SpotUI-v1.5.2-release.apk`** + **`.sha256`** to **GitHub Releases**.
+3. CI builds `:app:assembleRelease`, verifies signatures with `apksigner`, generates a `.sha256` checksum, uploads build artifacts, and (on `v*` tags or `workflow_dispatch`) publishes **`SpotUI-v2.5.2-release.apk`** + **`.sha256`** to **GitHub Releases**.
 
 ### Option B — Local Release Script (`tools/build-release-apk.sh`) or Gradle
 Requires **JDK 21** and **Android SDK Platform 36**:
@@ -245,7 +245,7 @@ Or compile directly with Gradle:
 gradle :app:assembleRelease
 ```
 
-Outputs `dist/SpotUI-v1.5.2-release.apk` and `dist/SpotUI-v1.5.2-release.apk.sha256`.
+Outputs `dist/SpotUI-v2.5.2-release.apk` and `dist/SpotUI-v2.5.2-release.apk.sha256`.
 
 > **Signing Notice:** The checked-in `sharedDebug` signing config enables seamless in-place sideload & `PackageInstaller` upgrades across builds (`app/build.gradle.kts`). Always substitute a private release keystore before public store distribution, and never commit account cookies, ARLs, OAuth secrets, or private keys.
 
@@ -266,7 +266,7 @@ SpotUI adheres to least-privilege and Google Play Creator Program compliant Andr
 
 | Version | Code | Highlights |
 | :--- | :--- | :--- |
-| **v1.5.2** | `202611232` | **MrBean Turbo 1–10 Multi-Range Downloader, 3D Spatial Soundstage v2 & Native PackageInstaller Updater**: Rebuilt Eclipse MrBean networking with HTTP/2 multiplexing (`ConnectionPool` 24 / `Dispatcher` 96), 5-min TTL DNS cache, `1–6` parallel HTTP `206` `FileChannel` byte-range slices, `64–512 KB` buffer selection, async cover/lyrics prefetch, live MB/s telemetry, hot-scalable `1–10` concurrent song downloads, and 6x parallel SpotiFlac DASH-FLAC segments; unified HTTP/2 & CIO endpoint pooling across all submodules and app HTTP helpers; upgraded the in-app auto-updater to MrBean multi-range transfers + Android's native `PackageInstaller` Session API (`UpdateInstallReceiver` + progress/status callbacks); rebuilt 3D Spatial Audio with cascaded Schroeder all-pass decorrelation, sub-120 Hz mono-bass anchor, Woodworth spherical-head HRTF + Pinna elevation filter, 8D Binaural Orbit LFO, Correlation Guard & Android 13–17 Spatializer telemetry; hardened `MediaAccessibilityService` for Android 17 & One UI 9.0. |
+| **v2.5.2** | `202611232` | **MrBean Turbo 1–10 Multi-Range Downloader, 3D Spatial Soundstage v2 & Native PackageInstaller Updater**: Rebuilt Eclipse MrBean networking with HTTP/2 multiplexing (`ConnectionPool` 24 / `Dispatcher` 96), 5-min TTL DNS cache, `1–6` parallel HTTP `206` `FileChannel` byte-range slices, `64–512 KB` buffer selection, async cover/lyrics prefetch, live MB/s telemetry, hot-scalable `1–10` concurrent song downloads, and 6x parallel SpotiFlac DASH-FLAC segments; unified HTTP/2 & CIO endpoint pooling across all submodules and app HTTP helpers; upgraded the in-app auto-updater to MrBean multi-range transfers + Android's native `PackageInstaller` Session API (`UpdateInstallReceiver` + progress/status callbacks); rebuilt 3D Spatial Audio with cascaded Schroeder all-pass decorrelation, sub-120 Hz mono-bass anchor, Woodworth spherical-head HRTF + Pinna elevation filter, 8D Binaural Orbit LFO, Correlation Guard & Android 13–17 Spatializer telemetry; hardened `MediaAccessibilityService` for Android 17 & One UI 9.0. |
 | **v2.5.1** | `202611221` | **In-App Auto-Update Downloader, Spotify HTTP 402/400 Hardening & BT SCO/A2DP Fix**: Initial direct in-app release downloader + SHA-256 verification, dual-profile Bluetooth A2DP vs HFP/SCO fix, clean Spotify WebView login URL & HTTP 402/400 Auto-Recover, TOTP caching + raw Gist mirror fallback, and `#session` token seeding. |
 | **v2.5.0** | `202611220` | **Expressive Suite, Multi-MB/s NovaAc & 10-Module Integration**: Added `NewPlayerLayout` (`v2.5`) + Legacy UI toggle; procedural PCM Tactile UI Sound Engine; first-login & post-update Patch Notes modal; auto-location Live Home Clock card; all 10 `modules/app/libs` submodules wired in Advanced Settings; DevConsole `BT & Faults` + 20-point Health check; Search screen quick Add-to-Playlist fix; NovaAc Fast Mode 4 MiB / 2 MiB AEAD zero-deflate multi-MB/s overhaul. |
 | **v2.4.0** | `202611210` | **Pro Audio DSP, Non-OS In-App Volume & Native YouTube Sync**: Fixed offline downloaded playback (`SimpleCache` bypass + CBR seek + Verify & Repair), independent `0–100%` In-App Volume slider, 16/24/32-bit/Float PCM Spatial + EQ processors, broadcast-only Exit Mini-Notification, and paginated native YouTube Music playlists/Liked Music/albums sync. |
