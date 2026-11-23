@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,6 +32,15 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Extension
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.PictureInPictureAlt
+import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.Tune
 import com.music.spotui.data.preferences.BackupPref
 import com.music.spotui.data.preferences.LosslessTimeout
 import com.music.spotui.data.preferences.getCellularLosslessTimeout
@@ -47,8 +57,10 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -73,8 +85,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
@@ -179,10 +195,34 @@ import com.music.spotui.data.preferences.setFloaterHapticsEnabled
 import com.music.spotui.data.preferences.setFloaterStartExpanded
 import com.music.spotui.util.AppDiagnostics
 
+private enum class SettingsSideTab(
+    val shortLabel: String,
+    val title: String,
+    val subtitle: String,
+    val badge: String,
+    val icon: ImageVector,
+) {
+    STYLE("Style", "Expressive Style & UI", "Themes, SongPlay shapes, tactile chimes & AI", "M3E", Icons.Rounded.Palette),
+    AUDIO("Audio", "3D Studio & Quality", "7-Band EQ, 3D Spatial Orbit, Lossless & Crossfade", "3D", Icons.Rounded.GraphicEq),
+    FLOATER("Floater", "Accessibility Floater", "In-app volume, corner resize, haptics & EQ/3D hook", "A11Y", Icons.Rounded.PictureInPictureAlt),
+    MODULES("Modules", "16 Library Modules", "Toggle & verify Spotify, InnerTube, Lyrics & Shazam", "16", Icons.Rounded.Extension),
+    TURBO("Turbo", "MrBean & Storage", "8x HTTP/2 slices, connection pool & NovaAc cache", "8x", Icons.Rounded.Bolt),
+    NETWORK("Network", "DNS, Auth & Sync", "DoH resolver, PoToken, proxy pool & YTM sync", "DoH", Icons.Rounded.Public),
+    SYSTEM("System", "System, Updates & Account", "Permissions, battery guard, v2.5.3 updater & backup", "OS", Icons.Rounded.Tune),
+    LOGS("Logs", "Logger & Telemetry", "2000-entry 8-channel developer diagnostics console", "LOG", Icons.Rounded.Terminal),
+    ALL("All", "All SpotUI Settings", "Full scrollable configuration dashboard", "ALL", Icons.Rounded.Apps),
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(navController: NavController) {
     val context = LocalContext.current
+
+    var activeSideTab by rememberSaveable { mutableStateOf(SettingsSideTab.STYLE) }
+    val rightPaneScrollState = rememberScrollState()
+    val railScrollState = rememberScrollState()
+    fun showTab(vararg tabs: SettingsSideTab): Boolean =
+        activeSideTab == SettingsSideTab.ALL || activeSideTab in tabs
 
     var advancedSettingsEnabled by remember { mutableStateOf(isAdvancedSettingsEnabled(context)) }
     var wifiQ by remember { mutableStateOf(getWifiQuality(context)) }
@@ -365,6 +405,35 @@ fun SettingsScreen(navController: NavController) {
     var uiAndStyleExpanded by rememberSaveable { mutableStateOf(true) }
     var moduleLibsExpanded by rememberSaveable { mutableStateOf(true) }
 
+    LaunchedEffect(activeSideTab) {
+        rightPaneScrollState.scrollTo(0)
+        when (activeSideTab) {
+            SettingsSideTab.STYLE -> {
+                uiAndStyleExpanded = true
+                interfaceSectionExpanded = true
+                themeSectionExpanded = true
+            }
+            SettingsSideTab.AUDIO -> audioSectionExpanded = true
+            SettingsSideTab.FLOATER -> {
+                oneUiSectionExpanded = true
+                accessibilitySectionExpanded = true
+            }
+            SettingsSideTab.MODULES -> moduleLibsExpanded = true
+            SettingsSideTab.TURBO -> {
+                mrbeanSectionExpanded = true
+                novaAcMrbeanSectionExpanded = true
+                storageSectionExpanded = true
+            }
+            SettingsSideTab.NETWORK -> {
+                networkSessionSectionExpanded = true
+                explicitSectionExpanded = true
+            }
+            SettingsSideTab.SYSTEM -> permissionsSectionExpanded = true
+            SettingsSideTab.LOGS -> diagnosticsSectionExpanded = true
+            SettingsSideTab.ALL -> Unit
+        }
+    }
+
     fun refreshCacheSummary() {
         val summary = CacheStorageManager.summarize(context)
         cacheSizeStr = summary.displaySize
@@ -535,54 +604,195 @@ fun SettingsScreen(navController: NavController) {
         containerColor = AppBackground,
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("Settings", color = Color.White, fontWeight = FontWeight.Bold) },
+                title = {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("SpotUI Studio Settings", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+                        Text("v2.5.3 · ${activeSideTab.title}", color = AppPalette, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                },
                 navigationIcon = {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = Color.White,
-                        modifier = Modifier
-                            .padding(start = 8.dp)
-                            .size(26.dp)
-                            .clickable { navController.popBackStack() }
-                    )
+                    IconButton(
+                        onClick = { navController.popBackStack() },
+                        modifier = Modifier.testTag("settings_back_button"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White,
+                        )
+                    }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = AppBackground)
             )
         }
     ) { padding ->
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = padding.calculateTopPadding())
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                // Clear the bottom nav + mini player so the last section
-                // (account / log out) isn't hidden under the bar.
-                .padding(bottom = 200.dp)
+                .padding(top = padding.calculateTopPadding()),
         ) {
-            if (oneUiHeader) {
+            // Material 3 Expressive Vertical Side-Tab Rail Switcher
+            Column(
+                modifier = Modifier
+                    .width(78.dp)
+                    .fillMaxHeight()
+                    .background(Color(0xFF0C0F16))
+                    .verticalScroll(railScrollState)
+                    .padding(horizontal = 6.dp, vertical = 10.dp)
+                    .padding(bottom = 140.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                SettingsSideTab.entries.forEach { tab ->
+                    val selected = activeSideTab == tab
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(
+                                if (selected) {
+                                    Brush.verticalGradient(
+                                        listOf(
+                                            AppPalette.copy(alpha = 0.28f),
+                                            AppPalette.copy(alpha = 0.12f),
+                                        )
+                                    )
+                                } else {
+                                    Brush.verticalGradient(
+                                        listOf(Color(0xFF141824), Color(0xFF11141E))
+                                    )
+                                }
+                            )
+                            .border(
+                                width = if (selected) 1.5.dp else 1.dp,
+                                color = if (selected) AppPalette.copy(alpha = 0.78f) else Color(0xFF202636),
+                                shape = RoundedCornerShape(18.dp),
+                            )
+                            .clickable {
+                                UiSoundEngine.playTapChime(context)
+                                activeSideTab = tab
+                            }
+                            .testTag("settings_side_tab_${tab.name.lowercase()}")
+                            .padding(vertical = 10.dp, horizontal = 4.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (selected) AppPalette else Color(0xFF1C2232))
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                        ) {
+                            Text(
+                                text = tab.badge,
+                                color = if (selected) Color.Black else Color(0xFF8C97AD),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                            )
+                        }
+                        Icon(
+                            imageVector = tab.icon,
+                            contentDescription = tab.title,
+                            tint = if (selected) AppPalette else Color(0xFFB5BECE),
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Text(
+                            text = tab.shortLabel,
+                            color = if (selected) Color.White else Color(0xFF9EA8BA),
+                            fontSize = 10.sp,
+                            fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+            }
+
+            VerticalDivider(
+                modifier = Modifier.fillMaxHeight(),
+                thickness = 1.dp,
+                color = Color(0xFF1E2433),
+            )
+
+            // Material 3 Expressive Side-Tab Detail Content Pane
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .verticalScroll(rightPaneScrollState)
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                    // Clear bottom navigation + mini player
+                    .padding(bottom = 200.dp),
+            ) {
+                // Expressive Category Hero Card
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(
+                            Brush.linearGradient(
+                                listOf(
+                                    AppPalette.copy(alpha = 0.22f),
+                                    Color(0xFF181C29),
+                                    Color(0xFF11141E),
+                                )
+                            )
+                        )
+                        .border(1.dp, AppPalette.copy(alpha = 0.42f), RoundedCornerShape(24.dp))
+                        .padding(16.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(AppPalette.copy(alpha = 0.20f))
+                                .border(1.dp, AppPalette.copy(alpha = 0.5f), RoundedCornerShape(16.dp)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = activeSideTab.icon,
+                                contentDescription = null,
+                                tint = AppPalette,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = activeSideTab.title,
+                                color = Color.White,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                            )
+                            Text(
+                                text = activeSideTab.subtitle,
+                                color = Color(0xFFB7C0D1),
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+
+                if (oneUiHeader && showTab(SettingsSideTab.STYLE)) {
                 // One UI signature expanded header
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 14.dp, horizontal = 4.dp),
+                        .padding(vertical = 8.dp, horizontal = 2.dp),
                 ) {
                     Text(
-                        text = "Settings",
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
-                        letterSpacing = (-0.5).sp,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = "Spotui • Android 16 & One UI Edition",
-                        fontSize = 14.sp,
+                        text = "Spotui • Android 16 & M3 Expressive",
+                        fontSize = 13.sp,
                         color = AppPalette,
-                        fontWeight = FontWeight.Medium,
+                        fontWeight = FontWeight.Bold,
                     )
-                    Spacer(Modifier.height(14.dp))
+                    Spacer(Modifier.height(10.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -680,17 +890,18 @@ fun SettingsScreen(navController: NavController) {
                 Spacer(Modifier.height(8.dp))
             }
 
+            if (activeSideTab == SettingsSideTab.ALL) {
             // Master Advanced Settings Toggle Card
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 64.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(18.dp))
                     .background(if (advancedSettingsEnabled) Color(0xFF1A2520) else Color(0xFF1A1A20))
                     .border(
                         width = 1.dp,
                         color = if (advancedSettingsEnabled) AppPalette.copy(alpha = 0.6f) else Color(0xFF2D2E38),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(18.dp),
                     )
                     .clickable {
                         val next = !advancedSettingsEnabled
@@ -728,9 +939,9 @@ fun SettingsScreen(navController: NavController) {
                     Spacer(Modifier.height(2.dp))
                     Text(
                         text = if (advancedSettingsEnabled) {
-                            "Showing SongPlay v2.5 Style, UI Sounds, All 10 Library Modules, Studio DSP, Lossless, Network/DoH & NovaAc"
+                            "Showing SpotUI v2.5.3 Style, UI Sounds, All 16 Library Modules, 3D DSP, Lossless, Network/DoH & NovaAc"
                         } else {
-                            "Tap to unlock SongPlay UI Toggle, Tactile Sounds, 10 Library Modules, 7-Band EQ & Health Scanner"
+                            "Tap to unlock SongPlay UI Toggle, Tactile Sounds, 16 Library Modules, 7-Band EQ & 3D Studio"
                         },
                         color = Color(0xFFB3B3B3),
                         fontSize = 12.sp,
@@ -755,14 +966,16 @@ fun SettingsScreen(navController: NavController) {
             }
 
             Spacer(Modifier.height(14.dp))
+            }
 
             AnimatedVisibility(
-                visible = advancedSettingsEnabled,
+                visible = advancedSettingsEnabled || activeSideTab != SettingsSideTab.ALL,
                 enter = expandVertically(),
                 exit = shrinkVertically(),
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
-            SectionTitle("Experience, Style & Library Modules")
+            if (showTab(SettingsSideTab.STYLE)) {
+            SectionTitle("Experience & Style")
             CollapsibleSettingsSection(
                 title = "SongPlay UI, Live Clock & Tactile Sounds",
                 subtitle = "Switch New Expressive / Legacy Classic UI, tab/toggle/slider audio, and patch notes",
@@ -775,10 +988,13 @@ fun SettingsScreen(navController: NavController) {
             }
 
             Spacer(Modifier.height(16.dp))
+            }
 
+            if (showTab(SettingsSideTab.MODULES)) {
+            SectionTitle("SpotUI 16 Library Submodules")
             CollapsibleSettingsSection(
-                title = "Library Submodules (modules/app/libs)",
-                subtitle = "Configure Spotify, InnerTube, LRCLIB, BetterLyrics, KuGou, SimpMusic, Paxsenix, Last.fm, ShazamKit & Fastlane",
+                title = "Library Submodules (16 Modules)",
+                subtitle = "Configure Spotify, InnerTube, LRCLIB, BetterLyrics, KuGou, SimpMusic, Paxsenix, Last.fm, ShazamKit, Fastlane, MrBean & Studio DSP",
                 expanded = moduleLibsExpanded,
                 onExpandedChange = { moduleLibsExpanded = it },
             ) {
@@ -786,7 +1002,9 @@ fun SettingsScreen(navController: NavController) {
             }
 
             Spacer(Modifier.height(16.dp))
-            SectionTitle("System, Protection & Studio Audio")
+            }
+            if (showTab(SettingsSideTab.STYLE, SettingsSideTab.FLOATER)) {
+            SectionTitle("System, One UI & Accessibility Floater")
             CollapsibleSettingsSection(
                 title = "One UI & Android 16 System Integration",
                 subtitle = "Predictive back gestures, squircle geometry, edge-to-edge, and battery guard",
@@ -1150,9 +1368,10 @@ fun SettingsScreen(navController: NavController) {
                                 TextButton(
                                     onClick = {
                                         audioSectionExpanded = true
+                                        activeSideTab = SettingsSideTab.AUDIO
                                         android.widget.Toast.makeText(
                                             context,
-                                            "Expanded Studio EQ & 3D section below",
+                                            "Switched to Studio EQ & 3D tab",
                                             android.widget.Toast.LENGTH_SHORT,
                                         ).show()
                                     },
@@ -1170,7 +1389,9 @@ fun SettingsScreen(navController: NavController) {
             }
 
             Spacer(Modifier.height(16.dp))
+            }
 
+            if (showTab(SettingsSideTab.NETWORK)) {
             CollapsibleSettingsSection(
                 title = "Explicit Content & Playback Protection",
                 subtitle = "Manage explicit music, 'E' badges, and YouTube age-verification bypass",
@@ -1290,7 +1511,9 @@ fun SettingsScreen(navController: NavController) {
             }
 
             Spacer(Modifier.height(16.dp))
+            }
 
+            if (showTab(SettingsSideTab.AUDIO)) {
             CollapsibleSettingsSection(
                 title = "Studio Audio FX, 7-Band EQ & 3D Spatial",
                 subtitle = "Parametric Biquad EQ, Preamp, Limiter, Normalizer, and Binaural Soundstage",
@@ -1301,7 +1524,9 @@ fun SettingsScreen(navController: NavController) {
             }
 
             Spacer(Modifier.height(16.dp))
+            }
 
+            if (showTab(SettingsSideTab.NETWORK)) {
             CollapsibleSettingsSection(
                 title = "Network, DNS & InnerTube Session",
                 subtitle = "DnsOverHttps, proxy rotation, PoToken, and playback auth telemetry",
@@ -1533,7 +1758,9 @@ fun SettingsScreen(navController: NavController) {
             }
 
             Spacer(Modifier.height(16.dp))
+            }
 
+            if (showTab(SettingsSideTab.SYSTEM)) {
             CollapsibleSettingsSection(
                 title = "App Permissions & System Access",
                 subtitle = "Runtime permissions for notifications, local audio, Bluetooth, and battery",
@@ -1655,7 +1882,9 @@ fun SettingsScreen(navController: NavController) {
             }
 
             Spacer(Modifier.height(16.dp))
+            }
 
+            if (showTab(SettingsSideTab.TURBO)) {
             CollapsibleSettingsSection(
                 title = "Eclipse MrBean Network Engine",
                 subtitle = "Turbo 1–10 concurrent downloads, parallel HTTP/2 range slices & pooling",
@@ -2099,10 +2328,12 @@ fun SettingsScreen(navController: NavController) {
             }
 
             Spacer(Modifier.height(16.dp))
+            }
 
+            if (showTab(SettingsSideTab.LOGS)) {
             CollapsibleSettingsSection(
-                title = "Diagnostics",
-                subtitle = "Launch, warning, error, and playback diagnostic records",
+                title = "Diagnostics & Telemetry Hub",
+                subtitle = "Launch, warning, error, Floater, DSP, Network & Auth records (2000-entry buffer)",
                 expanded = diagnosticsSectionExpanded,
                 onExpandedChange = { diagnosticsSectionExpanded = it },
             ) {
@@ -2117,15 +2348,17 @@ fun SettingsScreen(navController: NavController) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Open diagnostic console", color = Color.White, fontWeight = FontWeight.SemiBold)
-                        Text("Persistent app-private logs are active for this launch", color = Color(0xFFB3B3B3), fontSize = 12.sp)
+                        Text("Open Full Developer Logger Console", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text("Inspect 8 categorized channels, export session JSON & run live probes", color = Color(0xFFB3B3B3), fontSize = 12.sp)
                     }
                     Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Open diagnostic console", tint = AppPalette)
                 }
             }
 
             Spacer(Modifier.height(16.dp))
+            }
 
+            if (showTab(SettingsSideTab.STYLE)) {
             CollapsibleSettingsSection(
                 title = "Interface & Navigation",
                 subtitle = "Choose navigation placement, UI density, and surface shape",
@@ -2275,7 +2508,9 @@ fun SettingsScreen(navController: NavController) {
             }
 
             Spacer(Modifier.height(16.dp))
+            }
 
+            if (showTab(SettingsSideTab.FLOATER)) {
             CollapsibleSettingsSection(
                 title = "Accessibility",
                 subtitle = "Visual readability, motion comfort, touch targets, and audio access",
@@ -2334,6 +2569,9 @@ fun SettingsScreen(navController: NavController) {
             }
 
             Spacer(Modifier.height(16.dp))
+            }
+
+            if (showTab(SettingsSideTab.SYSTEM)) {
             SectionTitle("Background playback")
             Row(
                 modifier = Modifier
@@ -2383,6 +2621,9 @@ fun SettingsScreen(navController: NavController) {
                 )
             }
 
+            }
+
+            if (showTab(SettingsSideTab.NETWORK)) {
             Spacer(Modifier.height(12.dp))
             SectionTitle("Link handling")
             Row(
@@ -2596,9 +2837,11 @@ fun SettingsScreen(navController: NavController) {
                 preloadNextStream = it
                 setPreloadEnabled(context, it)
             }
+            }
                 }
             }
 
+            if (showTab(SettingsSideTab.AUDIO)) {
             Spacer(Modifier.height(12.dp))
             SectionTitle("Audio quality")
             QualityPicker(
@@ -2645,13 +2888,15 @@ fun SettingsScreen(navController: NavController) {
                 losslessTimeout = dlLosslessTimeout,
                 onSelectTimeout = { dlLosslessTimeout = it; setDownloadLosslessTimeout(context, it) },
             ) { dlQ = it; setDownloadQuality(context, it) }
+            }
 
             AnimatedVisibility(
-                visible = advancedSettingsEnabled,
+                visible = advancedSettingsEnabled || activeSideTab != SettingsSideTab.ALL,
                 enter = expandVertically(),
                 exit = shrinkVertically(),
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
+            if (showTab(SettingsSideTab.AUDIO)) {
             Spacer(Modifier.height(8.dp))
             LosslessProviderSection(
                 onOpenProviderStatusDialog = {
@@ -2758,16 +3003,20 @@ fun SettingsScreen(navController: NavController) {
                     Text("Reset Speed & Pitch to 1.00x", color = AppPalette, fontWeight = FontWeight.Bold)
                 }
             }
+            }
 
+            if (showTab(SettingsSideTab.AUDIO, SettingsSideTab.LOGS)) {
             Spacer(Modifier.height(10.dp))
             PlaybackAndToolsSection(
                 onOpenDeveloperConsole = {
                     navController.navigate(com.music.spotui.ui.navigation.Routes.DeveloperConsole.route)
                 },
             )
+            }
                 }
             }
 
+            if (showTab(SettingsSideTab.SYSTEM)) {
             Spacer(Modifier.height(12.dp))
             SectionTitle("Background Notifications")
             SettingsSwitchRow(
@@ -2781,7 +3030,9 @@ fun SettingsScreen(navController: NavController) {
                     com.music.spotui.engine.MediaNotificationAdapter.dismissExitMiniNotification(context)
                 }
             }
+            }
 
+            if (showTab(SettingsSideTab.AUDIO)) {
             Spacer(Modifier.height(12.dp))
             SectionTitle("Crossfade")
             Row(
@@ -2821,6 +3072,8 @@ fun SettingsScreen(navController: NavController) {
                 gaplessPlayback = it
                 setGaplessPlaybackEnabled(context, it)
             }
+            }
+            if (showTab(SettingsSideTab.SYSTEM)) {
             Spacer(Modifier.height(12.dp))
             SectionTitle("Updates")
             Text(
@@ -3269,7 +3522,7 @@ fun SettingsScreen(navController: NavController) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Roadmap & Update Master Plan", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
-                    Text("View complete release history and version changelogs (including v2.5.2)", color = Color(0xFFB3B3B3), fontSize = 12.sp)
+                    Text("View complete release history and version changelogs (including v2.5.3)", color = Color(0xFFB3B3B3), fontSize = 12.sp)
                 }
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.OpenInNew,
@@ -3278,12 +3531,14 @@ fun SettingsScreen(navController: NavController) {
                     modifier = Modifier.size(20.dp)
                 )
             }
+            }
             AnimatedVisibility(
-                visible = advancedSettingsEnabled,
+                visible = advancedSettingsEnabled || activeSideTab != SettingsSideTab.ALL,
                 enter = expandVertically(),
                 exit = shrinkVertically(),
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
+            if (showTab(SettingsSideTab.SYSTEM)) {
             Spacer(Modifier.height(12.dp))
             SectionTitle("Backup & Restore")
 
@@ -3415,6 +3670,9 @@ fun SettingsScreen(navController: NavController) {
                 }
             }
 
+            }
+
+            if (showTab(SettingsSideTab.STYLE)) {
             Spacer(Modifier.height(12.dp))
             SectionTitle("AI & Music Insights")
             SettingsSwitchRow(
@@ -3472,6 +3730,9 @@ fun SettingsScreen(navController: NavController) {
                 }
             }
 
+            }
+
+            if (showTab(SettingsSideTab.LOGS)) {
             Spacer(Modifier.height(12.dp))
             SectionTitle("Developer Options & Diagnostics")
             Row(
@@ -3506,9 +3767,11 @@ fun SettingsScreen(navController: NavController) {
                     modifier = Modifier.size(20.dp)
                 )
             }
+            }
                 }
             }
 
+            if (showTab(SettingsSideTab.SYSTEM)) {
             Spacer(Modifier.height(12.dp))
             SectionTitle("Account")
             val isSpotifyLoggedIn = remember(com.music.spotui.data.api.SpotifySession.spDc(context)) {
@@ -3531,7 +3794,9 @@ fun SettingsScreen(navController: NavController) {
                     }
                     .padding(vertical = 14.dp)
             )
+            }
             Spacer(Modifier.height(40.dp))
+            }
         }
 
         if (showPatchNotesModal) {
@@ -3652,8 +3917,17 @@ private fun CollapsibleSettingsSection(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color(0xFF15151A)),
+            .clip(RoundedCornerShape(22.dp))
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xFF191D29), Color(0xFF131620))
+                )
+            )
+            .border(
+                width = 1.dp,
+                color = if (expanded) AppPalette.copy(alpha = 0.55f) else Color(0xFF272D3E),
+                shape = RoundedCornerShape(22.dp),
+            ),
     ) {
         Row(
             modifier = Modifier
@@ -3666,22 +3940,31 @@ private fun CollapsibleSettingsSection(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Text(subtitle, color = Color(0xFFB3B3B3), fontSize = 12.sp)
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                Text(subtitle, color = Color(0xFFB3BAC8), fontSize = 11.sp, lineHeight = 15.sp)
             }
-            Icon(
-                imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                contentDescription = if (expanded) "Collapse $title" else "Expand $title",
-                tint = AppPalette,
-            )
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(if (expanded) AppPalette.copy(alpha = 0.18f) else Color(0xFF212636)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Collapse $title" else "Expand $title",
+                    tint = AppPalette,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         }
         AnimatedVisibility(
             visible = expanded,
             enter = if (reduceMotion) androidx.compose.animation.EnterTransition.None else expandVertically(),
             exit = if (reduceMotion) androidx.compose.animation.ExitTransition.None else shrinkVertically(),
         ) {
-            Column(modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp)) {
+            Column(modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp)) {
                 content()
             }
         }
@@ -3690,13 +3973,26 @@ private fun CollapsibleSettingsSection(
 
 @Composable
 private fun SectionTitle(text: String) {
-    Text(
-        text = text,
-        color = AppPalette,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
-    )
+    Row(
+        modifier = Modifier.padding(top = 14.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .width(4.dp)
+                .height(14.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(AppPalette),
+        )
+        Text(
+            text = text,
+            color = AppPalette,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 0.4.sp,
+        )
+    }
 }
 
 @Composable

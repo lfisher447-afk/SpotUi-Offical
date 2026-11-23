@@ -290,22 +290,32 @@ private fun HomeHeaderRow(navController: NavController) {
                 val isSel = label == selected
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(if (isSel) Color(0xFF1ED760) else Color.White.copy(alpha = 0.08f))
-                        .border(1.dp, if (isSel) Color.Transparent else Color.White.copy(alpha = 0.12f), RoundedCornerShape(50))
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(
+                            if (isSel) Brush.horizontalGradient(
+                                listOf(Color(0xFF25E36C), Color(0xFF17B853))
+                            ) else Brush.horizontalGradient(
+                                listOf(Color(0xFF1A1F2D), Color(0xFF161A26))
+                            )
+                        )
+                        .border(
+                            1.dp,
+                            if (isSel) Color.Transparent else Color.White.copy(alpha = 0.14f),
+                            RoundedCornerShape(18.dp),
+                        )
                         .clickable {
                             selected = label
                             if (label == "Podcasts" || label == "Audiobooks") {
                                 navController.navigate(Routes.Search.route)
                             }
                         }
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                        .padding(horizontal = 15.dp, vertical = 7.dp),
                 ) {
                     Text(
                         text = label,
-                        color = if (isSel) Color.Black else Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
+                        color = if (isSel) Color(0xFF06130B) else Color.White,
+                        fontSize = 13.5.sp,
+                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.SemiBold,
                     )
                 }
             }
@@ -318,8 +328,8 @@ private fun HomeHeaderRow(navController: NavController) {
 private fun HomeShortcutGrid(navController: NavController, items: List<HomeItem>) {
     val cellGradient = Brush.horizontalGradient(
         colors = listOf(
-            Color(0xFF25252D),
-            Color(0xFF181820)
+            Color(0xFF1E2333),
+            Color(0xFF151924)
         )
     )
     Column(modifier = Modifier.padding(8.dp, 4.dp)) {
@@ -331,21 +341,24 @@ private fun HomeShortcutGrid(navController: NavController, items: List<HomeItem>
                     .padding(8.dp, 4.dp),
             ) {
                 rowItems.forEach { item ->
+                    val cardShape = RoundedCornerShape(14.dp)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .weight(1f)
-                            .height(48.dp)
-                            .clip(RoundedCornerShape(4.dp))
+                            .height(52.dp)
+                            .clip(cardShape)
                             .background(cellGradient)
-                            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(4.dp))
+                            .border(1.dp, Color.White.copy(alpha = 0.10f), cardShape)
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null,
                             ) { onHomeItemClick(navController, item) },
                     ) {
                         GlideImage(
-                            modifier = Modifier.size(48.dp),
+                            modifier = Modifier
+                                .size(52.dp)
+                                .clip(RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp)),
                             contentScale = ContentScale.Crop,
                             model = item.imageUrl,
                             loading = placeholder(R.drawable.placeholder),
@@ -358,7 +371,7 @@ private fun HomeShortcutGrid(navController: NavController, items: List<HomeItem>
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 2,
-                            modifier = Modifier.padding(8.dp, 4.dp),
+                            modifier = Modifier.padding(10.dp, 4.dp),
                         )
                     }
                 }
@@ -374,8 +387,9 @@ private fun HomeFeedSection(navController: NavController, section: HomeSection) 
         text = section.title,
         color = Color.White,
         fontSize = 21.sp,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(16.dp, 20.dp, 16.dp, 4.dp),
+        fontWeight = FontWeight.ExtraBold,
+        letterSpacing = (-0.4).sp,
+        modifier = Modifier.padding(16.dp, 20.dp, 16.dp, 6.dp),
     )
     LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(10.dp, 0.dp)) {
         items(section.items.size) { i ->
@@ -393,10 +407,11 @@ private fun HomeFeedCard(item: HomeItem, onClick: () -> Unit) {
         is HomeItem.Playlist -> item.subtitle
         is HomeItem.Artist -> "Artist"
     }
+    val shape = if (isArtist) CircleShape else RoundedCornerShape(16.dp)
     Column(
         horizontalAlignment = if (isArtist) Alignment.CenterHorizontally else Alignment.Start,
         modifier = Modifier
-            .width(150.dp)
+            .width(154.dp)
             .padding(6.dp)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
@@ -405,16 +420,16 @@ private fun HomeFeedCard(item: HomeItem, onClick: () -> Unit) {
     ) {
         GlideImage(
             modifier = Modifier
-                .size(150.dp)
-                .clip(if (isArtist) CircleShape else RoundedCornerShape(8.dp))
-                .border(1.dp, Color.White.copy(alpha = 0.08f), if (isArtist) CircleShape else RoundedCornerShape(8.dp)),
+                .size(152.dp)
+                .clip(shape)
+                .border(1.dp, Color.White.copy(alpha = 0.12f), shape),
             contentScale = ContentScale.Crop,
             model = item.imageUrl,
             loading = placeholder(R.drawable.placeholder),
             failure = placeholder(R.drawable.placeholder),
             contentDescription = "",
         )
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(7.dp))
         Text(
             text = item.name,
             color = Color.White,

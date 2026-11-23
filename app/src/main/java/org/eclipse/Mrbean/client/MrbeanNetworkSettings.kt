@@ -7,9 +7,7 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Persistent transport tuning for Spotui's media resolver and high-speed
- * multi-stream ranged-download engine. These controls govern only the
- * app-owned media requests; Android's secure TLS stack remains responsible
- * for protocol negotiation.
+ * multi-stream ranged-download engine (v2.5.3).
  */
 object MrbeanNetworkSettings {
     private const val PREFS = "mrbean_network_settings"
@@ -81,7 +79,7 @@ object MrbeanNetworkSettings {
     }
 
     fun connectTimeoutMs(context: Context): Int =
-        prefs(context).getInt(KEY_CONNECT_TIMEOUT, 10_000).coerceIn(3_000, 45_000)
+        prefs(context).getInt(KEY_CONNECT_TIMEOUT, 8_000).coerceIn(3_000, 45_000)
 
     fun setConnectTimeoutMs(context: Context, value: Int) {
         prefs(context).edit().putInt(KEY_CONNECT_TIMEOUT, value.coerceIn(3_000, 45_000)).apply()
@@ -89,7 +87,7 @@ object MrbeanNetworkSettings {
     }
 
     fun readTimeoutMs(context: Context): Int =
-        prefs(context).getInt(KEY_READ_TIMEOUT, 20_000).coerceIn(5_000, 90_000)
+        prefs(context).getInt(KEY_READ_TIMEOUT, 18_000).coerceIn(5_000, 90_000)
 
     fun setReadTimeoutMs(context: Context, value: Int) {
         prefs(context).edit().putInt(KEY_READ_TIMEOUT, value.coerceIn(5_000, 90_000)).apply()
@@ -114,7 +112,7 @@ object MrbeanNetworkSettings {
 
     /** Number of tracks downloaded concurrently during playlist/album/bulk downloads (1..10). */
     fun maxConcurrentDownloads(context: Context): Int =
-        prefs(context).getInt(KEY_MAX_CONCURRENT_DOWNLOADS, 4)
+        prefs(context).getInt(KEY_MAX_CONCURRENT_DOWNLOADS, 5)
             .coerceIn(MIN_CONCURRENT_DOWNLOADS, MAX_CONCURRENT_DOWNLOADS)
 
     fun setMaxConcurrentDownloads(context: Context, value: Int) {
@@ -127,21 +125,21 @@ object MrbeanNetworkSettings {
         bumpRevision()
     }
 
-    /** Number of parallel HTTP Range workers split per single file download (1..6). */
+    /** Number of parallel HTTP Range workers split per single file download (1..8). */
     fun parallelChunksPerFile(context: Context): Int =
-        prefs(context).getInt(KEY_PARALLEL_CHUNKS_PER_FILE, 4).coerceIn(1, 6)
+        prefs(context).getInt(KEY_PARALLEL_CHUNKS_PER_FILE, 6).coerceIn(1, 8)
 
     fun setParallelChunksPerFile(context: Context, value: Int) {
-        prefs(context).edit().putInt(KEY_PARALLEL_CHUNKS_PER_FILE, value.coerceIn(1, 6)).apply()
+        prefs(context).edit().putInt(KEY_PARALLEL_CHUNKS_PER_FILE, value.coerceIn(1, 8)).apply()
         bumpRevision()
     }
 
-    /** File copy/stream I/O buffer in KiB (64..512). */
+    /** File copy/stream I/O buffer in KiB (64..1024). */
     fun ioBufferKb(context: Context): Int =
-        prefs(context).getInt(KEY_IO_BUFFER_KB, 256).coerceIn(64, 512)
+        prefs(context).getInt(KEY_IO_BUFFER_KB, 512).coerceIn(64, 1024)
 
     fun setIoBufferKb(context: Context, value: Int) {
-        prefs(context).edit().putInt(KEY_IO_BUFFER_KB, value.coerceIn(64, 512)).apply()
+        prefs(context).edit().putInt(KEY_IO_BUFFER_KB, value.coerceIn(64, 1024)).apply()
         bumpRevision()
     }
 

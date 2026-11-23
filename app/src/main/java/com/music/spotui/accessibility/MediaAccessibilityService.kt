@@ -7,8 +7,11 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.res.ColorStateList
 import android.content.res.Configuration
+import android.graphics.Color
 import android.graphics.PixelFormat
+import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -18,6 +21,7 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import android.view.ContextThemeWrapper
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -26,7 +30,6 @@ import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.ImageButton
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
@@ -40,14 +43,15 @@ import com.music.spotui.MainActivity
 import com.music.spotui.R
 import com.music.spotui.audio.AudioEffectController
 import com.music.spotui.audio.EqPresetCatalog
+import com.music.spotui.data.preferences.FLOATER_OVERLAY_PREFS_NAME
 import com.music.spotui.data.preferences.FloaterHapticStrength
 import com.music.spotui.data.preferences.SpatialProfile
 import com.music.spotui.data.preferences.dspSettingsUpdates
 import com.music.spotui.data.preferences.floaterSettingsUpdates
-import com.music.spotui.data.preferences.getAudioNormalizerGainMb
 import com.music.spotui.data.preferences.getBassBoostStrength
 import com.music.spotui.data.preferences.getEqBass
 import com.music.spotui.data.preferences.getEqPreampDb
+import com.music.spotui.data.preferences.getEqPreset
 import com.music.spotui.data.preferences.getEqTreble
 import com.music.spotui.data.preferences.getEqVocal
 import com.music.spotui.data.preferences.getFloaterAutoHideMs
@@ -72,6 +76,7 @@ import com.music.spotui.data.preferences.setBassBoostStrength
 import com.music.spotui.data.preferences.setEqBass
 import com.music.spotui.data.preferences.setEqEnabled
 import com.music.spotui.data.preferences.setEqPreampDb
+import com.music.spotui.data.preferences.setEqSpatialEnabled
 import com.music.spotui.data.preferences.setEqTreble
 import com.music.spotui.data.preferences.setEqVocal
 import com.music.spotui.data.preferences.setHeadphoneCrossfeedEnabled
@@ -104,19 +109,22 @@ import kotlin.math.roundToInt
  * requires `SYSTEM_ALERT_WINDOW` and displays safely over full-screen landscape games
  * without disrupting gameplay.
  *
- * Upgraded features:
- * - **In-App Volume Control**: Directly controls [SongPlayer] internal audio gain (0–100%)
- *   without changing Android OS volume, with mute/unmute, -5%/+5% step buttons, and live SeekBar.
- * - **Interactive EQ & 3D Studio Drawer**: Full parametric 7-band EQ, 12 presets, bass boost,
- *   preamp, limiter, normalizer, 3D spatial profiles, room delay, elevation, 8D orbit, and crossfeed.
- * - **Corner-Drag Resizing**: Bottom-right and bottom-left corner grip handles updating
- *   [WindowManager.LayoutParams] width/height smoothly in real time with live `"W × H dp"` badge.
- * - **Tactile Vibration Engine**: Haptic feedback on transport, volume detents, preset switches,
- *   and corner resizing scaled by preference strength.
+ * Architecture & capabilities:
+ * - **In-App Volume Control**: Adjusts [SongPlayer] internal gain (0–100%) without mutating
+ *   Android OS volume, with mute/unmute toggle, `-5%` / `+5%` step pills, and live SeekBar.
+ * - **Interactive EQ & 3D Studio Drawer**: Full 7-band EQ presets ([EqPresetCatalog]), Bass Boost,
+ *   Bass/Vocal/Treble/Preamp sliders, Normalizer, Soft Limiter, and 3D Spatial Audio (profiles,
+ *   depth, room delay, elevation, 8D orbit + speed, HRTF crossfeed, phase guard).
+ * - **Top-Start Coordinate & Corner-Drag Resizing**: Bottom-left & bottom-right resize grips
+ *   update width/height cleanly with anchored opposite corners, live `"W × H dp"` geometry badge,
+ *   and per-orientation persisted placement/sizes.
+ * - **Dedicated Haptic Engine**: Uses [VibratorManager]/[Vibrator] + [VibrationEffect] scaled by
+ *   user-configured [FloaterHapticStrength].
  */
 class MediaAccessibilityService : AccessibilityService() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var overlayScope: CoroutineScope? = null
 
     private var windowManager: WindowManager? = null
     private val prefs: SharedPreferences by lazy(LazyThreadSafetyMode.NONE) {
@@ -125,7 +133,10 @@ class MediaAccessibilityService : AccessibilityService() {
 
     private var overlayView: View? = null
     private var overlayParams: WindowManager.LayoutParams? = null
+    private var themedContextRef: Context? = null
     private var currentOrientation: Int = Configuration.ORIENTATION_UNDEFINED
+    private var isDrawerExpanded: Boolean = false
+    private var isEqTabActive: Boolean = true
 
     private var statusBadgeTextView: TextView? = null
     private var titleTextView: TextView? = null
@@ -146,7 +157,7 @@ class MediaAccessibilityService : AccessibilityService() {
     private var isUserSeekingVolume = false
     private var lastUnmutedVolumePct = 100
 
-    // FX Drawer
+    // Studio FX Drawer & Tabs
     private var studioDrawerLayout: LinearLayout? = null
     private var tabEqTextView: TextView? = null
     private var tab3dTextView: TextView? = null
@@ -189,11 +200,11 @@ class MediaAccessibilityService : AccessibilityService() {
 
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var mediaController: MediaController? = null
-
     private var accessibilityButtonCallback: AccessibilityButtonController.AccessibilityButtonCallback? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val autoDismissRunnable = Runnable {
+        DevConsoleManager.log(LogLevel.INFO, TAG, "Studio Floater auto-dismissed after idle timeout")
         hideOverlay()
     }
 
@@ -215,6 +226,7 @@ class MediaAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as? WindowManager
         currentOrientation = resources.configuration.orientation
+        AudioEffectController.refreshOutputRoute(applicationContext)
 
         registerAccessibilityButton()
         ensureMediaControllerConnected()
@@ -227,7 +239,7 @@ class MediaAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // Intentionally unused: canRetrieveWindowContent="false" keeps accessibility secure.
+        // Intentionally unused: canRetrieveWindowContent="false" keeps accessibility privacy-safe.
     }
 
     override fun onInterrupt() {
@@ -241,7 +253,8 @@ class MediaAccessibilityService : AccessibilityService() {
         val params = overlayParams ?: return
         val wm = windowManager ?: return
 
-        applyOrientationPlacement(params, newConfig.orientation)
+        applyOrientationPlacement(params, newConfig.orientation, isDrawerExpanded)
+        updateGeometryBadge(params.width, params.height, view)
         runCatching {
             if (view.isAttachedToWindow) {
                 wm.updateViewLayout(view, params)
@@ -250,7 +263,7 @@ class MediaAccessibilityService : AccessibilityService() {
             DevConsoleManager.log(
                 LogLevel.WARNING,
                 TAG,
-                "Failed updating mini-player layout after orientation change: ${err.message}",
+                "Failed updating Studio Floater layout on orientation change: ${err.message}",
                 err,
             )
         }
@@ -276,10 +289,28 @@ class MediaAccessibilityService : AccessibilityService() {
                     toggleOverlay()
                 }
             }
+
+            override fun onAvailabilityChanged(
+                controller: AccessibilityButtonController,
+                available: Boolean,
+            ) {
+                DevConsoleManager.log(
+                    LogLevel.INFO,
+                    TAG,
+                    "One UI Accessibility button availability changed: available=$available",
+                )
+            }
         }
         accessibilityButtonCallback = callback
         runCatching {
             controller.registerAccessibilityButtonCallback(callback)
+        }.onFailure { err ->
+            DevConsoleManager.log(
+                LogLevel.WARNING,
+                TAG,
+                "Failed registering AccessibilityButtonCallback: ${err.message}",
+                err,
+            )
         }
     }
 
@@ -310,40 +341,49 @@ class MediaAccessibilityService : AccessibilityService() {
         try {
             currentOrientation = resources.configuration.orientation
             val themedContext = ContextThemeWrapper(this, R.style.Theme_Spotui_MiniPlayerOverlay)
+            themedContextRef = themedContext
             val rootView = LayoutInflater.from(themedContext).inflate(R.layout.layout_mini_player, null)
 
-            val widthPx = getSavedWidthPx(currentOrientation)
-            val heightPx = getSavedHeightPx(currentOrientation, isFloaterStartExpanded(this))
+            val fxAllowed = isFloaterEqAnd3dEnabled(this)
+            isDrawerExpanded = fxAllowed && isFloaterStartExpanded(this)
 
             val params = WindowManager.LayoutParams(
-                widthPx,
-                heightPx,
+                getSavedWidthPx(currentOrientation, isDrawerExpanded),
+                if (isDrawerExpanded) getSavedExpandedHeightPx(currentOrientation) else WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT,
             ).apply {
+                gravity = Gravity.TOP or Gravity.START
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     layoutInDisplayCutoutMode =
                         WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
                 }
             }
-            applyOrientationPlacement(params, currentOrientation)
+            applyOrientationPlacement(params, currentOrientation, isDrawerExpanded)
 
-            bindOverlayViews(rootView, themedContext, params)
+            bindOverlayViews(rootView, themedContext, params, fxAllowed)
             wm.addView(rootView, params)
 
             overlayView = rootView
             overlayParams = params
+            rootView.post { updateGeometryBadge(params.width, params.height, rootView) }
 
-            performHaptic(FloaterHapticStrength.LIGHT, isAccent = false)
+            performHaptic(rootView, isAccent = false)
             ensureMediaControllerConnected()
             mediaController?.let { syncUiFromController(it) }
             syncVolumeFlowAndUi()
             syncAudioFxUiFromPreferences()
-            startReactiveCollectors()
+            startReactiveCollectors(themedContext, rootView, params)
             resetAutoDismissTimer()
+
+            DevConsoleManager.log(
+                LogLevel.INFO,
+                TAG,
+                "Studio Floater opened (expanded=$isDrawerExpanded, fxHook=$fxAllowed, inAppVol=${SongPlayer.getAppVolumePercent(this)}%)",
+            )
         } catch (t: Throwable) {
             DevConsoleManager.log(
                 LogLevel.ERROR,
@@ -355,25 +395,58 @@ class MediaAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun startReactiveCollectors() {
-        serviceScope.launch {
+    private fun startReactiveCollectors(
+        themedContext: Context,
+        rootView: View,
+        params: WindowManager.LayoutParams,
+    ) {
+        overlayScope?.cancel()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        overlayScope = scope
+
+        scope.launch {
             SongPlayer.appVolumePercentFlow.collectLatest { pct ->
-                val sb = volumeSeekBar ?: return@collectLatest
                 if (!isUserSeekingVolume) {
+                    val sb = volumeSeekBar ?: return@collectLatest
                     if (sb.progress != pct) sb.progress = pct
                     volumePercentTextView?.text = "$pct%"
                     if (pct > 0) lastUnmutedVolumePct = pct
+                    updateVolumeMuteIcon(pct == 0)
                 }
             }
         }
-        serviceScope.launch {
+        scope.launch {
             dspSettingsUpdates.collectLatest {
                 syncAudioFxUiFromPreferences()
+                buildEqPresetChips(themedContext)
+                buildSpatialProfileChips(themedContext)
             }
         }
-        serviceScope.launch {
+        scope.launch {
+            AudioEffectController.routeState.collectLatest { routeInfo ->
+                tvRouteInfo?.text = "Route: ${routeInfo.route.label} (${routeInfo.deviceName})"
+            }
+        }
+        scope.launch {
             floaterSettingsUpdates.collectLatest {
-                // Settings updated externally
+                val fxAllowed = isFloaterEqAnd3dEnabled(themedContext)
+                fxToggleButton?.visibility = if (fxAllowed) View.VISIBLE else View.GONE
+                if (!fxAllowed && isDrawerExpanded) {
+                    setDrawerExpanded(expanded = false, rootView = rootView, params = params)
+                }
+                val prefix = if (currentOrientation == Configuration.ORIENTATION_LANDSCAPE) {
+                    KEY_LANDSCAPE_PREFIX
+                } else {
+                    KEY_PORTRAIT_PREFIX
+                }
+                if (!prefs.getBoolean("${prefix}_saved", false) && !prefs.contains("${prefix}_w_comp")) {
+                    applyOrientationPlacement(params, currentOrientation, isDrawerExpanded)
+                    updateGeometryBadge(params.width, params.height, rootView)
+                    runCatching {
+                        if (rootView.isAttachedToWindow) windowManager?.updateViewLayout(rootView, params)
+                    }
+                }
+                resetAutoDismissTimer()
             }
         }
     }
@@ -382,8 +455,8 @@ class MediaAccessibilityService : AccessibilityService() {
         rootView: View,
         themedContext: Context,
         params: WindowManager.LayoutParams,
+        fxAllowed: Boolean,
     ) {
-        val pillRoot = rootView.findViewById<View>(R.id.mini_player_root)
         statusBadgeTextView = rootView.findViewById(R.id.tv_mini_status_badge)
         titleTextView = rootView.findViewById<TextView>(R.id.tv_mini_title)?.apply {
             isSelected = true
@@ -391,82 +464,103 @@ class MediaAccessibilityService : AccessibilityService() {
         artistTextView = rootView.findViewById(R.id.tv_mini_artist)
 
         prevButton = rootView.findViewById<ImageButton>(R.id.btn_mini_prev)?.apply {
-            setOnClickListener {
+            setOnClickListener { view ->
                 resetAutoDismissTimer()
-                performHaptic(FloaterHapticStrength.LIGHT, isAccent = false)
+                performHaptic(view, isAccent = false)
                 handlePreviousClick()
             }
         }
         playPauseButton = rootView.findViewById<ImageButton>(R.id.btn_mini_play_pause)?.apply {
-            setOnClickListener {
+            setOnClickListener { view ->
                 resetAutoDismissTimer()
-                performHaptic(FloaterHapticStrength.MEDIUM, isAccent = true)
+                performHaptic(view, isAccent = true)
                 handlePlayPauseClick()
             }
         }
         nextButton = rootView.findViewById<ImageButton>(R.id.btn_mini_next)?.apply {
-            setOnClickListener {
+            setOnClickListener { view ->
                 resetAutoDismissTimer()
-                performHaptic(FloaterHapticStrength.LIGHT, isAccent = false)
+                performHaptic(view, isAccent = false)
                 handleNextClick()
             }
         }
         closeButton = rootView.findViewById<ImageButton>(R.id.btn_mini_close)?.apply {
-            setOnClickListener {
-                performHaptic(FloaterHapticStrength.LIGHT, isAccent = false)
+            setOnClickListener { view ->
+                performHaptic(view, isAccent = false)
                 hideOverlay()
             }
         }
         openAppButton = rootView.findViewById<ImageButton>(R.id.btn_mini_open_app)?.apply {
-            setOnClickListener {
-                performHaptic(FloaterHapticStrength.MEDIUM, isAccent = true)
+            setOnClickListener { view ->
+                performHaptic(view, isAccent = true)
                 openMainAppAndDismiss()
             }
         }
         fxToggleButton = rootView.findViewById<ImageButton>(R.id.btn_mini_fx_toggle)?.apply {
-            setOnClickListener {
-                performHaptic(FloaterHapticStrength.MEDIUM, isAccent = true)
-                toggleStudioDrawer(rootView, params)
+            visibility = if (fxAllowed) View.VISIBLE else View.GONE
+            setOnClickListener { view ->
+                if (!isFloaterEqAnd3dEnabled(themedContext)) return@setOnClickListener
+                performHaptic(view, isAccent = true)
+                setDrawerExpanded(!isDrawerExpanded, rootView, params)
+                resetAutoDismissTimer()
             }
         }
 
-        // In-App Volume Controls
+        // Dedicated In-App Volume Controls
         volumeMuteButton = rootView.findViewById<ImageButton>(R.id.btn_mini_vol_mute)?.apply {
-            setOnClickListener {
-                performHaptic(FloaterHapticStrength.LIGHT, isAccent = false)
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                performHaptic(view, isAccent = true)
                 toggleMute()
             }
         }
         volumePercentTextView = rootView.findViewById(R.id.tv_mini_volume_pct)
         volumeStepDownButton = rootView.findViewById<TextView>(R.id.btn_mini_vol_down)?.apply {
-            setOnClickListener {
-                performHaptic(FloaterHapticStrength.LIGHT, isAccent = false)
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                performHaptic(view, isAccent = false)
                 adjustVolumeStep(-5)
             }
         }
         volumeStepUpButton = rootView.findViewById<TextView>(R.id.btn_mini_vol_up)?.apply {
-            setOnClickListener {
-                performHaptic(FloaterHapticStrength.LIGHT, isAccent = false)
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                performHaptic(view, isAccent = false)
                 adjustVolumeStep(5)
             }
         }
         volumeSeekBar = rootView.findViewById<SeekBar>(R.id.seek_mini_volume)?.apply {
             max = 100
+            var lastTickBucket = progress / 10
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     volumePercentTextView?.text = "$progress%"
+                    updateVolumeMuteIcon(progress == 0)
                     if (fromUser) {
                         resetAutoDismissTimer()
                         SongPlayer.setAppVolumePercent(themedContext, progress)
+                        val bucket = progress / 10
+                        if (bucket != lastTickBucket) {
+                            lastTickBucket = bucket
+                            performHaptic(seekBar, isAccent = progress == 0 || progress == 100)
+                        }
                     }
                 }
+
                 override fun onStartTrackingTouch(seekBar: SeekBar?) {
                     isUserSeekingVolume = true
+                    lastTickBucket = (seekBar?.progress ?: 0) / 10
                     cancelAutoDismissTimer()
                 }
+
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {
                     isUserSeekingVolume = false
-                    performHaptic(FloaterHapticStrength.LIGHT, isAccent = false)
+                    performHaptic(seekBar, isAccent = false)
+                    DevConsoleManager.log(
+                        LogLevel.INFO,
+                        TAG,
+                        "Floater adjusted In-App Volume -> ${seekBar?.progress ?: 0}% (OS untouched)",
+                    )
                     resetAutoDismissTimer()
                 }
             })
@@ -475,14 +569,16 @@ class MediaAccessibilityService : AccessibilityService() {
         // Studio Drawer & Tabs
         studioDrawerLayout = rootView.findViewById(R.id.layout_studio_drawer)
         tabEqTextView = rootView.findViewById<TextView>(R.id.tab_floater_eq)?.apply {
-            setOnClickListener {
-                performHaptic(FloaterHapticStrength.LIGHT, isAccent = false)
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                performHaptic(view, isAccent = false)
                 switchStudioTab(isEqTab = true)
             }
         }
         tab3dTextView = rootView.findViewById<TextView>(R.id.tab_floater_3d)?.apply {
-            setOnClickListener {
-                performHaptic(FloaterHapticStrength.LIGHT, isAccent = false)
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                performHaptic(view, isAccent = false)
                 switchStudioTab(isEqTab = false)
             }
         }
@@ -494,6 +590,7 @@ class MediaAccessibilityService : AccessibilityService() {
         buildEqPresetChips(themedContext)
         buildSpatialProfileChips(themedContext)
         bindEqAnd3dControls(rootView, themedContext)
+        switchStudioTab(isEqTabActive)
 
         // Dismiss on outside touch
         rootView.setOnTouchListener { _, event ->
@@ -505,29 +602,65 @@ class MediaAccessibilityService : AccessibilityService() {
             }
         }
 
-        // Drag handle / top bar panning gesture
+        // Panning gesture on top header pill bar
         val touchSlop = ViewConfiguration.get(themedContext).scaledTouchSlop
-        val dragHandleView = rootView.findViewById<View>(R.id.view_drag_handle)
+        val dragPillArea = rootView.findViewById<View>(R.id.layout_drag_pill_area)
         val topBarView = rootView.findViewById<View>(R.id.layout_top_bar)
+        val trackInfoView = rootView.findViewById<View>(R.id.layout_track_info)
         val dragListener = createDragTouchListener(params, rootView, touchSlop)
-        dragHandleView?.setOnTouchListener(dragListener)
+        dragPillArea?.setOnTouchListener(dragListener)
         topBarView?.setOnTouchListener(dragListener)
+        trackInfoView?.setOnTouchListener(dragListener)
 
-        // Bottom-Right and Bottom-Left Corner Resize Grips
+        // Bottom-Right & Bottom-Left Corner Resize Grips
         val resizeBr = rootView.findViewById<View>(R.id.resize_corner_br)
         val resizeBl = rootView.findViewById<View>(R.id.resize_corner_bl)
         val resizeListener = createResizeTouchListener(params, rootView, themedContext)
         resizeBr?.setOnTouchListener(resizeListener)
         resizeBl?.setOnTouchListener(resizeListener)
 
-        // If start expanded preference is true, open drawer immediately
-        if (isFloaterStartExpanded(themedContext)) {
-            studioDrawerLayout?.visibility = View.VISIBLE
-            params.height = getSavedHeightPx(currentOrientation, expanded = true)
-            updateGeometryBadge(params.width, params.height)
+        // Apply initial expanded/collapsed visual state cleanly
+        studioDrawerLayout?.visibility = if (isDrawerExpanded) View.VISIBLE else View.GONE
+        updateFxToggleButtonTint()
+        updateGeometryBadge(params.width, params.height, rootView)
+    }
+
+    private fun setDrawerExpanded(
+        expanded: Boolean,
+        rootView: View,
+        params: WindowManager.LayoutParams,
+    ) {
+        if (isDrawerExpanded == expanded) return
+        if (expanded && !isFloaterEqAnd3dEnabled(this)) return
+
+        isDrawerExpanded = expanded
+        studioDrawerLayout?.visibility = if (expanded) View.VISIBLE else View.GONE
+        updateFxToggleButtonTint()
+
+        params.width = getSavedWidthPx(currentOrientation, expanded)
+        params.height = if (expanded) {
+            getSavedExpandedHeightPx(currentOrientation)
         } else {
-            updateGeometryBadge(params.width, params.height)
+            WindowManager.LayoutParams.WRAP_CONTENT
         }
+
+        val estHeight = if (params.height > 0) params.height else dpToPx(196)
+        val (clampedX, clampedY) = clampCoordinatesToDisplay(params.x, params.y, params.width, estHeight)
+        params.x = clampedX
+        params.y = clampedY
+
+        runCatching {
+            if (rootView.isAttachedToWindow) {
+                windowManager?.updateViewLayout(rootView, params)
+            }
+        }
+        rootView.post { updateGeometryBadge(params.width, params.height, rootView) }
+    }
+
+    private fun updateFxToggleButtonTint() {
+        val btn = fxToggleButton ?: return
+        val tintColor = if (isDrawerExpanded) Color.parseColor("#FF1DB954") else Color.WHITE
+        btn.imageTintList = ColorStateList.valueOf(tintColor)
     }
 
     private fun syncVolumeFlowAndUi() {
@@ -544,10 +677,12 @@ class MediaAccessibilityService : AccessibilityService() {
             lastUnmutedVolumePct = cur
             SongPlayer.setAppVolumePercent(this, 0)
             updateVolumeMuteIcon(muted = true)
+            DevConsoleManager.log(LogLevel.INFO, TAG, "Floater muted In-App audio (prev=$cur%)")
         } else {
             val target = lastUnmutedVolumePct.coerceIn(10, 100)
             SongPlayer.setAppVolumePercent(this, target)
             updateVolumeMuteIcon(muted = false)
+            DevConsoleManager.log(LogLevel.INFO, TAG, "Floater unmuted In-App audio -> $target%")
         }
     }
 
@@ -555,7 +690,7 @@ class MediaAccessibilityService : AccessibilityService() {
         val cur = SongPlayer.getAppVolumePercent(this)
         val next = (cur + delta).coerceIn(0, 100)
         SongPlayer.setAppVolumePercent(this, next)
-        performHaptic(FloaterHapticStrength.LIGHT, isAccent = false)
+        DevConsoleManager.log(LogLevel.INFO, TAG, "Floater stepped In-App Volume -> $next%")
     }
 
     private fun updateVolumeMuteIcon(muted: Boolean) {
@@ -563,28 +698,13 @@ class MediaAccessibilityService : AccessibilityService() {
         btn.setImageResource(
             if (muted) R.drawable.ic_mini_vol_off else R.drawable.ic_mini_vol_up,
         )
-    }
-
-    private fun toggleStudioDrawer(rootView: View, params: WindowManager.LayoutParams) {
-        val drawer = studioDrawerLayout ?: return
-        val wm = windowManager ?: return
-        val isExpanded = drawer.visibility == View.VISIBLE
-        if (isExpanded) {
-            drawer.visibility = View.GONE
-            params.height = getSavedHeightPx(currentOrientation, expanded = false)
-        } else {
-            drawer.visibility = View.VISIBLE
-            params.height = getSavedHeightPx(currentOrientation, expanded = true)
-        }
-        updateGeometryBadge(params.width, params.height)
-        runCatching {
-            if (rootView.isAttachedToWindow) {
-                wm.updateViewLayout(rootView, params)
-            }
-        }
+        btn.imageTintList = ColorStateList.valueOf(
+            if (muted) Color.parseColor("#FFFF6B6B") else Color.parseColor("#FF1DB954"),
+        )
     }
 
     private fun switchStudioTab(isEqTab: Boolean) {
+        isEqTabActive = isEqTab
         val eqTab = tabEqTextView ?: return
         val d3Tab = tab3dTextView ?: return
         val eqPanel = panelEqLayout ?: return
@@ -592,16 +712,16 @@ class MediaAccessibilityService : AccessibilityService() {
 
         if (isEqTab) {
             eqTab.setBackgroundResource(R.drawable.bg_mini_chip_active)
-            eqTab.setTextColor(ContextCompat.getColor(this, android.R.color.black))
+            eqTab.setTextColor(Color.parseColor("#FF0B0E11"))
             d3Tab.setBackgroundResource(R.drawable.bg_mini_chip_inactive)
-            d3Tab.setTextColor(ContextCompat.getColor(this, android.R.color.white))
+            d3Tab.setTextColor(Color.WHITE)
             eqPanel.visibility = View.VISIBLE
             d3Panel.visibility = View.GONE
         } else {
             d3Tab.setBackgroundResource(R.drawable.bg_mini_chip_active)
-            d3Tab.setTextColor(ContextCompat.getColor(this, android.R.color.black))
+            d3Tab.setTextColor(Color.parseColor("#FF0B0E11"))
             eqTab.setBackgroundResource(R.drawable.bg_mini_chip_inactive)
-            eqTab.setTextColor(ContextCompat.getColor(this, android.R.color.white))
+            eqTab.setTextColor(Color.WHITE)
             d3Panel.visibility = View.VISIBLE
             eqPanel.visibility = View.GONE
         }
@@ -610,7 +730,7 @@ class MediaAccessibilityService : AccessibilityService() {
     private fun buildEqPresetChips(context: Context) {
         val container = eqPresetsContainer ?: return
         container.removeAllViews()
-        val currentPreset = com.music.spotui.data.preferences.getEqPreset(context)
+        val currentPreset = getEqPreset(context)
 
         EqPresetCatalog.presets.forEach { preset ->
             val chip = TextView(context).apply {
@@ -628,18 +748,15 @@ class MediaAccessibilityService : AccessibilityService() {
                 setBackgroundResource(
                     if (isSelected) R.drawable.bg_mini_chip_active else R.drawable.bg_mini_chip_inactive,
                 )
-                setTextColor(
-                    ContextCompat.getColor(
-                        context,
-                        if (isSelected) android.R.color.black else android.R.color.white,
-                    ),
-                )
-                setOnClickListener {
-                    performHaptic(FloaterHapticStrength.LIGHT, isAccent = false)
+                setTextColor(if (isSelected) Color.parseColor("#FF0B0E11") else Color.WHITE)
+                setOnClickListener { view ->
+                    resetAutoDismissTimer()
+                    performHaptic(view, isAccent = true)
                     EqPresetCatalog.applyPreset(context, preset)
                     SongPlayer.refreshAudioEffects(context)
                     buildEqPresetChips(context)
                     syncAudioFxUiFromPreferences()
+                    DevConsoleManager.log(LogLevel.INFO, TAG, "Floater applied EQ preset '${preset.name}'")
                 }
             }
             container.addView(chip)
@@ -651,7 +768,7 @@ class MediaAccessibilityService : AccessibilityService() {
         container.removeAllViews()
         val currentProfile = getSpatialProfile(context)
 
-        SpatialProfile.values().forEach { profile ->
+        SpatialProfile.entries.forEach { profile ->
             val chip = TextView(context).apply {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -667,18 +784,15 @@ class MediaAccessibilityService : AccessibilityService() {
                 setBackgroundResource(
                     if (isSelected) R.drawable.bg_mini_chip_active else R.drawable.bg_mini_chip_inactive,
                 )
-                setTextColor(
-                    ContextCompat.getColor(
-                        context,
-                        if (isSelected) android.R.color.black else android.R.color.white,
-                    ),
-                )
-                setOnClickListener {
-                    performHaptic(FloaterHapticStrength.LIGHT, isAccent = false)
+                setTextColor(if (isSelected) Color.parseColor("#FF0B0E11") else Color.WHITE)
+                setOnClickListener { view ->
+                    resetAutoDismissTimer()
+                    performHaptic(view, isAccent = true)
                     setSpatialProfile(context, profile)
                     SongPlayer.refreshAudioEffects(context)
                     buildSpatialProfileChips(context)
                     syncAudioFxUiFromPreferences()
+                    DevConsoleManager.log(LogLevel.INFO, TAG, "Floater switched 3D profile -> ${profile.label}")
                 }
             }
             container.addView(chip)
@@ -686,185 +800,219 @@ class MediaAccessibilityService : AccessibilityService() {
     }
 
     private fun bindEqAnd3dControls(rootView: View, ctx: Context) {
-        // Master EQ Toggle
         toggleEqView = rootView.findViewById<TextView>(R.id.toggle_floater_eq)?.apply {
-            setOnClickListener {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
                 val next = !isEqEnabled(ctx)
                 setEqEnabled(ctx, next)
                 SongPlayer.refreshAudioEffects(ctx)
                 syncAudioFxUiFromPreferences()
-                performHaptic(FloaterHapticStrength.LIGHT, isAccent = false)
+                performHaptic(view, isAccent = next)
+                DevConsoleManager.log(LogLevel.INFO, TAG, "Floater EQ ${if (next) "ENABLED" else "DISABLED"}")
             }
         }
-        // Bass Boost
         seekBassBoost = rootView.findViewById<SeekBar>(R.id.seek_floater_bass_boost)?.apply {
             max = 1000
-            setOnSeekBarChangeListener(createSimpleSeekBarListener { p ->
-                setBassBoostStrength(ctx, p)
-                SongPlayer.refreshAudioEffects(ctx)
-                tvBassBoostVal?.text = "${(p * 100f / 1000f).roundToInt()}%"
-            })
+            setOnSeekBarChangeListener(createSimpleSeekBarListener(
+                onChanged = { p ->
+                    setBassBoostStrength(ctx, p)
+                    SongPlayer.refreshAudioEffects(ctx)
+                    tvBassBoostVal?.text = "${(p * 100f / 1000f).roundToInt()}%"
+                },
+                onCommit = {
+                    DevConsoleManager.log(LogLevel.INFO, TAG, "Floater Bass Boost -> ${getBassBoostStrength(ctx)}")
+                },
+            ))
         }
         tvBassBoostVal = rootView.findViewById(R.id.tv_floater_bass_boost_val)
 
-        // EQ 64Hz
         seekEqBass = rootView.findViewById<SeekBar>(R.id.seek_floater_eq_bass)?.apply {
             max = 100
-            setOnSeekBarChangeListener(createSimpleSeekBarListener { p ->
-                setEqBass(ctx, p.toFloat())
-                SongPlayer.refreshAudioEffects(ctx)
-                val db = ((p - 50f) * 12f / 50f)
-                tvEqBassVal?.text = String.format("%+.1f dB", db)
-            })
+            setOnSeekBarChangeListener(createSimpleSeekBarListener(
+                onChanged = { p ->
+                    setEqBass(ctx, p.toFloat())
+                    SongPlayer.refreshAudioEffects(ctx)
+                    tvEqBassVal?.text = String.format("%+.1f dB", ((p - 50f) * 12f / 50f))
+                },
+            ))
         }
         tvEqBassVal = rootView.findViewById(R.id.tv_floater_eq_bass_val)
 
-        // EQ Vocal 1kHz
         seekEqVocal = rootView.findViewById<SeekBar>(R.id.seek_floater_eq_vocal)?.apply {
             max = 100
-            setOnSeekBarChangeListener(createSimpleSeekBarListener { p ->
-                setEqVocal(ctx, p.toFloat())
-                SongPlayer.refreshAudioEffects(ctx)
-                val db = ((p - 50f) * 12f / 50f)
-                tvEqVocalVal?.text = String.format("%+.1f dB", db)
-            })
+            setOnSeekBarChangeListener(createSimpleSeekBarListener(
+                onChanged = { p ->
+                    setEqVocal(ctx, p.toFloat())
+                    SongPlayer.refreshAudioEffects(ctx)
+                    tvEqVocalVal?.text = String.format("%+.1f dB", ((p - 50f) * 12f / 50f))
+                },
+            ))
         }
         tvEqVocalVal = rootView.findViewById(R.id.tv_floater_eq_vocal_val)
 
-        // EQ Treble 10kHz
         seekEqTreble = rootView.findViewById<SeekBar>(R.id.seek_floater_eq_treble)?.apply {
             max = 100
-            setOnSeekBarChangeListener(createSimpleSeekBarListener { p ->
-                setEqTreble(ctx, p.toFloat())
-                SongPlayer.refreshAudioEffects(ctx)
-                val db = ((p - 50f) * 12f / 50f)
-                tvEqTrebleVal?.text = String.format("%+.1f dB", db)
-            })
+            setOnSeekBarChangeListener(createSimpleSeekBarListener(
+                onChanged = { p ->
+                    setEqTreble(ctx, p.toFloat())
+                    SongPlayer.refreshAudioEffects(ctx)
+                    tvEqTrebleVal?.text = String.format("%+.1f dB", ((p - 50f) * 12f / 50f))
+                },
+            ))
         }
         tvEqTrebleVal = rootView.findViewById(R.id.tv_floater_eq_treble_val)
 
-        // Preamp (-12..+6 dB mapped to 0..180 steps of 0.1dB)
         seekEqPreamp = rootView.findViewById<SeekBar>(R.id.seek_floater_eq_preamp)?.apply {
             max = 180
-            setOnSeekBarChangeListener(createSimpleSeekBarListener { p ->
-                val db = -12.0f + (p * 18.0f / 180.0f)
-                setEqPreampDb(ctx, db)
-                SongPlayer.refreshAudioEffects(ctx)
-                tvEqPreampVal?.text = String.format("%+.1f dB", db)
-            })
+            setOnSeekBarChangeListener(createSimpleSeekBarListener(
+                onChanged = { p ->
+                    val db = -12.0f + (p * 18.0f / 180.0f)
+                    setEqPreampDb(ctx, db)
+                    SongPlayer.refreshAudioEffects(ctx)
+                    tvEqPreampVal?.text = String.format("%+.1f dB", db)
+                },
+            ))
         }
         tvEqPreampVal = rootView.findViewById(R.id.tv_floater_eq_preamp_val)
 
-        // Normalizer & Limiter & Reset Flat
         toggleNormalizer = rootView.findViewById<TextView>(R.id.toggle_floater_normalizer)?.apply {
-            setOnClickListener {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
                 val next = !isAudioNormalizerEnabled(ctx)
                 setAudioNormalizerEnabled(ctx, next)
                 SongPlayer.refreshAudioEffects(ctx)
                 syncAudioFxUiFromPreferences()
+                performHaptic(view, isAccent = next)
             }
         }
         toggleLimiter = rootView.findViewById<TextView>(R.id.toggle_floater_limiter)?.apply {
-            setOnClickListener {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
                 val next = !isLimiterEnabled(ctx)
                 setLimiterEnabled(ctx, next)
                 SongPlayer.refreshAudioEffects(ctx)
                 syncAudioFxUiFromPreferences()
+                performHaptic(view, isAccent = next)
             }
         }
         btnEqReset = rootView.findViewById<TextView>(R.id.btn_floater_eq_reset)?.apply {
-            setOnClickListener {
-                performHaptic(FloaterHapticStrength.MEDIUM, isAccent = true)
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                performHaptic(view, isAccent = true)
                 EqPresetCatalog.resetFlat(ctx)
                 SongPlayer.refreshAudioEffects(ctx)
                 buildEqPresetChips(ctx)
                 syncAudioFxUiFromPreferences()
+                DevConsoleManager.log(LogLevel.INFO, TAG, "Floater reset EQ curve to Flat")
             }
         }
 
         // 3D Controls
         toggle3dView = rootView.findViewById<TextView>(R.id.toggle_floater_3d)?.apply {
-            setOnClickListener {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
                 val next = !isEqSpatialEnabled(ctx)
-                com.music.spotui.data.preferences.setEqSpatialEnabled(ctx, next)
+                setEqSpatialEnabled(ctx, next)
                 SongPlayer.refreshAudioEffects(ctx)
                 syncAudioFxUiFromPreferences()
-                performHaptic(FloaterHapticStrength.LIGHT, isAccent = false)
+                performHaptic(view, isAccent = next)
+                DevConsoleManager.log(LogLevel.INFO, TAG, "Floater 3D Spatial ${if (next) "ENABLED" else "DISABLED"}")
             }
         }
         tvRouteInfo = rootView.findViewById(R.id.tv_floater_route_info)
 
         seekSpatialStrength = rootView.findViewById<SeekBar>(R.id.seek_floater_spatial_strength)?.apply {
             max = 1000
-            setOnSeekBarChangeListener(createSimpleSeekBarListener { p ->
-                setSpatialStrength(ctx, p)
-                SongPlayer.refreshAudioEffects(ctx)
-                tvSpatialStrengthVal?.text = "${(p * 100f / 1000f).roundToInt()}%"
-            })
+            setOnSeekBarChangeListener(createSimpleSeekBarListener(
+                onChanged = { p ->
+                    setSpatialStrength(ctx, p)
+                    SongPlayer.refreshAudioEffects(ctx)
+                    tvSpatialStrengthVal?.text = "${(p * 100f / 1000f).roundToInt()}%"
+                },
+                onCommit = {
+                    DevConsoleManager.log(LogLevel.INFO, TAG, "Floater 3D Depth -> ${getSpatialStrength(ctx)}")
+                },
+            ))
         }
         tvSpatialStrengthVal = rootView.findViewById(R.id.tv_floater_spatial_strength_val)
 
         seekRoomDelay = rootView.findViewById<SeekBar>(R.id.seek_floater_room_delay)?.apply {
             max = 26
-            setOnSeekBarChangeListener(createSimpleSeekBarListener { p ->
-                val ms = 2f + p.toFloat()
-                setSpatialRoomDelayMs(ctx, ms)
-                SongPlayer.refreshAudioEffects(ctx)
-                tvRoomDelayVal?.text = "${ms.roundToInt()} ms"
-            })
+            setOnSeekBarChangeListener(createSimpleSeekBarListener(
+                onChanged = { p ->
+                    val ms = 2f + p.toFloat()
+                    setSpatialRoomDelayMs(ctx, ms)
+                    SongPlayer.refreshAudioEffects(ctx)
+                    tvRoomDelayVal?.text = "${ms.roundToInt()} ms"
+                },
+            ))
         }
         tvRoomDelayVal = rootView.findViewById(R.id.tv_floater_room_delay_val)
 
         seekElevation = rootView.findViewById<SeekBar>(R.id.seek_floater_elevation)?.apply {
             max = 100
-            setOnSeekBarChangeListener(createSimpleSeekBarListener { p ->
-                val depth = p.toFloat() / 100f
-                setSpatialElevationDepth(ctx, depth)
-                SongPlayer.refreshAudioEffects(ctx)
-                tvElevationVal?.text = "$p%"
-            })
+            setOnSeekBarChangeListener(createSimpleSeekBarListener(
+                onChanged = { p ->
+                    val depth = p.toFloat() / 100f
+                    setSpatialElevationDepth(ctx, depth)
+                    SongPlayer.refreshAudioEffects(ctx)
+                    tvElevationVal?.text = "$p%"
+                },
+            ))
         }
         tvElevationVal = rootView.findViewById(R.id.tv_floater_elevation_val)
 
         row8dSpeed = rootView.findViewById(R.id.row_floater_8d_speed)
         seek8dSpeed = rootView.findViewById<SeekBar>(R.id.seek_floater_8d_speed)?.apply {
             max = 140
-            setOnSeekBarChangeListener(createSimpleSeekBarListener { p ->
-                val hz = 0.10f + (p.toFloat() / 100f)
-                setSpatialOrbitSpeed(ctx, hz)
-                SongPlayer.refreshAudioEffects(ctx)
-                tv8dSpeedVal?.text = String.format("%.2fHz", hz)
-            })
+            setOnSeekBarChangeListener(createSimpleSeekBarListener(
+                onChanged = { p ->
+                    val hz = 0.10f + (p.toFloat() / 100f)
+                    setSpatialOrbitSpeed(ctx, hz)
+                    SongPlayer.refreshAudioEffects(ctx)
+                    tv8dSpeedVal?.text = String.format("%.2fHz", hz)
+                },
+            ))
         }
         tv8dSpeedVal = rootView.findViewById(R.id.tv_floater_8d_speed_val)
 
         toggle8d = rootView.findViewById<TextView>(R.id.toggle_floater_8d)?.apply {
-            setOnClickListener {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
                 val next = !isSpatial8dOrbitEnabled(ctx)
                 setSpatial8dOrbitEnabled(ctx, next)
                 SongPlayer.refreshAudioEffects(ctx)
                 syncAudioFxUiFromPreferences()
+                performHaptic(view, isAccent = next)
+                DevConsoleManager.log(LogLevel.INFO, TAG, "Floater 8D Orbit ${if (next) "ON" else "OFF"}")
             }
         }
         toggleCrossfeed = rootView.findViewById<TextView>(R.id.toggle_floater_crossfeed)?.apply {
-            setOnClickListener {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
                 val next = !isHeadphoneCrossfeedEnabled(ctx)
                 setHeadphoneCrossfeedEnabled(ctx, next)
                 SongPlayer.refreshAudioEffects(ctx)
                 syncAudioFxUiFromPreferences()
+                performHaptic(view, isAccent = next)
             }
         }
         toggleCorrGuard = rootView.findViewById<TextView>(R.id.toggle_floater_corr_guard)?.apply {
-            setOnClickListener {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
                 val next = !isSpatialCorrelationGuardEnabled(ctx)
                 setSpatialCorrelationGuardEnabled(ctx, next)
                 SongPlayer.refreshAudioEffects(ctx)
                 syncAudioFxUiFromPreferences()
+                performHaptic(view, isAccent = next)
             }
         }
     }
 
-    private fun createSimpleSeekBarListener(onChanged: (Int) -> Unit): SeekBar.OnSeekBarChangeListener {
+    private fun createSimpleSeekBarListener(
+        onChanged: (Int) -> Unit,
+        onCommit: (() -> Unit)? = null,
+    ): SeekBar.OnSeekBarChangeListener {
         return object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
@@ -872,10 +1020,14 @@ class MediaAccessibilityService : AccessibilityService() {
                     onChanged(progress)
                 }
             }
+
             override fun onStartTrackingTouch(seekBar: SeekBar?) {
                 cancelAutoDismissTimer()
             }
+
             override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                performHaptic(seekBar, isAccent = false)
+                onCommit?.invoke()
                 resetAutoDismissTimer()
             }
         }
@@ -887,7 +1039,7 @@ class MediaAccessibilityService : AccessibilityService() {
         toggleEqView?.apply {
             text = if (eqActive) "EQ ON" else "EQ OFF"
             setBackgroundResource(if (eqActive) R.drawable.bg_mini_chip_active else R.drawable.bg_mini_chip_inactive)
-            setTextColor(ContextCompat.getColor(ctx, if (eqActive) android.R.color.black else android.R.color.white))
+            setTextColor(if (eqActive) Color.parseColor("#FF0B0E11") else Color.WHITE)
         }
         seekBassBoost?.progress = getBassBoostStrength(ctx)
         tvBassBoostVal?.text = "${(getBassBoostStrength(ctx) * 100f / 1000f).roundToInt()}%"
@@ -910,24 +1062,24 @@ class MediaAccessibilityService : AccessibilityService() {
 
         val normActive = isAudioNormalizerEnabled(ctx)
         toggleNormalizer?.setBackgroundResource(if (normActive) R.drawable.bg_mini_chip_active else R.drawable.bg_mini_chip_inactive)
-        toggleNormalizer?.setTextColor(ContextCompat.getColor(ctx, if (normActive) android.R.color.black else android.R.color.white))
+        toggleNormalizer?.setTextColor(if (normActive) Color.parseColor("#FF0B0E11") else Color.WHITE)
 
         val limitActive = isLimiterEnabled(ctx)
         toggleLimiter?.setBackgroundResource(if (limitActive) R.drawable.bg_mini_chip_active else R.drawable.bg_mini_chip_inactive)
-        toggleLimiter?.setTextColor(ContextCompat.getColor(ctx, if (limitActive) android.R.color.black else android.R.color.white))
+        toggleLimiter?.setTextColor(if (limitActive) Color.parseColor("#FF0B0E11") else Color.WHITE)
 
-        // 3D
         val d3Active = isEqSpatialEnabled(ctx)
         toggle3dView?.apply {
             text = if (d3Active) "3D ON" else "3D OFF"
             setBackgroundResource(if (d3Active) R.drawable.bg_mini_chip_active else R.drawable.bg_mini_chip_inactive)
-            setTextColor(ContextCompat.getColor(ctx, if (d3Active) android.R.color.black else android.R.color.white))
+            setTextColor(if (d3Active) Color.parseColor("#FF0B0E11") else Color.WHITE)
         }
-        val routeInfo = AudioEffectController.refreshOutputRoute(ctx)
+        val routeInfo = AudioEffectController.routeState.value
         tvRouteInfo?.text = "Route: ${routeInfo.route.label} (${routeInfo.deviceName})"
 
-        seekSpatialStrength?.progress = com.music.spotui.data.preferences.getSpatialStrength(ctx)
-        tvSpatialStrengthVal?.text = "${(com.music.spotui.data.preferences.getSpatialStrength(ctx) * 100f / 1000f).roundToInt()}%"
+        val spStrength = getSpatialStrength(ctx)
+        seekSpatialStrength?.progress = spStrength
+        tvSpatialStrengthVal?.text = "${(spStrength * 100f / 1000f).roundToInt()}%"
 
         val delayMs = getSpatialRoomDelayMs(ctx)
         seekRoomDelay?.progress = (delayMs - 2f).roundToInt().coerceIn(0, 26)
@@ -940,18 +1092,18 @@ class MediaAccessibilityService : AccessibilityService() {
         val orbitEnabled = isSpatial8dOrbitEnabled(ctx)
         row8dSpeed?.visibility = if (orbitEnabled) View.VISIBLE else View.GONE
         toggle8d?.setBackgroundResource(if (orbitEnabled) R.drawable.bg_mini_chip_active else R.drawable.bg_mini_chip_inactive)
-        toggle8d?.setTextColor(ContextCompat.getColor(ctx, if (orbitEnabled) android.R.color.black else android.R.color.white))
+        toggle8d?.setTextColor(if (orbitEnabled) Color.parseColor("#FF0B0E11") else Color.WHITE)
         val speedHz = getSpatialOrbitSpeed(ctx)
         seek8dSpeed?.progress = ((speedHz - 0.10f) * 100f).roundToInt().coerceIn(0, 140)
         tv8dSpeedVal?.text = String.format("%.2fHz", speedHz)
 
         val crossfeedActive = isHeadphoneCrossfeedEnabled(ctx)
         toggleCrossfeed?.setBackgroundResource(if (crossfeedActive) R.drawable.bg_mini_chip_active else R.drawable.bg_mini_chip_inactive)
-        toggleCrossfeed?.setTextColor(ContextCompat.getColor(ctx, if (crossfeedActive) android.R.color.black else android.R.color.white))
+        toggleCrossfeed?.setTextColor(if (crossfeedActive) Color.parseColor("#FF0B0E11") else Color.WHITE)
 
         val corrActive = isSpatialCorrelationGuardEnabled(ctx)
         toggleCorrGuard?.setBackgroundResource(if (corrActive) R.drawable.bg_mini_chip_active else R.drawable.bg_mini_chip_inactive)
-        toggleCorrGuard?.setTextColor(ContextCompat.getColor(ctx, if (corrActive) android.R.color.black else android.R.color.white))
+        toggleCorrGuard?.setTextColor(if (corrActive) Color.parseColor("#FF0B0E11") else Color.WHITE)
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -966,7 +1118,7 @@ class MediaAccessibilityService : AccessibilityService() {
         var initialTouchY = 0f
         var dragging = false
 
-        return View.OnTouchListener { _, event ->
+        return View.OnTouchListener { v, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_OUTSIDE -> {
                     hideOverlay()
@@ -987,17 +1139,13 @@ class MediaAccessibilityService : AccessibilityService() {
                     if (!dragging && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
                         dragging = true
                         cancelAutoDismissTimer()
-                        performHaptic(FloaterHapticStrength.LIGHT, isAccent = false)
+                        performHaptic(v, isAccent = false)
                     }
                     if (dragging) {
-                        val isBottomAnchored = (params.gravity and Gravity.BOTTOM) == Gravity.BOTTOM
                         val rawX = initialX + dx.roundToInt()
-                        val rawY = if (isBottomAnchored) {
-                            initialY - dy.roundToInt()
-                        } else {
-                            initialY + dy.roundToInt()
-                        }
-                        val (clampedX, clampedY) = clampCoordinatesToDisplay(rawX, rawY)
+                        val rawY = initialY + dy.roundToInt()
+                        val visHeight = currentMeasuredHeight(targetView, params)
+                        val (clampedX, clampedY) = clampCoordinatesToDisplay(rawX, rawY, params.width, visHeight)
                         params.x = clampedX
                         params.y = clampedY
 
@@ -1015,8 +1163,8 @@ class MediaAccessibilityService : AccessibilityService() {
                     val wasDragging = dragging
                     dragging = false
                     if (wasDragging) {
-                        saveDragCoordinates(resources.configuration.orientation, params.x, params.y)
-                        performHaptic(FloaterHapticStrength.LIGHT, isAccent = false)
+                        saveDragCoordinates(resources.configuration.orientation, params.x, params.y, currentMeasuredHeight(targetView, params), params.width)
+                        performHaptic(v, isAccent = false)
                     }
                     resetAutoDismissTimer()
                     wasDragging
@@ -1040,20 +1188,22 @@ class MediaAccessibilityService : AccessibilityService() {
         var resizing = false
         var isBottomLeft = false
         var lastHapticStepW = 0
+        var lastHapticStepH = 0
 
         return View.OnTouchListener { v, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    initialWidth = params.width
-                    initialHeight = params.height
+                    initialWidth = if (params.width > 0) params.width else targetView.width.coerceAtLeast(dpToPx(280))
+                    initialHeight = currentMeasuredHeight(targetView, params)
                     initialX = params.x
                     initialTouchX = event.rawX
                     initialTouchY = event.rawY
                     isBottomLeft = v.id == R.id.resize_corner_bl
                     resizing = true
                     lastHapticStepW = initialWidth
+                    lastHapticStepH = initialHeight
                     cancelAutoDismissTimer()
-                    performHaptic(FloaterHapticStrength.LIGHT, isAccent = false)
+                    performHaptic(v, isAccent = false)
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -1061,27 +1211,47 @@ class MediaAccessibilityService : AccessibilityService() {
                         val dx = (event.rawX - initialTouchX).roundToInt()
                         val dy = (event.rawY - initialTouchY).roundToInt()
                         val metrics = resources.displayMetrics
-                        val maxW = (metrics.widthPixels - dpToPx(16)).coerceAtMost(dpToPx(560))
-                        val minW = dpToPx(280)
-                        val maxH = (metrics.heightPixels - dpToPx(48))
-                        val minH = dpToPx(120)
+                        val maxW = (metrics.widthPixels - dpToPx(12)).coerceAtMost(dpToPx(560))
+                        val minW = dpToPx(276)
+                        val maxH = (metrics.heightPixels - dpToPx(32)).coerceAtLeast(dpToPx(240))
+                        val minExpandedH = dpToPx(260)
+
+                        // Auto-expand into Studio Drawer if user drags a bottom corner downward > 36dp while collapsed
+                        if (!isDrawerExpanded && dy > dpToPx(36) && isFloaterEqAnd3dEnabled(context)) {
+                            isDrawerExpanded = true
+                            studioDrawerLayout?.visibility = View.VISIBLE
+                            updateFxToggleButtonTint()
+                            performHaptic(v, isAccent = true)
+                        }
 
                         if (isBottomLeft) {
-                            val newW = (initialWidth - dx).coerceIn(minW, maxW)
-                            val actualDeltaW = initialWidth - newW
+                            val rightEdge = initialX + initialWidth
+                            val maxWForEdge = (rightEdge - dpToPx(4)).coerceIn(minW, maxW)
+                            val newW = (initialWidth - dx).coerceIn(minW, maxWForEdge)
                             params.width = newW
-                            params.x = initialX + actualDeltaW
+                            params.x = (rightEdge - newW).coerceAtLeast(dpToPx(4))
                         } else {
-                            params.width = (initialWidth + dx).coerceIn(minW, maxW)
+                            val maxWForX = (metrics.widthPixels - params.x - dpToPx(4)).coerceIn(minW, maxW)
+                            params.width = (initialWidth + dx).coerceIn(minW, maxWForX)
                         }
-                        params.height = (initialHeight + dy).coerceIn(minH, maxH)
 
-                        if (abs(params.width - lastHapticStepW) >= dpToPx(24)) {
+                        if (isDrawerExpanded) {
+                            val maxHForY = (metrics.heightPixels - params.y - dpToPx(8)).coerceIn(minExpandedH, maxH)
+                            params.height = (initialHeight + dy).coerceIn(minExpandedH, maxHForY)
+                        } else {
+                            params.height = WindowManager.LayoutParams.WRAP_CONTENT
+                        }
+
+                        val curH = currentMeasuredHeight(targetView, params)
+                        if (abs(params.width - lastHapticStepW) >= dpToPx(24) ||
+                            (isDrawerExpanded && abs(curH - lastHapticStepH) >= dpToPx(24))
+                        ) {
                             lastHapticStepW = params.width
-                            performHaptic(FloaterHapticStrength.LIGHT, isAccent = false)
+                            lastHapticStepH = curH
+                            performHaptic(v, isAccent = false)
                         }
 
-                        updateGeometryBadge(params.width, params.height)
+                        updateGeometryBadge(params.width, params.height, targetView)
                         runCatching {
                             if (targetView.isAttachedToWindow) {
                                 windowManager?.updateViewLayout(targetView, params)
@@ -1095,8 +1265,13 @@ class MediaAccessibilityService : AccessibilityService() {
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     if (resizing) {
                         resizing = false
-                        saveGeometry(resources.configuration.orientation, params.width, params.height)
-                        performHaptic(FloaterHapticStrength.MEDIUM, isAccent = true)
+                        val finalH = currentMeasuredHeight(targetView, params)
+                        saveGeometry(resources.configuration.orientation, params.width, finalH)
+                        saveDragCoordinates(resources.configuration.orientation, params.x, params.y, finalH, params.width)
+                        performHaptic(v, isAccent = true)
+                        val wDp = (params.width / resources.displayMetrics.density).roundToInt()
+                        val hDp = (finalH / resources.displayMetrics.density).roundToInt()
+                        DevConsoleManager.log(LogLevel.INFO, TAG, "Floater resized to ${wDp}x${hDp}dp (expanded=$isDrawerExpanded)")
                     }
                     resetAutoDismissTimer()
                     true
@@ -1106,57 +1281,91 @@ class MediaAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun updateGeometryBadge(widthPx: Int, heightPx: Int) {
+    private fun currentMeasuredHeight(targetView: View, params: WindowManager.LayoutParams): Int =
+        when {
+            params.height > 0 -> params.height
+            targetView.height > 0 -> targetView.height
+            else -> dpToPx(if (isDrawerExpanded) 380 else 196)
+        }
+
+    private fun updateGeometryBadge(widthPx: Int, heightPx: Int, rootView: View? = overlayView) {
         val badge = statusBadgeTextView ?: return
-        val wDp = (widthPx / resources.displayMetrics.density).roundToInt()
-        val hDp = (heightPx / resources.displayMetrics.density).roundToInt()
+        val density = resources.displayMetrics.density.coerceAtLeast(1f)
+        val wDp = (widthPx / density).roundToInt()
+        val resolvedH = when {
+            heightPx > 0 -> heightPx
+            (rootView?.height ?: 0) > 0 -> rootView!!.height
+            else -> dpToPx(196)
+        }
+        val hDp = (resolvedH / density).roundToInt()
         badge.text = "${wDp}×${hDp}dp"
     }
 
     private fun openMainAppAndDismiss() {
         runCatching {
             val intent = Intent(this, MainActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP,
+                )
             }
             startActivity(intent)
+        }.onFailure { err ->
+            DevConsoleManager.log(LogLevel.WARNING, TAG, "Failed opening SpotUI from Floater: ${err.message}", err)
         }
         hideOverlay()
     }
 
-    private fun performHaptic(strengthPref: FloaterHapticStrength, isAccent: Boolean) {
+    private fun performHaptic(anchorView: View?, isAccent: Boolean) {
         if (!isFloaterHapticsEnabled(this)) return
-        val configuredStrength = getFloaterHapticStrength(this)
-        val durationMs = if (isAccent) configuredStrength.accentDurationMs else configuredStrength.clickDurationMs
-        val amplitude = configuredStrength.amplitude
+        val strength = getFloaterHapticStrength(this)
+        val durationMs = if (isAccent) strength.accentDurationMs else strength.clickDurationMs
+        val amplitude = strength.amplitude
+
+        anchorView?.let { v ->
+            runCatching {
+                val flag = if (isAccent) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        HapticFeedbackConstants.CONFIRM
+                    } else {
+                        HapticFeedbackConstants.LONG_PRESS
+                    }
+                } else {
+                    HapticFeedbackConstants.CLOCK_TICK
+                }
+                v.performHapticFeedback(flag)
+            }
+        }
 
         runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val vm = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-                val vib = vm?.defaultVibrator ?: return@runCatching
-                if (vib.hasVibrator()) {
-                    val effect = VibrationEffect.createOneShot(durationMs, amplitude)
-                    vib.vibrate(effect)
-                }
+            val vib = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
             } else {
                 @Suppress("DEPRECATION")
-                val vib = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-                if (vib != null && vib.hasVibrator()) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        vib.vibrate(VibrationEffect.createOneShot(durationMs, amplitude))
-                    } else {
-                        @Suppress("DEPRECATION")
-                        vib.vibrate(durationMs)
-                    }
-                }
+                getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            } ?: return@runCatching
+
+            if (!vib.hasVibrator()) return@runCatching
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val amp = if (vib.hasAmplitudeControl()) amplitude else VibrationEffect.DEFAULT_AMPLITUDE
+                vib.vibrate(VibrationEffect.createOneShot(durationMs, amp))
+            } else {
+                @Suppress("DEPRECATION")
+                vib.vibrate(durationMs)
             }
         }
     }
 
     private fun hideOverlay() {
         cancelAutoDismissTimer()
+        overlayScope?.cancel()
+        overlayScope = null
+
         val view = overlayView
         overlayView = null
         overlayParams = null
+        themedContextRef = null
         statusBadgeTextView = null
         titleTextView = null
         artistTextView = null
@@ -1166,16 +1375,60 @@ class MediaAccessibilityService : AccessibilityService() {
         closeButton = null
         openAppButton = null
         fxToggleButton = null
+        volumeMuteButton = null
         volumeSeekBar = null
         volumePercentTextView = null
+        volumeStepDownButton = null
+        volumeStepUpButton = null
         isUserSeekingVolume = false
         studioDrawerLayout = null
+        tabEqTextView = null
+        tab3dTextView = null
+        panelEqLayout = null
+        panel3dLayout = null
+        eqPresetsContainer = null
+        spatialProfilesContainer = null
+        toggleEqView = null
+        seekBassBoost = null
+        tvBassBoostVal = null
+        seekEqBass = null
+        tvEqBassVal = null
+        seekEqVocal = null
+        tvEqVocalVal = null
+        seekEqTreble = null
+        tvEqTrebleVal = null
+        seekEqPreamp = null
+        tvEqPreampVal = null
+        toggleNormalizer = null
+        toggleLimiter = null
+        btnEqReset = null
+        toggle3dView = null
+        tvRouteInfo = null
+        seekSpatialStrength = null
+        tvSpatialStrengthVal = null
+        seekRoomDelay = null
+        tvRoomDelayVal = null
+        seekElevation = null
+        tvElevationVal = null
+        row8dSpeed = null
+        seek8dSpeed = null
+        tv8dSpeedVal = null
+        toggle8d = null
+        toggleCrossfeed = null
+        toggleCorrGuard = null
 
         if (view != null) {
             runCatching {
                 if (view.isAttachedToWindow) {
                     windowManager?.removeViewImmediate(view)
                 }
+            }.onFailure { err ->
+                DevConsoleManager.log(
+                    LogLevel.WARNING,
+                    TAG,
+                    "Error detaching Studio Floater cleanly: ${err.message}",
+                    err,
+                )
             }
         }
     }
@@ -1193,29 +1446,40 @@ class MediaAccessibilityService : AccessibilityService() {
         mainHandler.removeCallbacks(autoDismissRunnable)
     }
 
-    private fun applyOrientationPlacement(params: WindowManager.LayoutParams, orientation: Int) {
+    private fun applyOrientationPlacement(
+        params: WindowManager.LayoutParams,
+        orientation: Int,
+        expanded: Boolean,
+    ) {
+        params.gravity = Gravity.TOP or Gravity.START
         val isLandscape = orientation == Configuration.ORIENTATION_LANDSCAPE
-        params.gravity = if (isLandscape) {
-            Gravity.TOP or Gravity.CENTER_HORIZONTAL
+        val prefix = if (isLandscape) KEY_LANDSCAPE_PREFIX else KEY_PORTRAIT_PREFIX
+
+        params.width = getSavedWidthPx(orientation, expanded)
+        params.height = if (expanded) getSavedExpandedHeightPx(orientation) else WindowManager.LayoutParams.WRAP_CONTENT
+
+        val metrics = resources.displayMetrics
+        val estHeight = if (params.height > 0) params.height else dpToPx(196)
+        val defaultX = ((metrics.widthPixels - params.width) / 2).coerceAtLeast(dpToPx(8))
+        val defaultY = if (isLandscape) {
+            dpToPx(24)
         } else {
-            Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            (metrics.heightPixels - estHeight - dpToPx(96)).coerceAtLeast(dpToPx(24))
         }
 
-        val prefix = if (isLandscape) KEY_LANDSCAPE_PREFIX else KEY_PORTRAIT_PREFIX
-        val defaultY = dpToPx(if (isLandscape) 48 else 140)
         val hasSaved = prefs.getBoolean("${prefix}_saved", false)
-        val targetX = if (hasSaved) prefs.getInt("${prefix}_x", 0) else 0
+        val targetX = if (hasSaved) prefs.getInt("${prefix}_x", defaultX) else defaultX
         val targetY = if (hasSaved) prefs.getInt("${prefix}_y", defaultY) else defaultY
 
-        val (clampedX, clampedY) = clampCoordinatesToDisplay(targetX, targetY)
+        val (clampedX, clampedY) = clampCoordinatesToDisplay(targetX, targetY, params.width, estHeight)
         params.x = clampedX
         params.y = clampedY
     }
 
-    private fun saveDragCoordinates(orientation: Int, x: Int, y: Int) {
+    private fun saveDragCoordinates(orientation: Int, x: Int, y: Int, estHeight: Int, widthPx: Int) {
         val isLandscape = orientation == Configuration.ORIENTATION_LANDSCAPE
         val prefix = if (isLandscape) KEY_LANDSCAPE_PREFIX else KEY_PORTRAIT_PREFIX
-        val (clampedX, clampedY) = clampCoordinatesToDisplay(x, y)
+        val (clampedX, clampedY) = clampCoordinatesToDisplay(x, y, widthPx, estHeight)
         prefs.edit()
             .putBoolean("${prefix}_saved", true)
             .putInt("${prefix}_x", clampedX)
@@ -1226,39 +1490,48 @@ class MediaAccessibilityService : AccessibilityService() {
     private fun saveGeometry(orientation: Int, widthPx: Int, heightPx: Int) {
         val isLandscape = orientation == Configuration.ORIENTATION_LANDSCAPE
         val prefix = if (isLandscape) KEY_LANDSCAPE_PREFIX else KEY_PORTRAIT_PREFIX
-        val isExpanded = studioDrawerLayout?.visibility == View.VISIBLE
-        val keyW = if (isExpanded) "${prefix}_w_exp" else "${prefix}_w_comp"
-        val keyH = if (isExpanded) "${prefix}_h_exp" else "${prefix}_h_comp"
-        prefs.edit()
-            .putInt(keyW, widthPx)
-            .putInt(keyH, heightPx)
-            .apply()
+        val keyW = if (isDrawerExpanded) "${prefix}_w_exp" else "${prefix}_w_comp"
+        val editor = prefs.edit().putInt(keyW, widthPx)
+        if (isDrawerExpanded && heightPx > 0) {
+            editor.putInt("${prefix}_h_exp", heightPx)
+        }
+        editor.apply()
     }
 
-    private fun getSavedWidthPx(orientation: Int): Int {
+    private fun getSavedWidthPx(orientation: Int, expanded: Boolean): Int {
         val isLandscape = orientation == Configuration.ORIENTATION_LANDSCAPE
         val prefix = if (isLandscape) KEY_LANDSCAPE_PREFIX else KEY_PORTRAIT_PREFIX
-        val defW = dpToPx(if (isLandscape) 360 else 328)
-        val isExpanded = studioDrawerLayout?.visibility == View.VISIBLE
-        val keyW = if (isExpanded) "${prefix}_w_exp" else "${prefix}_w_comp"
-        return prefs.getInt(keyW, defW)
-    }
-
-    private fun getSavedHeightPx(orientation: Int, expanded: Boolean): Int {
-        val isLandscape = orientation == Configuration.ORIENTATION_LANDSCAPE
-        val prefix = if (isLandscape) KEY_LANDSCAPE_PREFIX else KEY_PORTRAIT_PREFIX
-        val defH = dpToPx(if (expanded) (if (isLandscape) 260 else 340) else 108)
-        val keyH = if (expanded) "${prefix}_h_exp" else "${prefix}_h_comp"
-        return prefs.getInt(keyH, defH)
-    }
-
-    private fun clampCoordinatesToDisplay(x: Int, y: Int): Pair<Int, Int> {
         val metrics = resources.displayMetrics
-        val halfW = dpToPx(180)
-        val maxOffsetX = ((metrics.widthPixels / 2) - halfW / 4).coerceAtLeast(80)
-        val maxOffsetY = (metrics.heightPixels - dpToPx(96)).coerceAtLeast(80)
-        val clampedX = x.coerceIn(-maxOffsetX, maxOffsetX)
-        val clampedY = y.coerceIn(dpToPx(8), maxOffsetY)
+        val maxW = (metrics.widthPixels - dpToPx(12)).coerceAtMost(dpToPx(560))
+        val minW = dpToPx(276)
+        val defW = dpToPx(if (isLandscape) 372 else 336).coerceIn(minW, maxW)
+        val keyW = if (expanded) "${prefix}_w_exp" else "${prefix}_w_comp"
+        val fallback = if (expanded) prefs.getInt("${prefix}_w_comp", defW) else defW
+        return prefs.getInt(keyW, fallback).coerceIn(minW, maxW)
+    }
+
+    private fun getSavedExpandedHeightPx(orientation: Int): Int {
+        val isLandscape = orientation == Configuration.ORIENTATION_LANDSCAPE
+        val prefix = if (isLandscape) KEY_LANDSCAPE_PREFIX else KEY_PORTRAIT_PREFIX
+        val metrics = resources.displayMetrics
+        val maxH = (metrics.heightPixels - dpToPx(32)).coerceAtLeast(dpToPx(240))
+        val minH = dpToPx(260)
+        val defH = dpToPx(if (isLandscape) 290 else 430).coerceIn(minH, maxH)
+        return prefs.getInt("${prefix}_h_exp", defH).coerceIn(minH, maxH)
+    }
+
+    private fun clampCoordinatesToDisplay(
+        x: Int,
+        y: Int,
+        widthPx: Int,
+        heightPx: Int,
+    ): Pair<Int, Int> {
+        val metrics = resources.displayMetrics
+        val pad = dpToPx(4)
+        val maxX = (metrics.widthPixels - widthPx - pad).coerceAtLeast(pad)
+        val maxY = (metrics.heightPixels - heightPx - dpToPx(8)).coerceAtLeast(dpToPx(8))
+        val clampedX = x.coerceIn(pad, maxX)
+        val clampedY = y.coerceIn(dpToPx(8), maxY)
         return clampedX to clampedY
     }
 
@@ -1371,7 +1644,7 @@ class MediaAccessibilityService : AccessibilityService() {
     }
 
     private fun dispatchMediaKey(keyCode: Int) {
-        val am = runCatching { getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager }.getOrNull() ?: return
+        val am = runCatching { getSystemService(Context.AUDIO_SERVICE) as? AudioManager }.getOrNull() ?: return
         val now = SystemClock.uptimeMillis()
         runCatching {
             am.dispatchMediaKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0))
@@ -1384,7 +1657,6 @@ class MediaAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "MediaAccessibility"
-        const val FLOATER_OVERLAY_PREFS_NAME = "spotui_accessibility_mini_player"
         private const val KEY_PORTRAIT_PREFIX = "portrait"
         private const val KEY_LANDSCAPE_PREFIX = "landscape"
     }

@@ -88,52 +88,85 @@ fun ModuleLibsSettingsSection() {
     var lastFmBusy by remember { mutableStateOf(false) }
     var lastFmNote by remember { mutableStateOf("") }
 
+    var moduleDiagStatus by remember { mutableStateOf("") }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color(0xFF1A1A22))
-            .padding(14.dp),
+            .clip(RoundedCornerShape(22.dp))
+            .background(Color(0xFF171822))
+            .border(1.dp, AppPalette.copy(alpha = 0.24f), RoundedCornerShape(22.dp))
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = Icons.Default.Extension,
-                contentDescription = null,
-                tint = AppPalette,
-                modifier = Modifier.size(19.dp),
-            )
-            Spacer(Modifier.width(8.dp))
-            Column {
-                Text(
-                    "modules/app/libs Suite (${SpotuiModuleId.entries.size} Modules)",
-                    color = Color.White,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Icon(
+                    imageVector = Icons.Default.Extension,
+                    contentDescription = null,
+                    tint = AppPalette,
+                    modifier = Modifier.size(22.dp),
                 )
-                Text(
-                    "Inspect, toggle & configure every integrated Gradle library submodule",
-                    color = Color(0xFFB3B8C4),
-                    fontSize = 11.sp,
-                )
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text(
+                        "SpotUI Engine & Library Suite (${SpotuiModuleId.entries.size} Modules)",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                    Text(
+                        "${statuses.count { it.enabled }} active · Gradle submodules & core subsystems",
+                        color = Color(0xFFB3B8C4),
+                        fontSize = 11.sp,
+                    )
+                }
+            }
+            TextButton(
+                onClick = {
+                    UiSoundEngine.playTapChime(context)
+                    moduleDiagStatus = ModuleLibsBridge.runModuleDiagnostics(context)
+                    Toast.makeText(context, "Verified ${statuses.count { it.enabled }}/${statuses.size} modules", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.heightIn(min = 48.dp).testTag("modules_verify_all_button"),
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = "Verify Modules", tint = AppPalette, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Verify", color = AppPalette, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
         }
+        if (moduleDiagStatus.isNotBlank()) {
+            Text(
+                text = moduleDiagStatus,
+                color = Color(0xFF8BE9FD),
+                fontSize = 11.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFF10131C))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+            )
+        }
 
-        // ── All 10 Submodules Inventory + Enable Toggles ──
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // ── All 16 Modules Inventory + Enable Toggles ──
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             statuses.forEach { st ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 52.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xFF12131A))
+                        .heightIn(min = 56.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(if (st.enabled) Color(0xFF1E202C) else Color(0xFF13141C))
                         .border(
                             1.dp,
-                            if (st.enabled) AppPalette.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.06f),
-                            RoundedCornerShape(10.dp),
+                            if (st.enabled) AppPalette.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.06f),
+                            RoundedCornerShape(16.dp),
                         )
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
@@ -148,19 +181,20 @@ fun ModuleLibsSettingsSection() {
                             Spacer(Modifier.width(6.dp))
                             Text(
                                 text = st.id.category.uppercase(),
-                                color = AppPalette,
+                                color = if (st.enabled) AppPalette else Color(0xFF7B8192),
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(AppPalette.copy(alpha = 0.14f))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (st.enabled) AppPalette.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.06f))
+                                    .padding(horizontal = 7.dp, vertical = 2.dp),
                             )
                         }
+                        Spacer(Modifier.height(2.dp))
                         Text(
                             text = "${st.id.gradlePath} · ${st.summary}",
-                            color = Color(0xFF9EA5B5),
-                            fontSize = 10.sp,
+                            color = Color(0xFFA2A8B8),
+                            fontSize = 11.sp,
                             lineHeight = 14.sp,
                         )
                     }

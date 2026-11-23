@@ -27,11 +27,22 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * DevConsoleManager
- * Real-time logging, video & audio watchdog, stream diagnostic telemetry,
- * Accessibility Floater & Audio FX monitoring, error viewing, and collision detection.
+ * DevConsoleManager (v2.5.3)
+ * Dedicated real-time categorized logger, 2,000-entry ring buffer, audio/DSP/3D telemetry,
+ * MrBean network throughput tracking, Accessibility Floater monitoring, and fault ledger.
  */
 object DevConsoleManager {
+
+    enum class LogCategory(val label: String) {
+        PLAYBACK("Playback"),
+        AUDIO_DSP("DSP & 3D"),
+        NETWORK_DL("Network & DL"),
+        AUTH("Auth"),
+        FLOATER_UI("Floater & UI"),
+        BLUETOOTH("Bluetooth"),
+        MODULES("Modules"),
+        SYSTEM("System"),
+    }
 
     data class LogEntry(
         val timestamp: String,
@@ -39,6 +50,7 @@ object DevConsoleManager {
         val tag: String,
         val message: String,
         val exceptionDetails: String? = null,
+        val category: LogCategory = inferCategory(tag, level),
     )
 
     enum class LogLevel {
@@ -67,10 +79,13 @@ object DevConsoleManager {
         var activeEngine: String = "ExoPlayer (Media3)",
         var totalComponentFaults: Int = 0,
         var bluetoothSummary: String = "Probing...",
+        var totalLogsRecorded: Long = 0L,
+        var totalErrorsRecorded: Long = 0L,
+        var totalWarningsRecorded: Long = 0L,
     )
 
     private val dateFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
-    private const val MAX_LOGS = 800
+    private const val MAX_LOGS = 2000
     private val initialized = AtomicBoolean(false)
 
     private val _logs = MutableStateFlow<List<LogEntry>>(emptyList())
@@ -99,9 +114,24 @@ object DevConsoleManager {
                 timestamp = formatNow(),
                 level = LogLevel.INFO,
                 tag = "DevConsoleManager",
-                message = "Developer Console, Floater, BT & Component Fault Telemetry ready.",
+                message = "Dedicated v2.5.3 Logger ready (2,000-entry ring buffer, 8 channels, live telemetry).",
+                category = LogCategory.SYSTEM,
             ),
         )
+    }
+
+    fun inferCategory(tag: String, level: LogLevel): LogCategory {
+        val t = tag.lowercase(Locale.US)
+        return when {
+            level == LogLevel.BT_DIAGNOSTIC || "bluetooth" in t || t.startsWith("bt") -> LogCategory.BLUETOOTH
+            "spatial" in t || "dsp" in t || "audioeffect" in t || "equalizer" in t || "sound" in t -> LogCategory.AUDIO_DSP
+            "mrbean" in t || "download" in t || "updater" in t || "network" in t || "http" in t || "dns" in t -> LogCategory.NETWORK_DL
+            "login" in t || "auth" in t || "token" in t || "session" in t || "oauth" in t -> LogCategory.AUTH
+            "floater" in t || "accessibility" in t || t.startsWith("ui:") || "theme" in t -> LogCategory.FLOATER_UI
+            "module" in t || "lastfm" in t || "shazam" in t || "lyrics" in t -> LogCategory.MODULES
+            "songplayer" in t || "playback" in t || "player" in t || "queue" in t || "media" in t || "sanitizer" in t -> LogCategory.PLAYBACK
+            else -> LogCategory.SYSTEM
+        }
     }
 
     fun initialize(context: Context) {
@@ -109,9 +139,10 @@ object DevConsoleManager {
         val appCtx = context.applicationContext
         val floaterEnabled = runCatching { AccessibilityHelper.isServiceEnabled(appCtx) }.getOrDefault(false)
         val appVol = runCatching { SongPlayer.getAppVolumePercent(appCtx) }.getOrDefault(100)
+        val spatialOn = runCatching { isEqSpatialEnabled(appCtx) }.getOrDefault(false)
         logInfo(
             "DevConsoleManager",
-            "Session v${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE}) | Floater=${if (floaterEnabled) "Active" else "Standby"} | InAppVol=$appVol%",
+            "Session v${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE}) | Floater=${if (floaterEnabled) "Active" else "Standby"} | InAppVol=$appVol% | 3D=${if (spatialOn) getSpatialProfile(appCtx).label else "Off"}",
         )
     }
 
@@ -130,29 +161,38 @@ object DevConsoleManager {
         }
         current.add(entry)
         _logs.value = current
+        _diagnostics.value = _diagnostics.value.let { d ->
+            d.copy(
+                totalLogsRecorded = d.totalLogsRecorded + 1L,
+                totalErrorsRecorded = d.totalErrorsRecorded + if (entry.level == LogLevel.ERROR || entry.level == LogLevel.COMPONENT_FAULT) 1L else 0L,
+                totalWarningsRecorded = d.totalWarningsRecorded + if (entry.level == LogLevel.WARNING) 1L else 0L,
+            )
+        }
     }
 
     private fun formatNow(): String = runCatching {
         dateFormat.format(Date())
     }.getOrDefault("00:00:00.000")
 
-    fun log(level: LogLevel, tag: String, message: String, exception: Throwable? = null) {
+    fun log(
+        level: LogLevel,
+        tag: String,
+        message: String,
+        exception: Throwable? = null,
+        category: LogCategory = inferCategory(tag, level),
+    ) {
         val entry = LogEntry(
             timestamp = formatNow(),
             level = level,
             tag = tag,
             message = message,
             exceptionDetails = exception?.stackTraceToString(),
+            category = category,
         )
         appendInMemoryEntry(entry)
-        // Persist to disk without mirroring back to avoid recursion.
         AppDiagnostics.record(level.name, tag, message, exception, mirrorToConsole = false)
     }
 
-    /**
-     * Bridges logs recorded directly via [AppDiagnostics] or [Logger] into the live
-     * Developer Console UI without re-writing them to disk a second time.
-     */
     internal fun appendExternalLog(
         rawLevel: String,
         tag: String,
@@ -177,6 +217,7 @@ object DevConsoleManager {
                 tag = tag,
                 message = message,
                 exceptionDetails = exception?.stackTraceToString(),
+                category = inferCategory(tag, mapped),
             ),
         )
     }
@@ -184,7 +225,7 @@ object DevConsoleManager {
     fun logInfo(tag: String, message: String) = log(LogLevel.INFO, tag, message)
     fun logDebug(tag: String, message: String) = log(LogLevel.DEBUG, tag, message)
     fun logSanitization(message: String) {
-        log(LogLevel.SANITIZATION, "Sanitizer", message)
+        log(LogLevel.SANITIZATION, "Sanitizer", message, category = LogCategory.PLAYBACK)
         updateDiagnostics { copy(sanitizationCount = sanitizationCount + 1) }
     }
     fun logWatchdog(tag: String, message: String) = log(LogLevel.WATCHDOG, tag, message)
@@ -192,10 +233,17 @@ object DevConsoleManager {
         log(LogLevel.COLLISION, tag, message)
         updateDiagnostics { copy(totalCollisionsDetected = totalCollisionsDetected + 1) }
     }
-    fun logBluetoothDiagnostic(message: String) = log(LogLevel.BT_DIAGNOSTIC, "BluetoothInspector", message)
+    fun logBluetoothDiagnostic(message: String) =
+        log(LogLevel.BT_DIAGNOSTIC, "BluetoothInspector", message, category = LogCategory.BLUETOOTH)
+
+    fun logDsp(message: String) = log(LogLevel.INFO, "AudioDsp", message, category = LogCategory.AUDIO_DSP)
+    fun logNetwork(message: String) = log(LogLevel.INFO, "MrbeanNetwork", message, category = LogCategory.NETWORK_DL)
+    fun logAuth(message: String) = log(LogLevel.INFO, "SpotifyAuth", message, category = LogCategory.AUTH)
+    fun logFloater(message: String) = log(LogLevel.INFO, "FloaterOverlay", message, category = LogCategory.FLOATER_UI)
+
     fun logButtonAction(component: String, action: String, detail: String = "") {
         val suffix = if (detail.isNotBlank()) " — $detail" else ""
-        log(LogLevel.DEBUG, "UI:$component", "Action [$action]$suffix")
+        log(LogLevel.DEBUG, "UI:$component", "Action [$action]$suffix", category = LogCategory.FLOATER_UI)
     }
 
     @Synchronized
@@ -217,7 +265,7 @@ object DevConsoleManager {
             autoFixHint = autoFixHint,
         )
         val list = _faults.value.toMutableList()
-        if (list.size >= 100) list.removeAt(0)
+        if (list.size >= 150) list.removeAt(0)
         list.add(0, fault)
         _faults.value = list
         log(LogLevel.COMPONENT_FAULT, component, "[$action] FAULT: $reason", exception)
@@ -274,6 +322,7 @@ object DevConsoleManager {
         appendLine("Version: v${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE})")
         appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL} (Android SDK ${Build.VERSION.SDK_INT})")
         appendLine("Timestamp: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss z", Locale.US).format(Date())}")
+        appendLine("Session Stats: ${diagnostics.value.totalLogsRecorded} logged | ${diagnostics.value.totalErrorsRecorded} errors | ${diagnostics.value.totalWarningsRecorded} warnings")
         appendLine()
 
         appendLine("=== ACCESSIBILITY FLOATER & AUDIO DSP ===")
@@ -323,11 +372,11 @@ object DevConsoleManager {
             }
         }
 
-        val liveLogs = logs.value.takeLast(120).reversed()
+        val liveLogs = logs.value.takeLast(180).reversed()
         appendLine()
         appendLine("=== LIVE MEMORY LOGS (${liveLogs.size} of ${logs.value.size}) ===")
         liveLogs.forEach { l ->
-            appendLine("${l.timestamp} [${l.level}] ${l.tag}: ${l.message}")
+            appendLine("${l.timestamp} [${l.category.label}/${l.level}] ${l.tag}: ${l.message}")
             if (!l.exceptionDetails.isNullOrBlank()) {
                 appendLine(l.exceptionDetails.take(600))
             }

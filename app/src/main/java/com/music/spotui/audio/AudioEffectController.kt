@@ -344,6 +344,9 @@ object AudioEffectController {
             sp.orbitSpeedHz = getSpatialOrbitSpeed(appCtx)
             sp.elevationDepth = getSpatialElevationDepth(appCtx)
             sp.correlationGuard = isSpatialCorrelationGuardEnabled(appCtx)
+            com.music.spotui.util.DevConsoleManager.logDsp(
+                "Spatial 3D sync: enabled=${sp.enabled} profile=${sp.profile.label} depth=${(sp.width * 100).roundToInt()}% orbit8D=${sp.orbit8dEnabled} crossfeed=${sp.headphoneCrossfeed} route=${route.route.label}",
+            )
         }
 
         val sysSp = inspectSystemSpatializer(appCtx)

@@ -103,6 +103,48 @@ enum class SpotuiModuleId(
         gradlePath = "modules/app/libs/fastlane (CI metadata)",
         category = "Release & Store",
         summary = "Automated Appfile, Fastfile & localized Google Play store release descriptors",
+    ),
+    MRBEAN_ENGINE(
+        id = "mrbean_engine",
+        displayName = "MrBean HTTP/2 Turbo Transport",
+        gradlePath = "org.eclipse.Mrbean.client",
+        category = "Network & DL",
+        summary = "32-socket connection pool, HTTP/2 multiplexing, TTL DNS cache & 8x 206 workers",
+    ),
+    MEDIA3_DSP(
+        id = "media3_dsp",
+        displayName = "3D Binaural & 7-Band Float DSP",
+        gradlePath = "com.music.spotui.audio",
+        category = "Audio Engine",
+        summary = "64-bit Biquad EQ, Haas 3D Spatializer, Pinna HRTF, 8D Orbit & Soft Limiter",
+    ),
+    FLOATER_A11Y(
+        id = "floater_a11y",
+        displayName = "Accessibility Floater Studio",
+        gradlePath = "com.music.spotui.accessibility",
+        category = "Overlay UI",
+        summary = "Corner-resizable floating player, in-app volume mixer & 3D/EQ quick drawer",
+    ),
+    NOVAA_ARCHIVE(
+        id = "novaa_archive",
+        displayName = "NovaAc Single-Pass Vault",
+        gradlePath = "com.music.spotui.backup",
+        category = "Storage & Crypto",
+        summary = "Single-pass AEAD encrypted library & lossless track backup archive engine",
+    ),
+    GLANCE_WIDGETS(
+        id = "glance_widgets",
+        displayName = "Glance Now-Playing Widgets",
+        gradlePath = "com.music.spotui.widget",
+        category = "Widgets",
+        summary = "Jetpack Glance home screen player widgets synced via PlaybackService",
+    ),
+    ANDROID_AUTO(
+        id = "android_auto",
+        displayName = "MediaLibrary & Android Auto",
+        gradlePath = "com.music.spotui.ui.notification",
+        category = "Car & Cast",
+        summary = "Browsable Android Auto catalog, One UI Now Bar & Media3 notification session",
     );
 
     companion object {

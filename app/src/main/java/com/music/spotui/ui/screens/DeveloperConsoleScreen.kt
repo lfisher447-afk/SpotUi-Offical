@@ -140,6 +140,7 @@ fun DeveloperConsoleScreen(navController: NavController) {
 
     // Tab 2: Logger State
     var selectedFilter by remember { mutableStateOf<DevConsoleManager.LogLevel?>(null) }
+    var selectedCategory by remember { mutableStateOf<DevConsoleManager.LogCategory?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedLogForDialog by remember { mutableStateOf<DevConsoleManager.LogEntry?>(null) }
     var showDiskLogDialog by remember { mutableStateOf(false) }
@@ -206,12 +207,14 @@ fun DeveloperConsoleScreen(navController: NavController) {
         }
     }
 
-    val filteredLogs = remember(logs, selectedFilter, searchQuery) {
+    val filteredLogs = remember(logs, selectedFilter, selectedCategory, searchQuery) {
         logs.filter { entry ->
             (selectedFilter == null || entry.level == selectedFilter) &&
+                (selectedCategory == null || entry.category == selectedCategory) &&
                 (searchQuery.isBlank() ||
                     entry.tag.contains(searchQuery, ignoreCase = true) ||
-                    entry.message.contains(searchQuery, ignoreCase = true))
+                    entry.message.contains(searchQuery, ignoreCase = true) ||
+                    entry.category.label.contains(searchQuery, ignoreCase = true))
         }.reversed()
     }
 
@@ -376,11 +379,14 @@ fun DeveloperConsoleScreen(navController: NavController) {
                 1 -> LiveLoggerTab(
                     allLogs = logs,
                     filteredLogs = filteredLogs,
+                    diagnostics = diagnostics,
                     selectedFilter = selectedFilter,
+                    selectedCategory = selectedCategory,
                     searchQuery = searchQuery,
                     isStreamPaused = isStreamPaused,
                     diskLogBytes = diskLogBytes,
                     onFilterChange = { selectedFilter = it },
+                    onCategoryChange = { selectedCategory = it },
                     onSearchChange = { searchQuery = it },
                     onToggleStreamPause = { DevConsoleManager.setStreamPaused(!isStreamPaused) },
                     onOpenDiskLog = {
@@ -390,7 +396,10 @@ fun DeveloperConsoleScreen(navController: NavController) {
                     },
                     onEmitTestLog = {
                         Logger.info("LoggerCheck", "Manual verification event recorded to Live Console & AppDiagnostics")
-                        Toast.makeText(context, "Test event logged", Toast.LENGTH_SHORT).show()
+                        val t = SongPlayer.telemetrySnapshot(context)
+                        val dspSummary = "src=${t.activeSource} quality=${t.currentQuality} swDsp=${t.softwareDspActive} hwEq=${t.hardwareEqActive} hwSpatial=${t.hardwareSpatialActive} playing=${t.isPlaying}"
+                        DevConsoleManager.logDsp("DSP Probe: $dspSummary")
+                        Toast.makeText(context, "Recorded test & DSP probe logs", Toast.LENGTH_SHORT).show()
                     },
                     onSelectLog = { selectedLogForDialog = it },
                 )
@@ -774,11 +783,14 @@ private fun HealthCheckRow(
 private fun LiveLoggerTab(
     allLogs: List<DevConsoleManager.LogEntry>,
     filteredLogs: List<DevConsoleManager.LogEntry>,
+    diagnostics: DevConsoleManager.PlaybackDiagnostics,
     selectedFilter: DevConsoleManager.LogLevel?,
+    selectedCategory: DevConsoleManager.LogCategory?,
     searchQuery: String,
     isStreamPaused: Boolean,
     diskLogBytes: Long,
     onFilterChange: (DevConsoleManager.LogLevel?) -> Unit,
+    onCategoryChange: (DevConsoleManager.LogCategory?) -> Unit,
     onSearchChange: (String) -> Unit,
     onToggleStreamPause: () -> Unit,
     onOpenDiskLog: () -> Unit,
@@ -788,16 +800,37 @@ private fun LiveLoggerTab(
     val levelCounts = remember(allLogs) {
         allLogs.groupingBy { it.level }.eachCount()
     }
+    val categoryCounts = remember(allLogs) {
+        allLogs.groupingBy { it.category }.eachCount()
+    }
+    val dlRate by org.eclipse.Mrbean.client.MrbeanDownloadClient.throughputBytesPerSec.collectAsStateWithLifecycle()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color(0xFF171925))
+                .border(1.dp, AppPalette.copy(alpha = 0.22f), RoundedCornerShape(14.dp))
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DiagnosticBadge("Logged", "${diagnostics.totalLogsRecorded}")
+            DiagnosticBadge("Errors", "${diagnostics.totalErrorsRecorded}")
+            DiagnosticBadge("Warnings", "${diagnostics.totalWarningsRecorded}")
+            DiagnosticBadge("DL Speed", org.eclipse.Mrbean.client.MrbeanDownloadClient.formatSpeed(dlRate))
+        }
+
         OutlinedTextField(
             value = searchQuery,
             onValueChange = onSearchChange,
-            placeholder = { Text("Filter by tag or message…", color = Color.Gray, fontSize = 13.sp) },
+            placeholder = { Text("Filter by tag, channel or message…", color = Color.Gray, fontSize = 13.sp) },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color.Gray) },
             trailingIcon = {
                 if (searchQuery.isNotBlank()) {
@@ -810,7 +843,7 @@ private fun LiveLoggerTab(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("logger_search_input"),
-            shape = RoundedCornerShape(10.dp),
+            shape = RoundedCornerShape(14.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = AppPalette,
                 unfocusedBorderColor = Color(0xFF34343F),
@@ -821,18 +854,17 @@ private fun LiveLoggerTab(
             ),
         )
 
-        // Logger Status + Stream Controls Strip
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(12.dp))
                 .background(Color(0xFF1A1B23))
                 .padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
-                text = "${allLogs.size} live · Disk ${(diskLogBytes / 1024L)} KB",
+                text = "${allLogs.size}/2000 buffer · Disk ${(diskLogBytes / 1024L)} KB",
                 color = Color(0xFFB3BAC8),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -867,8 +899,31 @@ private fun LiveLoggerTab(
                     onClick = onEmitTestLog,
                     modifier = Modifier.heightIn(min = 48.dp).testTag("logger_test_event_button"),
                 ) {
-                    Text("Test", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Probe", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            FilterChip(
+                selected = selectedCategory == null,
+                onClick = { onCategoryChange(null) },
+                label = { Text("All Channels", fontSize = 11.sp) },
+                modifier = Modifier.testTag("log_channel_all"),
+            )
+            DevConsoleManager.LogCategory.entries.forEach { cat ->
+                val count = categoryCounts[cat] ?: 0
+                FilterChip(
+                    selected = selectedCategory == cat,
+                    onClick = { onCategoryChange(if (selectedCategory == cat) null else cat) },
+                    label = { Text("${cat.label} ($count)", fontSize = 11.sp) },
+                    modifier = Modifier.testTag("log_channel_${cat.name.lowercase()}"),
+                )
             }
         }
 
@@ -881,7 +936,7 @@ private fun LiveLoggerTab(
             FilterChip(
                 selected = selectedFilter == null,
                 onClick = { onFilterChange(null) },
-                label = { Text("ALL (${allLogs.size})", fontSize = 11.sp) },
+                label = { Text("ALL LEVELS (${allLogs.size})", fontSize = 11.sp) },
                 modifier = Modifier.testTag("log_filter_all"),
             )
             DevConsoleManager.LogLevel.entries.forEach { lvl ->
@@ -899,8 +954,8 @@ private fun LiveLoggerTab(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .background(Color(0xFF0B0C10), RoundedCornerShape(10.dp))
-                .border(1.dp, Color(0xFF2B2D3A), RoundedCornerShape(10.dp))
+                .background(Color(0xFF0B0C10), RoundedCornerShape(14.dp))
+                .border(1.dp, Color(0xFF2B2D3A), RoundedCornerShape(14.dp))
                 .padding(8.dp),
         ) {
             if (filteredLogs.isEmpty()) {
@@ -1352,14 +1407,21 @@ fun LogItemRow(log: DevConsoleManager.LogEntry, onClick: () -> Unit) {
             color = Color.Gray,
             fontSize = 10.sp,
             fontFamily = FontFamily.Monospace,
-            modifier = Modifier.width(72.dp),
+            modifier = Modifier.width(68.dp),
         )
         Text(
-            "[${log.level.name.take(5)}]",
-            color = levelColor,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold,
+            "[${log.category.label.take(7)}]",
+            color = AppPalette.copy(alpha = 0.85f),
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
             modifier = Modifier.width(58.dp),
+        )
+        Text(
+            "[${log.level.name.take(4)}]",
+            color = levelColor,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.width(46.dp),
         )
         Text(
             "${log.tag}: ${log.message}",

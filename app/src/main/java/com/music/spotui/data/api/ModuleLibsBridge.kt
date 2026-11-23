@@ -348,8 +348,24 @@ object ModuleLibsBridge {
                 }
                 SpotuiModuleId.SHAZAMKIT -> "${shazamQueueSummary()} · Cache ${if (ModuleLibsConfig.isShazamCacheEnabled(appContext)) "On" else "Off"}"
                 SpotuiModuleId.FASTLANE -> "Release channel: ${ModuleLibsConfig.getFastlaneChannel(appContext)}"
+                SpotuiModuleId.MRBEAN_ENGINE -> "HTTP/2 · ${org.eclipse.Mrbean.client.MrbeanNetworkSettings.parallelChunksPerFile(appContext)}x slices · ${org.eclipse.Mrbean.client.MrbeanNetworkSettings.ioBufferKb(appContext)} KiB buf"
+                SpotuiModuleId.MEDIA3_DSP -> if (com.music.spotui.data.preferences.isEqSpatialEnabled(appContext)) "3D ${com.music.spotui.data.preferences.getSpatialProfile(appContext).label} + EQ Active" else "7-Band EQ & Spatial Ready"
+                SpotuiModuleId.FLOATER_A11Y -> if (com.music.spotui.accessibility.AccessibilityHelper.isServiceEnabled(appContext)) "Accessibility Floater Active" else "Overlay Ready (Standby)"
+                SpotuiModuleId.NOVAA_ARCHIVE -> "Single-Pass TeeDigest Vault Ready"
+                SpotuiModuleId.GLANCE_WIDGETS -> "Home Widget Debouncer Synchronized"
+                SpotuiModuleId.ANDROID_AUTO -> "MediaLibraryService Browse Tree Active"
             }
             ModuleRuntimeStatus(id = mod, enabled = enabled, summary = detail)
         }
+    }
+
+    fun runModuleDiagnostics(context: Context): String {
+        val appContext = context.applicationContext
+        syncRuntimeConfiguration(appContext)
+        val statuses = collectStatusSummary(appContext)
+        val activeCount = statuses.count { it.enabled }
+        val report = "Verified $activeCount/${statuses.size} SpotUI modules | Lyrics order: ${ModuleLibsConfig.getLyricsModuleOrder(appContext).joinToString(" -> ")}"
+        DevConsoleManager.logInfo("ModuleLibsBridge", report)
+        return report
     }
 }

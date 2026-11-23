@@ -4,8 +4,11 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import com.music.spotui.ui.theme.AppPalette
 import androidx.compose.foundation.interaction.Interaction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -103,14 +106,21 @@ fun MainBottomNavigation(
                         }
                     )
 
-                    Spacer(modifier = Modifier.height(if (compact) 4.dp else 10.dp))
+                    Spacer(modifier = Modifier.height(if (compact) 4.dp else 8.dp))
 
+                    val dockShape = RoundedCornerShape(cornerRadius.coerceAtLeast(22.dp))
                     NavigationBar(
                         modifier = Modifier
-                            .padding(if (compact) 4.dp else 10.dp, 0.dp)
+                            .padding(horizontal = if (compact) 6.dp else 12.dp, vertical = 4.dp)
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(cornerRadius)),
-                        containerColor = Color.Transparent,
+                            .clip(dockShape)
+                            .border(
+                                width = 1.dp,
+                                color = Color.White.copy(alpha = 0.10f),
+                                shape = dockShape,
+                            ),
+                        containerColor = Color(0xFF10131D).copy(alpha = 0.96f),
+                        tonalElevation = 8.dp,
                         windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0)
                     ) {
                         val navStack by navController.currentBackStackEntryAsState()
@@ -129,28 +139,30 @@ fun MainBottomNavigation(
                         }
 
                         navItems.forEach { item ->
+                            val isSelected = currentTab == item.route
                             NavigationBarItem(
-                                selected = currentTab == item.route,
+                                selected = isSelected,
                                 icon = {
                                     Icon(
                                         painter = painterResource(id = item.icon),
                                         contentDescription = item.label,
-                                        modifier = Modifier.size(if (compact) 20.dp else 24.dp),
+                                        modifier = Modifier.size(if (compact) 20.dp else 23.dp),
                                     )
                                 },
                                 label = {
-                                    if (!compact || currentTab == item.route) {
+                                    if (!compact || isSelected) {
                                         Text(
-                                            color = if (currentTab == item.route) Color.White else Color.Gray,
+                                            color = if (isSelected) Color.White else Color(0xFF8C94A8),
                                             text = item.label,
                                             fontSize = if (compact) 9.sp else 11.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                         )
                                     }
                                 },
                                 onClick = {
                                     UiSoundEngine.playTabSound(context)
                                     DevConsoleManager.logButtonAction("BottomNav", "switch_tab", item.route)
-                                    if (currentTab != item.route) {
+                                    if (!isSelected) {
                                         navController.navigate(item.route) {
                                             navController.graph.startDestinationRoute?.let { startRoute ->
                                                 popUpTo(startRoute) {
@@ -169,12 +181,11 @@ fun MainBottomNavigation(
                                 alwaysShowLabel = !compact,
                                 interactionSource = NoRippleInteractionSource(),
                                 colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = Color.White,
-                                    unselectedIconColor = Color.Gray,
-                                    indicatorColor = Color.Transparent
+                                    selectedIconColor = AppPalette,
+                                    unselectedIconColor = Color(0xFF8C94A8),
+                                    indicatorColor = AppPalette.copy(alpha = 0.20f),
                                 )
                             )
-
                         }
                     }
 

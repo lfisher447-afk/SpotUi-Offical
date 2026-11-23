@@ -2,7 +2,9 @@ package com.music.spotui.ui.components
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -191,18 +193,25 @@ fun MiniPlayer(navController: NavHostController) {
     }
 
 
+    val cardShape = RoundedCornerShape(18.dp)
     Column(
         modifier = Modifier
-
-            .padding(13.dp, 0.dp)
+            .padding(horizontal = 12.dp, vertical = 2.dp)
             .graphicsLayer {
                 translationY = swipeOffsetY
                 alpha = (1f + swipeOffsetY / 150f).coerceIn(0f, 1f)
             }
-            .clip(RoundedCornerShape(8.dp))
-            .background(darkVibrantColor)
-            .padding(8.dp, 0.dp)
-
+            .clip(cardShape)
+            .background(
+                Brush.horizontalGradient(
+                    colors = listOf(
+                        darkVibrantColor.copy(alpha = 0.96f),
+                        Color(0xFF151A28).copy(alpha = 0.96f),
+                    ),
+                ),
+            )
+            .border(1.dp, Color.White.copy(alpha = 0.14f), cardShape)
+            .padding(horizontal = 10.dp, vertical = 2.dp)
     ) {
         Row(horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
@@ -290,9 +299,8 @@ fun MiniPlayer(navController: NavHostController) {
                 GlideImage(
                     modifier = Modifier
                         .padding(0.dp, 0.dp, 10.dp, 0.dp)
-                        .size(42.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                    ,
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(11.dp)),
                     model = songCoverUri,
                     contentScale = ContentScale.Crop,
                     failure = placeholder(R.drawable.placeholder),

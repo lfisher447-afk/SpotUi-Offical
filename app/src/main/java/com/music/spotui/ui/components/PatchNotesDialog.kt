@@ -53,97 +53,61 @@ private data class PatchNoteItem(
 
 private val v25IssuesFixed = listOf(
     PatchNoteItem(
+        title = "Accessibility Floater Play/Pause & Corner Resize (v2.5.3)",
+        detail = "Fixed Play/Pause taps not toggling when MediaController was buffering or idle-stopped while Next/Prev worked. All floater transport buttons now route straight through PlaybackService & SongPlayer with instant haptic feedback and true corner-edge resize tracking.",
+    ),
+    PatchNoteItem(
+        title = "3D Spatial Flatness & Audibility (v2.5.3)",
+        detail = "Overhauled SpatialWideningAudioProcessor with stereo Haas micro-taps, upper-band Mid/Side expansion, tapped Early Reflections into the 3-stage Schroeder tank, stronger HRTF pinna peaks (+4.2 dB @ 3.2 kHz), removed stereo-collapsing default crossfeed, and boosted 8D Binaural Orbit LFO modulation.",
+    ),
+    PatchNoteItem(
+        title = "Spotify WebView Login Anti-Bot / HTTP 400 Rejections (v2.5.3)",
+        detail = "Reworked Login with a clean, vanilla Android WebView (removed UA spoofing and DOM injection scripts that triggered Spotify risk/400 errors), paired with 1-tap Chrome Sign-In, Cookie Paste, and Guest mode.",
+    ),
+    PatchNoteItem(
         title = "Sequential Downloads & Unpooled HTTP Bottlenecks (v2.5.2)",
         detail = "Replaced single-thread HttpURLConnection transfers and low-concurrency pools with MrBean's pooled HTTP/2 + 206 multi-range downloader, parallel DASH-FLAC segment batches, and non-blocking metadata prefetch.",
-    ),
-    PatchNoteItem(
-        title = "3D Spatial Comb-Filtering & Head-Stage Flatness (v2.5.2)",
-        detail = "Replaced single-delay Haas widening with a 3-stage cascaded Schroeder all-pass decorrelator tank, sub-120 Hz mono-bass anchor, Woodworth spherical-head HRTF, and automatic correlation guard.",
-    ),
-    PatchNoteItem(
-        title = "Spotify WebView Login HTTP 402 / 400 & Gist Rate-Limit Failures",
-        detail = "Fixed password-login URL hints, added 1-tap Auto-Recover UA & cookie cycling for HTTP 402/400/403 risk challenges, cached TOTP secrets with raw Gist fallback, and added #session fallback token extraction.",
     ),
     PatchNoteItem(
         title = "Bluetooth False-Positive SCO Call Mode & Route Probe Log Spam",
         detail = "Fixed dual-profile Bluetooth headsets (A2DP + HFP) flagging 'SCO Call' when media A2DP was active, added real SCO communication-device release, and eliminated duplicate BT probe log entries.",
     ),
     PatchNoteItem(
-        title = "Spotify Login \"Incorrect Password\" & Native Redirect Bug",
-        detail = "Fixed an issue where spoofing a Windows Desktop Chrome User-Agent inside Android WebView triggered Spotify's anti-bot heuristic ('Incorrect username or password' on valid accounts), and Native Login discarded credentials instead of auto-filling.",
-    ),
-    PatchNoteItem(
-        title = "Invisible Login & Cookie Exchange Failures",
-        detail = "Fixed an issue where WebView HTTP errors, CAPTCHA/DOM alerts, and SpotifyAuth token exchange errors went unlogged instead of appearing in Live Diagnostics.",
-    ),
-    PatchNoteItem(
-        title = "NovaAc Fast Export Speed (~556 KB/s cap)",
-        detail = "Fixed an issue where double-pass SHA-256 hashing, per-frame 512 KiB buffers, and forced GZIP deflation on compressed audio was causing NovaAc exports to crawl at ~556 KB/s.",
-    ),
-    PatchNoteItem(
-        title = "Search \"Add to Playlist\" Button",
-        detail = "Fixed an issue where tapping Save-to-Playlist on search results with empty Spotify URIs was causing silent no-ops instead of saving to local playlists.",
-    ),
-    PatchNoteItem(
-        title = "Bluetooth & 3D Spatial Audio Conflicts",
-        detail = "Fixed an issue where A2DP hardware offload and aggressive preamp/spatial mixing were causing silent or muted playback on Bluetooth headsets.",
-    ),
-    PatchNoteItem(
-        title = "Downloaded Song Local Playback",
-        detail = "Fixed an issue where exported offline tracks could fail URI resolution or miss audio session attachment during local playback.",
-    ),
-    PatchNoteItem(
-        title = "Unexposed modules/app/libs Submodules",
-        detail = "Fixed an issue where BetterLyrics, Paxsenix, LrcLib, KuGou, SimpMusic, Last.fm, ShazamKit, and Fastlane were omitted from Gradle/Settings and unreachable in-app.",
+        title = "NovaAc Fast Export Speed & Local Downloaded Playback",
+        detail = "Streams audio single-pass with TeeDigest SHA-256 + 4 MiB buffers for multi-MB/s offline exports and reliable audio session attachment.",
     ),
 )
 
 private val v25Improvements = listOf(
     PatchNoteItem(
-        title = "Eclipse MrBean Turbo Downloader (1–10 Concurrent Tracks) (v2.5.2)",
-        detail = "Configure 1–10 simultaneous song downloads live from Downloads or Settings, paired with up to 6 parallel HTTP 206 FileChannel range workers per track, HTTP/2 multiplexing, TTL DNS caching, and live MB/s telemetry.",
+        title = "Material 3 Expressive Overhaul & Side-Tab Settings (v2.5.3)",
+        detail = "Redesigned SpotUI with a luminous Material 3 Expressive palette, animated Navigation Rail side-tab switcher in Settings, expressive Mini-Player & Bottom Navigation dock, upgraded Home & Downloads hero cards, and sleeker Floater Studio UI.",
     ),
     PatchNoteItem(
-        title = "3D Spatial Soundstage v2 + 8D Binaural Orbit (v2.5.2)",
-        detail = "Added cascaded Schroeder all-pass room acoustics, Woodworth HRTF + Pinna elevation cues, optional 8D Binaural Orbit LFO (0.10–1.50 Hz), phase correlation protection, and Android 13–17 Spatializer telemetry.",
+        title = "Turbo 8x MrBean Download Engine (v2.5.3)",
+        detail = "Upgraded connection pool (32 keep-alive sockets / 128 dispatcher), 512 KiB I/O buffers, 5 simultaneous tracks by default (up to 10), and 8 parallel HTTP 206 range slices kicking in for files >= 512 KiB with live peak MB/s tracking.",
     ),
     PatchNoteItem(
-        title = "Native Android PackageInstaller Auto-Updater (v2.5.2)",
-        detail = "Downloads GitHub Release APKs via HTTP/2 multi-range slices with live MB/s & ETA telemetry, verifies PK header + SHA-256 checksums, and installs in-place through Android's native PackageInstaller Session API with live progress & status callbacks.",
+        title = "Dedicated 2000-Entry Categorized Live Logger (v2.5.3)",
+        detail = "Expanded Dev Console into an 8-channel categorized telemetry stream (Playback, Audio DSP, Network/DL, Auth, Floater UI, Bluetooth, Modules, System) with real-time counters, live download throughput badge, and DSP Probe diagnostics.",
     ),
     PatchNoteItem(
-        title = "Hardened WebView Spotify Auth + #session Token Bridge",
-        detail = "Strips legacy password-endpoint query hints, adds OAuth/main WebView HTTP 402/400 Auto-Recover cycling, passes sp_key in token minting, and seeds verified WebView session tokens seamlessly.",
+        title = "16 Integrated SpotUI Modules + Health Probe (v2.5.3)",
+        detail = "Added MrBean Turbo Engine, Media3 DSP Studio, Floater Accessibility Service, NovaAc Offline Vault, Glance Home Widgets, and Android Auto Browser alongside all 10 lyric/discovery submodules with 1-tap health verification.",
     ),
     PatchNoteItem(
-        title = "Authentic Android Chrome Auth + Email Code + Live Logs",
-        detail = "Made Spotify sign-in reliable without external cookie extensions -> How it works: strips '; wv' from your real device Chromium UA, supports OAuth popups & 1-tap Email Code login, parses Cookie-Editor JSON, and logs HTTP/DOM/Token faults live inside Sign In.",
+        title = "M3 Expressive Accessibility Floater Studio (v2.5.3)",
+        detail = "Direct In-App Volume slider (0-100%, OS volume untouched), mute/-5%/+5% step pills, expandable 7-band EQ + 3D Spatial + 8D Orbit drawer, smooth corner-drag resizing, and configurable haptics.",
     ),
     PatchNoteItem(
-        title = "Multi-MB/s Single-Pass NovaAc Streaming",
-        detail = "Made NovaAc Fast Mode run in megabytes/sec -> How it works: streams audio in a single pass with inline TeeDigest SHA-256, 2 MiB AEAD cipher frames, 4 MiB buffers, and NO_COMPRESSION audio framing.",
-    ),
-    PatchNoteItem(
-        title = "New Expressive SongPlay UI + Legacy Toggle",
-        detail = "Made the SongPlay player screen richer & toggleable -> How it works: added an ambient artwork halo, live BT/DSP telemetry pill, and instant volume/3D dock while keeping Legacy Classic selectable in Advanced Settings.",
-    ),
-    PatchNoteItem(
-        title = "All 10 modules/app/libs Submodules Configurable",
-        detail = "Made every submodule live & customizable -> How it works: ModuleLibsBridge routes prioritized waterfall lyrics, Last.fm scrobbling, Shazam cache cleanup, and Fastlane channel flags straight from Advanced Settings.",
-    ),
-    PatchNoteItem(
-        title = "Bluetooth Specs, Conflict Fixer & Button Fault Logger",
-        detail = "Made diagnostics catch BT & UI faults -> How it works: probes active A2DP/LE codecs (LDAC/aptX/AAC/LC3), highlights SpotUI-caused conflicts with 1-tap fixes, and tracks faulty button taps in Dev Console.",
-    ),
-    PatchNoteItem(
-        title = "Tactile UI Sound Engine & Auto-Location Home Clock",
-        detail = "Made navigation, switches, sliders & home feel alive -> How it works: synthesizes low-latency PCM tab/toggle/slider chimes via SONIFICATION audio focus and ticks your local timezone clock live on Home.",
+        title = "Tactile UI Sound Engine & Native PackageInstaller Updater",
+        detail = "Low-latency PCM chimes on switches/sliders/tabs plus multi-range verified APK self-updates.",
     ),
 )
 
 /**
  * First-login / post-update "What's New & Patch Notes" UI modal displaying explicit root-cause
- * fixes and feature improvements for SpotUI v2.5.2.
+ * fixes and feature improvements for SpotUI v2.5.3.
  */
 @Composable
 fun PatchNotesDialog(

@@ -2859,16 +2859,32 @@ object SongPlayer {
         runOnMain {
             val p = player
             val count = p?.mediaItemCount ?: 0
-            if (count == 0) {
+            if (p == null || count == 0) {
                 val q = restoreQuery
                 val ctx = appCtx
                 if (q != null && ctx != null) {
                     playSong(q, ctx)
                     return@runOnMain
+                } else if (ctx != null) {
+                    com.music.spotui.ui.notification.PlaybackService.triggerBackgroundCommand(
+                        ctx,
+                        com.music.spotui.ui.notification.PlaybackService.ACTION_BACKGROUND_PLAY_PAUSE,
+                    )
+                    return@runOnMain
                 }
             }
-            p?.play()
-            p?.let { syncCachedPlayerState(it) }
+            if (p != null) {
+                if (p.playbackState == Player.STATE_ENDED) {
+                    p.seekTo(0)
+                } else if (p.playbackState == Player.STATE_IDLE && count > 0) {
+                    p.prepare()
+                }
+                p.playWhenReady = true
+                p.play()
+                syncCachedPlayerState(p)
+            }
+            boundState?.updatePlayingState(true)
+            com.music.spotui.util.DevConsoleManager.logInfo("SongPlayer", "Playback PLAY requested (state=${p?.playbackState}, count=$count)")
             appCtx?.let { com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(it) }
         }
     }
@@ -2881,6 +2897,7 @@ object SongPlayer {
             runOnMain {
                 cancelCrossfade()
                 SpotifyWebPlayer.pause()
+                boundState?.updatePlayingState(false)
                 appCtx?.let { com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(it) }
             }
             return
@@ -2889,6 +2906,7 @@ object SongPlayer {
             cancelCrossfade()
             player?.let {
                 it.playWhenReady = false
+                it.pause()
                 // Remember where we stopped so a relaunch can resume mid-track.
                 appCtx?.let { ctx ->
                     val pos = it.currentPosition
@@ -2896,6 +2914,8 @@ object SongPlayer {
                 }
                 syncCachedPlayerState(it)
             }
+            boundState?.updatePlayingState(false)
+            com.music.spotui.util.DevConsoleManager.logInfo("SongPlayer", "Playback PAUSE requested")
             appCtx?.let { com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(it) }
         }
     }
@@ -2914,6 +2934,7 @@ object SongPlayer {
                 it.stop()
                 syncCachedPlayerState(it)
             }
+            boundState?.updatePlayingState(false)
             appCtx?.let { com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(it) }
         }
     }
@@ -2923,13 +2944,24 @@ object SongPlayer {
             if (SpotifyWebPlayer.isPlaying) pause() else play()
             return
         }
-        val p = player ?: return
+        val p = player
+        if (p == null || p.mediaItemCount == 0) {
+            val ctx = appCtx
+            if (ctx != null) {
+                com.music.spotui.ui.notification.PlaybackService.triggerBackgroundCommand(
+                    ctx,
+                    com.music.spotui.ui.notification.PlaybackService.ACTION_BACKGROUND_PLAY_PAUSE,
+                )
+            }
+            return
+        }
         val pwr = if (android.os.Looper.myLooper() == p.applicationLooper) {
             p.playWhenReady.also { lastKnownPlayWhenReady = it }
         } else {
             lastKnownPlayWhenReady
         }
-        if (pwr) pause() else play()
+        val activeNow = pwr || isPlaying() || (isResolvingTrack && playWhenResolved)
+        if (activeNow) pause() else play()
     }
 
     fun next(context: Context) {

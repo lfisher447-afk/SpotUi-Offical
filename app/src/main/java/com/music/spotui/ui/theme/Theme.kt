@@ -21,9 +21,20 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Shapes
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
+
+private val ExpressiveShapes = Shapes(
+    extraSmall = RoundedCornerShape(10.dp),
+    small = RoundedCornerShape(14.dp),
+    medium = RoundedCornerShape(20.dp),
+    large = RoundedCornerShape(26.dp),
+    extraLarge = RoundedCornerShape(32.dp),
+)
 
 /** App-level Material 3 host driven by Theme Studio and accessibility preferences. */
 @Composable
@@ -68,7 +79,11 @@ fun SpotuiTheme(
     }
 
     CompositionLocalProvider(LocalDensity provides scaledDensity) {
-        MaterialTheme(colorScheme = colorScheme, typography = Typography) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            shapes = ExpressiveShapes,
+            typography = Typography,
+        ) {
             ProvideTextStyle(
                 value = androidx.compose.material3.LocalTextStyle.current.copy(
                     fontFamily = Montserrat,
@@ -83,18 +98,28 @@ fun SpotuiTheme(
 private fun expressiveDarkScheme(spec: SpotuiThemeSpec): ColorScheme = darkColorScheme(
     primary = Color(spec.primaryArgb),
     onPrimary = Color(spec.onPrimaryArgb),
-    primaryContainer = Color(spec.secondaryArgb).copy(alpha = 0.30f),
+    primaryContainer = Color(spec.secondaryArgb).copy(alpha = 0.28f),
     onPrimaryContainer = Color.White,
     secondary = Color(spec.secondaryArgb),
     onSecondary = contrastFor(Color(spec.secondaryArgb)),
+    secondaryContainer = Color(spec.secondaryArgb).copy(alpha = 0.20f),
+    onSecondaryContainer = Color.White,
     tertiary = Color(spec.tertiaryArgb),
     onTertiary = contrastFor(Color(spec.tertiaryArgb)),
+    tertiaryContainer = Color(spec.tertiaryArgb).copy(alpha = 0.22f),
+    onTertiaryContainer = Color.White,
     background = Color(spec.backgroundArgb),
     onBackground = Color(spec.onBackgroundArgb),
     surface = Color(spec.surfaceArgb),
     onSurface = Color(spec.onBackgroundArgb),
-    surfaceVariant = Color(spec.surfaceArgb).copy(alpha = 0.86f),
-    outline = Color(spec.secondaryArgb).copy(alpha = 0.70f),
+    surfaceVariant = Color(spec.surfaceArgb).copy(alpha = 0.88f),
+    surfaceContainerLowest = Color(0xFF07090E),
+    surfaceContainerLow = Color(0xFF0F121B),
+    surfaceContainer = Color(0xFF151926),
+    surfaceContainerHigh = Color(0xFF1C2232),
+    surfaceContainerHighest = Color(0xFF232A3D),
+    outline = Color(spec.secondaryArgb).copy(alpha = 0.65f),
+    outlineVariant = Color.White.copy(alpha = 0.14f),
 )
 
 private fun expressiveLightScheme(spec: SpotuiThemeSpec): ColorScheme = lightColorScheme(
@@ -104,8 +129,10 @@ private fun expressiveLightScheme(spec: SpotuiThemeSpec): ColorScheme = lightCol
     onPrimaryContainer = contrastFor(Color(spec.secondaryArgb)),
     secondary = Color(spec.secondaryArgb),
     onSecondary = contrastFor(Color(spec.secondaryArgb)),
+    secondaryContainer = Color(spec.secondaryArgb).copy(alpha = 0.18f),
     tertiary = Color(spec.tertiaryArgb),
     onTertiary = contrastFor(Color(spec.tertiaryArgb)),
+    tertiaryContainer = Color(spec.tertiaryArgb).copy(alpha = 0.18f),
     background = Color(spec.backgroundArgb),
     onBackground = Color(spec.onBackgroundArgb),
     surface = Color(spec.surfaceArgb),

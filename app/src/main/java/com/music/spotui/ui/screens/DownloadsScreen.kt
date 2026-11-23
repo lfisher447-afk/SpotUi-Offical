@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -510,19 +511,29 @@ fun DownloadsScreen(navController: NavController) {
                         ),
                     verticalArrangement = Arrangement.Center,
                 ) {
-                    Spacer(modifier = Modifier.padding(25.dp))
+                    Spacer(modifier = Modifier.padding(24.dp))
                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        val heroShape = RoundedCornerShape(36.dp)
                         Box(
                             modifier = Modifier
-                                .size(200.dp)
-                                .background(accent.copy(alpha = 0.25f)),
+                                .size(196.dp)
+                                .clip(heroShape)
+                                .background(
+                                    Brush.radialGradient(
+                                        colors = listOf(
+                                            accent.copy(alpha = 0.42f),
+                                            Color(0xFF14241C).copy(alpha = 0.85f),
+                                        ),
+                                    ),
+                                )
+                                .border(1.5.dp, accent.copy(alpha = 0.45f), heroShape),
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(
                                 imageVector = ImageVector.vectorResource(R.drawable.ic_download),
                                 contentDescription = "",
-                                tint = accent,
-                                modifier = Modifier.size(90.dp),
+                                tint = Color(0xFF25E36C),
+                                modifier = Modifier.size(86.dp),
                             )
                         }
                     }
@@ -846,17 +857,24 @@ fun DownloadsScreen(navController: NavController) {
                 // ── MrBean Turbo Concurrency & Speed Control Card (1..10 simultaneous tracks) ──
                 val mrbeanRev by MrbeanNetworkSettings.settingsRevision.collectAsState()
                 val downloadSpeedBps by SongPlayer.downloadThroughputBytesPerSec().collectAsState()
+                val peakSpeedBps by MrbeanDownloadClient.peakBytesPerSec.collectAsState()
                 val batchQueued by SongPlayer.batchQueuedCount.collectAsState()
                 val concurrentMax = remember(mrbeanRev) { MrbeanNetworkSettings.maxConcurrentDownloads(context) }
                 val slicesPerFile = remember(mrbeanRev) { MrbeanNetworkSettings.parallelChunksPerFile(context) }
 
+                val turboCardShape = RoundedCornerShape(20.dp)
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 20.dp, vertical = 6.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Color(0xFF181A22))
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                        .clip(turboCardShape)
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(Color(0xFF15201D), Color(0xFF141826))
+                            )
+                        )
+                        .border(1.dp, accent.copy(alpha = 0.35f), turboCardShape)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     Row(
@@ -866,17 +884,18 @@ fun DownloadsScreen(navController: NavController) {
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "MrBean Turbo Queue · $concurrentMax concurrent × ${slicesPerFile}x range",
+                                text = "MrBean Turbo Engine · $concurrentMax tracks × ${slicesPerFile}x HTTP 206",
                                 color = Color.White,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.ExtraBold,
                             )
                             val statusSub = buildString {
-                                append("${inProgress.size} downloading")
+                                append("${inProgress.size} active")
                                 if (batchQueued > 0) append(" · $batchQueued queued")
-                                if (downloadSpeedBps > 0L) append(" · ${MrbeanDownloadClient.formatSpeed(downloadSpeedBps)}")
+                                if (downloadSpeedBps > 0L) append(" · Live ${MrbeanDownloadClient.formatSpeed(downloadSpeedBps)}")
+                                if (peakSpeedBps > 0L) append(" · Peak ${MrbeanDownloadClient.formatSpeed(peakSpeedBps)}")
                             }
-                            Text(statusSub, color = accent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            Text(statusSub, color = Color(0xFF25E36C), fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                         }
                         if (inProgress.isNotEmpty() || batchQueued > 0) {
                             TextButton(

@@ -3,6 +3,7 @@ package org.eclipse.Mrbean.client
 import android.content.Context
 import android.util.Log
 import com.metrolist.innertube.network.AuthSessionStore
+import com.music.spotui.util.DevConsoleManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -34,22 +35,19 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * High-throughput HTTP/2 + Keep-Alive + Multi-Range download & playback transport
- * for SpotUI's Eclipse MrBean network engine.
+ * for SpotUI's Eclipse MrBean Turbo Engine (v2.5.3).
  *
- * Key performance wins over legacy per-chunk HttpURLConnection:
- * 1. Shared warm [ConnectionPool] (24 sockets / 5m keep-alive) and raised [Dispatcher]
- *    (`maxRequests = 96`, `maxRequestsPerHost = 24`) eliminate repeated TCP+TLS handshakes.
- * 2. 5-minute TTL DNS cache wrapping DoH/System DNS removes repeated lookup stalls.
- * 3. Adaptive multi-range parallel chunk workers split large media fetches across multiple
- *    simultaneous byte ranges writing thread-safely via [FileChannel.write] positional I/O.
- * 4. Atomic 1-second rolling bandwidth meter exposes live MB/s speed telemetry.
+ * - Shared warm [ConnectionPool] (32 sockets / 5m keep-alive) & raised [Dispatcher]
+ *   (`maxRequests = 128`, `maxRequestsPerHost = 32`) eliminate TCP+TLS handshake stalls.
+ * - 512 KiB fast initial probe + up to 8 simultaneous HTTP 206 [FileChannel] range workers.
+ * - Up to 1 MiB positional I/O buffers & atomic rolling MB/s meter.
  */
 object MrbeanDownloadClient {
     private const val TAG = "MrbeanDownloadClient"
     private const val DOWNLOAD_UA =
         "Mozilla/5.0 (Linux; Android 14; Pixel) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
-    private const val PLAYBACK_UA = "Spotui-MrBean/2.0 (Android Media3)"
+    private const val PLAYBACK_UA = "Spotui-MrBean/2.5.3 (Android Media3)"
 
     data class DownloadResult(
         val success: Boolean,
@@ -65,7 +63,7 @@ object MrbeanDownloadClient {
     @Volatile private var cachedDownloadClient: ClientCacheEntry? = null
     @Volatile private var cachedPlaybackClient: ClientCacheEntry? = null
 
-    private val sharedConnectionPool = ConnectionPool(24, 5, TimeUnit.MINUTES)
+    private val sharedConnectionPool = ConnectionPool(32, 5, TimeUnit.MINUTES)
 
     // Live throughput meter across all concurrent download workers
     private val activeTransfers = AtomicInteger(0)
@@ -74,18 +72,24 @@ object MrbeanDownloadClient {
     private val _throughputBytesPerSec = MutableStateFlow(0L)
     val throughputBytesPerSec: StateFlow<Long> = _throughputBytesPerSec.asStateFlow()
 
+    private val _peakBytesPerSec = MutableStateFlow(0L)
+    val peakBytesPerSec: StateFlow<Long> = _peakBytesPerSec.asStateFlow()
+
     private fun recordBytesTransferred(bytes: Long) {
         if (bytes <= 0L) return
         val total = windowBytes.addAndGet(bytes)
         val now = System.currentTimeMillis()
         val start = windowStartMs.get()
         val elapsed = now - start
-        if (elapsed >= 600L && windowStartMs.compareAndSet(start, now)) {
+        if (elapsed >= 450L && windowStartMs.compareAndSet(start, now)) {
             val captured = windowBytes.getAndSet(0L)
             val rate = ((captured * 1000L) / elapsed.coerceAtLeast(1L)).coerceAtLeast(0L)
             _throughputBytesPerSec.value = rate
-        } else if (elapsed in 1L..599L && _throughputBytesPerSec.value == 0L && total > 65_536L) {
-            _throughputBytesPerSec.value = ((total * 1000L) / elapsed.coerceAtLeast(1L))
+            if (rate > _peakBytesPerSec.value) _peakBytesPerSec.value = rate
+        } else if (elapsed in 1L..449L && _throughputBytesPerSec.value == 0L && total > 32_768L) {
+            val rate = ((total * 1000L) / elapsed.coerceAtLeast(1L))
+            _throughputBytesPerSec.value = rate
+            if (rate > _peakBytesPerSec.value) _peakBytesPerSec.value = rate
         }
     }
 
@@ -141,11 +145,11 @@ object MrbeanDownloadClient {
         cachedDownloadClient?.takeIf { it.fingerprint == fp }?.let { return it.client }
         return synchronized(clientLock) {
             cachedDownloadClient?.takeIf { it.fingerprint == fp }?.let { return@synchronized it.client }
-            val connectMs = if (tuning.enabled) tuning.connectTimeoutMs.toLong() else 12_000L
-            val readMs = if (tuning.enabled) tuning.readTimeoutMs.toLong() else 25_000L
+            val connectMs = if (tuning.enabled) tuning.connectTimeoutMs.toLong() else 10_000L
+            val readMs = if (tuning.enabled) tuning.readTimeoutMs.toLong() else 20_000L
             val dispatcher = Dispatcher().apply {
-                maxRequests = 96
-                maxRequestsPerHost = 24
+                maxRequests = 128
+                maxRequestsPerHost = 32
             }
             val protocols = if (tuning.http2Multiplexing) {
                 listOf(Protocol.HTTP_2, Protocol.HTTP_1_1)
@@ -184,11 +188,11 @@ object MrbeanDownloadClient {
         cachedPlaybackClient?.takeIf { it.fingerprint == fp }?.let { return it.client }
         return synchronized(clientLock) {
             cachedPlaybackClient?.takeIf { it.fingerprint == fp }?.let { return@synchronized it.client }
-            val connectMs = if (tuning.enabled) tuning.connectTimeoutMs.toLong() else 15_000L
-            val readMs = if (tuning.enabled) tuning.readTimeoutMs.toLong() else 30_000L
+            val connectMs = if (tuning.enabled) tuning.connectTimeoutMs.toLong() else 12_000L
+            val readMs = if (tuning.enabled) tuning.readTimeoutMs.toLong() else 25_000L
             val dispatcher = Dispatcher().apply {
-                maxRequests = 48
-                maxRequestsPerHost = 12
+                maxRequests = 64
+                maxRequestsPerHost = 16
             }
             val protocols = if (tuning.http2Multiplexing) {
                 listOf(Protocol.HTTP_2, Protocol.HTTP_1_1)
@@ -243,9 +247,8 @@ object MrbeanDownloadClient {
     }
 
     /**
-     * Downloads [url] into [destFile] using HTTP/2 connection pooling and optional multi-range
-     * parallel slice workers. Automatically handles HTTP 200 (single-stream fallback) and
-     * HTTP 206 Partial Content (parallel chunk workers writing to [FileChannel] offsets).
+     * Downloads [url] into [destFile] using HTTP/2 connection pooling and multi-range
+     * parallel slice workers.
      */
     suspend fun downloadRangedToFile(
         context: Context,
@@ -255,19 +258,19 @@ object MrbeanDownloadClient {
     ): DownloadResult = withContext(Dispatchers.IO) {
         val tuning = MrbeanNetworkSettings.snapshot(context.applicationContext)
         val client = okHttpClient(context)
-        val parallelWorkers = if (tuning.enabled) tuning.parallelChunksPerFile.coerceIn(1, 6) else 1
+        val parallelWorkers = if (tuning.enabled) tuning.parallelChunksPerFile.coerceIn(1, 8) else 1
         val maxRetries = if (tuning.enabled) tuning.rangeRetries.coerceIn(1, 6) else 2
         val chunkBytes = (tuning.chunkMiB.coerceIn(1, 16).toLong()) * 1024L * 1024L
-        val ioBufBytes = tuning.ioBufferKb.coerceIn(64, 512) * 1024
+        val ioBufBytes = tuning.ioBufferKb.coerceIn(64, 1024) * 1024
 
+        val startMs = System.currentTimeMillis()
         beginTransferSlot()
         try {
             onProgress(0)
             destFile.parentFile?.mkdirs()
 
-            // When parallel slicing is active, probe a compact 1 MiB initial window so remaining
-            // slices dispatch across concurrent HTTP/2 streams immediately.
-            val firstWindowBytes = if (parallelWorkers > 1) minOf(chunkBytes, 1024L * 1024L) else chunkBytes
+            // Probe 512 KiB first so parallel HTTP/2 range workers spin up immediately
+            val firstWindowBytes = if (parallelWorkers > 1) minOf(chunkBytes, 512L * 1024L) else chunkBytes
             val firstEnd = firstWindowBytes - 1L
 
             var probeTotalBytes = -1L
@@ -299,9 +302,10 @@ object MrbeanDownloadClient {
                             lastError = "Stream returned HTTP $code"
                             val retryable = code == 408 || code == 425 || code == 429 || code in 500..599
                             if (retryable && attempt < maxRetries) {
-                                delay((attempt * 250L).coerceAtMost(1_200L))
+                                delay((attempt * 200L).coerceAtMost(1_000L))
                                 continue
                             }
+                            DevConsoleManager.logWarning(TAG, "Download probe error: $lastError")
                             return@withContext DownloadResult(false, error = lastError)
                         }
                         val body = resp.body ?: run {
@@ -339,9 +343,10 @@ object MrbeanDownloadClient {
                     lastError = e.message ?: "Connection error"
                     Log.w(TAG, "Probe failed (attempt $attempt/$maxRetries): $lastError")
                     if (attempt >= maxRetries) {
+                        DevConsoleManager.logError(TAG, "Download probe failed after $attempt attempts: $lastError", e)
                         return@withContext DownloadResult(false, error = lastError)
                     }
-                    delay((attempt * 250L).coerceAtMost(1_200L))
+                    delay((attempt * 200L).coerceAtMost(1_000L))
                 }
             }
 
@@ -352,10 +357,15 @@ object MrbeanDownloadClient {
             // Single-response HTTP 200 or file completely covered by first range
             if (isFull200Body || probeTotalBytes <= 0L || probeWritten >= probeTotalBytes) {
                 onProgress(100)
+                val dt = (System.currentTimeMillis() - startMs).coerceAtLeast(1L)
+                DevConsoleManager.logInfo(
+                    TAG,
+                    "Completed ${destFile.name}: ${probeWritten / 1024} KB in ${dt}ms (${formatSpeed((probeWritten * 1000L) / dt)})",
+                )
                 return@withContext DownloadResult(true, bytesWritten = probeWritten)
             }
 
-            // Phase 2: Remainder over parallel or chunked byte-ranges written directly to FileChannel
+            // Phase 2: Remainder over parallel HTTP 206 workers writing via FileChannel
             val remainingStart = probeWritten
             val remainingBytes = probeTotalBytes - remainingStart
             if (remainingBytes <= 0L) {
@@ -363,15 +373,16 @@ object MrbeanDownloadClient {
                 return@withContext DownloadResult(true, bytesWritten = probeWritten)
             }
 
+            val sliceCount: Int
             RandomAccessFile(destFile, "rw").use { raf ->
                 if (raf.length() < probeTotalBytes) {
                     raf.setLength(probeTotalBytes)
                 }
                 val channel = raf.channel
 
-                // Choose slice count: allow even 3-5 MiB files to fan across 2-4 workers
-                val minSliceBytes = 256L * 1024L
-                val sliceCount = if (parallelWorkers <= 1 || remainingBytes < minSliceBytes * 2L) {
+                // Allow virtually any audio stream > 384 KiB to fan across parallel HTTP/2 range workers
+                val minSliceBytes = 192L * 1024L
+                sliceCount = if (parallelWorkers <= 1 || remainingBytes < minSliceBytes * 2L) {
                     1
                 } else {
                     (remainingBytes / minSliceBytes).toInt().coerceIn(1, parallelWorkers)
@@ -408,28 +419,34 @@ object MrbeanDownloadClient {
 
                 val failedErr = sliceResults.firstOrNull { it != null }
                 if (failedErr != null) {
+                    DevConsoleManager.logWarning(TAG, "Multi-range transfer failed ($sliceCount workers): $failedErr")
                     return@withContext DownloadResult(false, error = failedErr)
                 }
             }
 
             onProgress(100)
             val finalSize = destFile.length()
+            val dt = (System.currentTimeMillis() - startMs).coerceAtLeast(1L)
+            val speedStr = formatSpeed((finalSize * 1000L) / dt)
+            if (finalSize >= probeTotalBytes) {
+                DevConsoleManager.logInfo(
+                    TAG,
+                    "Turbo HTTP/2 [$sliceCount workers] finished ${destFile.name}: ${finalSize / 1024} KB in ${dt}ms ($speedStr)",
+                )
+            }
             DownloadResult(
                 success = finalSize >= probeTotalBytes,
                 bytesWritten = finalSize,
                 error = if (finalSize < probeTotalBytes) "Incomplete download ($finalSize/$probeTotalBytes B)" else null,
             )
         } catch (e: Exception) {
+            DevConsoleManager.logError(TAG, "Download exception for ${destFile.name}: ${e.message}", e)
             DownloadResult(false, error = e.message ?: "Download error")
         } finally {
             endTransferSlot()
         }
     }
 
-    /**
-     * Fetches `[sliceStart .. sliceEnd]` in up to [chunkBytes] sub-ranges, writing thread-safely
-     * at exact offsets in [channel]. Returns `null` on success, or an error string on failure.
-     */
     private suspend fun fetchSliceIntoChannel(
         client: OkHttpClient,
         url: String,
@@ -464,7 +481,7 @@ object MrbeanDownloadClient {
                             }
                             val retryable = code == 408 || code == 425 || code == 429 || code in 500..599
                             if (retryable && attempt < maxRetries) {
-                                delay((attempt * 250L).coerceAtMost(1_200L))
+                                delay((attempt * 200L).coerceAtMost(1_000L))
                                 return@use
                             }
                             return lastErr
@@ -497,7 +514,7 @@ object MrbeanDownloadClient {
                         if (cursor > subEnd) {
                             subDone = true
                         } else if (attempt < maxRetries) {
-                            delay(200L)
+                            delay(150L)
                         } else {
                             return "Truncated slice @$cursor/$subEnd"
                         }
@@ -506,7 +523,7 @@ object MrbeanDownloadClient {
                     lastErr = e.message ?: "Slice I/O error"
                     Log.w(TAG, "Slice @$cursor failed (attempt $attempt/$maxRetries): $lastErr")
                     if (attempt >= maxRetries) return lastErr
-                    delay((attempt * 250L).coerceAtMost(1_200L))
+                    delay((attempt * 200L).coerceAtMost(1_000L))
                 }
             }
             if (!subDone) return lastErr

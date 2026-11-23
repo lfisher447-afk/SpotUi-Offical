@@ -747,7 +747,8 @@ class PlaybackService : MediaLibraryService() {
         private const val IDLE_STOP_TIMEOUT_MS = 5 * 60_000L
 
         @Volatile
-        private var activeInstance: PlaybackService? = null
+        internal var activeInstance: PlaybackService? = null
+            private set
 
         private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -816,11 +817,19 @@ class PlaybackService : MediaLibraryService() {
     }
 
     internal fun handleBackgroundCommand(commandAction: String) {
+        com.music.spotui.util.DevConsoleManager.logInfo(
+            "PlaybackService",
+            "handleBackgroundCommand($commandAction) playing=${SongPlayer.isPlaying()} pwr=${SongPlayer.exoPlayer?.playWhenReady} resolving=${SongPlayer.isResolvingTrack}",
+        )
         when (commandAction) {
             ACTION_BACKGROUND_PLAY_PAUSE -> {
-                if (SongPlayer.isPlaying()) {
+                val p = SongPlayer.exoPlayer
+                val isCurrentlyActive = SongPlayer.isPlaying() ||
+                    (p?.playWhenReady == true && p.playbackState != Player.STATE_ENDED) ||
+                    (SongPlayer.isResolvingTrack && currentSongState.playingState.value)
+                if (isCurrentlyActive) {
                     SongPlayer.pause()
-                } else if (currentSongState.queue.value.isEmpty() || (SongPlayer.exoPlayer?.mediaItemCount ?: 0) == 0) {
+                } else if (currentSongState.queue.value.isEmpty() || (p?.mediaItemCount ?: 0) == 0) {
                     val resumed = resumeFromPersistence(skipFirst = false)
                     if (resumed == null) {
                         SongPlayer.play()
@@ -1001,11 +1010,20 @@ class PlaybackService : MediaLibraryService() {
         ): Int {
             when (playerCommand) {
                 Player.COMMAND_PLAY_PAUSE -> {
-                    if (currentSongState.queue.value.isEmpty() || (SongPlayer.exoPlayer?.mediaItemCount ?: 0) == 0) {
+                    val p = SongPlayer.exoPlayer
+                    val isCurrentlyActive = SongPlayer.isPlaying() ||
+                        (p?.playWhenReady == true && p.playbackState != Player.STATE_ENDED) ||
+                        currentSongState.playingState.value
+                    if (isCurrentlyActive) {
+                        SongPlayer.pause()
+                    } else if (currentSongState.queue.value.isEmpty() || (p?.mediaItemCount ?: 0) == 0) {
                         resumeFromPersistence(skipFirst = false)
-                        scheduleIdleStopCheck()
-                        return SessionResult.RESULT_INFO_SKIPPED
+                    } else {
+                        SongPlayer.play()
                     }
+                    syncSessionStateFromApp()
+                    scheduleIdleStopCheck()
+                    return SessionResult.RESULT_INFO_SKIPPED
                 }
                 Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> {
                     if (currentSongState.queue.value.isNotEmpty() && (SongPlayer.exoPlayer?.mediaItemCount ?: 0) > 0) {
