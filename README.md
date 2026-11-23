@@ -2,7 +2,7 @@
 
 # SpotUI Android — v2.5.2 (`202611232`)
 
-### Expressive Jetpack Compose Audio Workstation for Android 8 – 17 & Samsung One UI 9.0
+### Expressive Jetpack Compose audio and Spotify and YouTube audio with automatic playlist sync for both spotify and youtube as soon as you log in . *Android 8 – 17 and more 😊💫 
 
 [![GitHub Stars](https://img.shields.io/github/stars/lfisher447-afk/SpotUi-Offical?style=for-the-badge&color=F5B841&logo=github)](https://github.com/lfisher447-afk/SpotUi-Offical/stargazers)
 [![GitHub Forks](https://img.shields.io/github/forks/lfisher447-afk/SpotUi-Offical?style=for-the-badge&color=5C8DF6&logo=github)](https://github.com/lfisher447-afk/SpotUi-Offical/network/members)
