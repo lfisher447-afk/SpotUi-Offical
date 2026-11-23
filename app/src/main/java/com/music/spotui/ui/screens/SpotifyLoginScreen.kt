@@ -749,7 +749,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                     modifier = Modifier.heightIn(min = 34.dp),
                                 ) {
-                                    Text("Try ${nextUa.label}", color = Color.White, fontSize = 10.5sp)
+                                    Text("Try ${nextUa.label}", color = Color.White, fontSize = 10.5.sp)
                                 }
                                 OutlinedButton(
                                     onClick = {
@@ -761,7 +761,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                     modifier = Modifier.heightIn(min = 34.dp),
                                 ) {
-                                    Text("Reset Session", color = Color(0xFFFFB74D), fontSize = 10.5sp)
+                                    Text("Reset Session", color = Color(0xFFFFB74D), fontSize = 10.5.sp)
                                 }
                                 Button(
                                     onClick = {
@@ -774,7 +774,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                     modifier = Modifier.heightIn(min = 34.dp),
                                 ) {
-                                    Text("Chrome + Cookie", fontSize = 10.5sp, fontWeight = FontWeight.Bold)
+                                    Text("Chrome + Cookie", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -1043,7 +1043,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                             ) {
                                 Icon(Icons.Default.OpenInBrowser, contentDescription = null, tint = Color(0xFF9ED4FF), modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(6.dp))
-                                Text("Open in Chrome", color = Color.White, fontSize = 11.5sp, fontWeight = FontWeight.SemiBold)
+                                Text("Open in Chrome", color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
                             }
                             OutlinedButton(
                                 onClick = {
@@ -1057,7 +1057,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                             ) {
                                 Icon(Icons.Default.ContentCopy, contentDescription = null, tint = Color(LOGIN_SPOTIFY_GREEN), modifier = Modifier.size(15.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text("Copy URL", color = Color.White, fontSize = 11.5sp)
+                                Text("Copy URL", color = Color.White, fontSize = 11.5.sp)
                             }
                         }
 
