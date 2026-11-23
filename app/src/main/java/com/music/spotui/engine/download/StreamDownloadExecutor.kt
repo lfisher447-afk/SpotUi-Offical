@@ -12,23 +12,24 @@ import com.music.spotui.util.Result
 import com.music.spotui.util.runSuspendCatching
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
-import java.io.FileOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import org.eclipse.Mrbean.client.MrbeanDownloadClient
 
-/** Copies a resolved, app-authorized stream into the app's private offline storage. */
+/** Copies a resolved, app-authorized stream into offline storage using the high-speed MrBean HTTP/2 multi-range engine. */
 @Singleton
 class StreamDownloadExecutor @Inject constructor(
     @ApplicationContext private val context: Context,
     private val downloadRepository: DownloadRepository,
-    private val httpClient: OkHttpClient,
     private val streamResolver: StreamResolver,
     private val trackDao: TrackDao,
 ) {
+    private val progressScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     /** Resolves and saves [trackId], returning the completed persisted download record. */
     suspend fun download(trackId: String): Result<DownloadModel> {
         val outcome = runSuspendCatching("Unable to download track") {
@@ -39,41 +40,37 @@ class StreamDownloadExecutor @Inject constructor(
                 is Result.Failure -> throw resolved.throwable
                 Result.Loading -> error("Stream resolution did not complete")
             }
-            withContext(Dispatchers.IO) {
-                val request = Request.Builder().url(stream.url).build()
-                httpClient.newCall(request).execute().use { response ->
-                    check(response.isSuccessful) { "Download failed with HTTP ${response.code}" }
-                    val body = requireNotNull(response.body) { "Download response had no body" }
-                    val downloadDirectory = File(context.filesDir, "offline").apply { mkdirs() }
-                    val target = File(downloadDirectory, "${track.id.hashCode().toUInt().toString(16)}.media")
-                    val temporary = File(downloadDirectory, "${target.name}.part")
-                    body.byteStream().use { input ->
-                        FileOutputStream(temporary).use { output ->
-                            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                            val totalBytes = body.contentLength().coerceAtLeast(0L)
-                            var copiedBytes = 0L
-                            var count = input.read(buffer)
-                            while (count >= 0) {
-                                output.write(buffer, 0, count)
-                                copiedBytes += count
-                                val progress = if (totalBytes > 0L) copiedBytes.toFloat() / totalBytes else 0F
-                                downloadRepository.updateState(trackId, DownloadState.DOWNLOADING, progress)
-                                count = input.read(buffer)
-                            }
+            val downloadDirectory = File(context.filesDir, "downloads_offline").apply { mkdirs() }
+            val target = File(downloadDirectory, "${track.id.hashCode().toUInt().toString(16)}.media")
+            val temporary = File(downloadDirectory, "${target.name}.part")
+            runCatching { temporary.delete() }
+
+            var lastPct = -1
+            val transfer = MrbeanDownloadClient.downloadRangedToFile(
+                context = context,
+                url = stream.url,
+                destFile = temporary,
+            ) { pct ->
+                if (pct - lastPct >= 3 || pct == 100) {
+                    lastPct = pct
+                    progressScope.launch {
+                        runCatching {
+                            downloadRepository.updateState(trackId, DownloadState.DOWNLOADING, (pct / 100f).coerceIn(0f, 1f))
                         }
                     }
-                    check(temporary.renameTo(target)) { "Unable to finalize downloaded file" }
-                    DownloadModel(
-                        trackId = trackId,
-                        state = DownloadState.COMPLETED,
-                        progress = 1F,
-                        localUri = Uri.fromFile(target).toString(),
-                        bytesDownloaded = target.length(),
-                        totalBytes = target.length(),
-                        updatedAtEpochMs = System.currentTimeMillis(),
-                    )
                 }
             }
+            check(transfer.success) { transfer.error ?: "Download failed" }
+            check(temporary.renameTo(target)) { "Unable to finalize downloaded file" }
+            DownloadModel(
+                trackId = trackId,
+                state = DownloadState.COMPLETED,
+                progress = 1F,
+                localUri = Uri.fromFile(target).toString(),
+                bytesDownloaded = target.length(),
+                totalBytes = target.length(),
+                updatedAtEpochMs = System.currentTimeMillis(),
+            )
         }
         when (outcome) {
             is Result.Success -> downloadRepository.save(outcome.value)

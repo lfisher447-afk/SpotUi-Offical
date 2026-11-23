@@ -126,10 +126,16 @@ class InnerTubeHttp(
 
             engine {
                 config {
-                    connectionPool(ConnectionPool(10, 5, TimeUnit.MINUTES))
-                    connectTimeout(30, TimeUnit.SECONDS)
-                    readTimeout(60, TimeUnit.SECONDS)
-                    writeTimeout(60, TimeUnit.SECONDS)
+                    dispatcher(
+                        okhttp3.Dispatcher().apply {
+                            maxRequests = 64
+                            maxRequestsPerHost = 16
+                        },
+                    )
+                    connectionPool(ConnectionPool(20, 5, TimeUnit.MINUTES))
+                    connectTimeout(15, TimeUnit.SECONDS)
+                    readTimeout(35, TimeUnit.SECONDS)
+                    writeTimeout(20, TimeUnit.SECONDS)
                     protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
                     retryOnConnectionFailure(true)
                     cache(

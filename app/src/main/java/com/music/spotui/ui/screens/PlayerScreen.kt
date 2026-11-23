@@ -118,6 +118,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
@@ -2342,10 +2343,12 @@ fun PlayerAudioQuickSheet(
     var spatialEnabled by remember { mutableStateOf(com.music.spotui.data.preferences.isEqSpatialEnabled(context)) }
     var spatialProfile by remember { mutableStateOf(com.music.spotui.data.preferences.getSpatialProfile(context)) }
     var spatialStrength by remember { mutableFloatStateOf(com.music.spotui.data.preferences.getSpatialStrength(context).toFloat()) }
+    var elevationDepth by remember { mutableFloatStateOf(com.music.spotui.data.preferences.getSpatialElevationDepth(context)) }
+    var orbit8dEnabled by remember { mutableStateOf(com.music.spotui.data.preferences.isSpatial8dOrbitEnabled(context)) }
     var crossfeedEnabled by remember { mutableStateOf(com.music.spotui.data.preferences.isHeadphoneCrossfeedEnabled(context)) }
     var telemetry by remember { mutableStateOf(SongPlayer.dspTelemetrySummary()) }
 
-    LaunchedEffect(spatialEnabled, spatialProfile, crossfeedEnabled) {
+    LaunchedEffect(spatialEnabled, spatialProfile, orbit8dEnabled, crossfeedEnabled) {
         while (true) {
             telemetry = SongPlayer.dspTelemetrySummary()
             delay(1000L)
@@ -2502,8 +2505,48 @@ fun PlayerAudioQuickSheet(
                         UiSoundEngine.playSliderTick(context, it / 1000f)
                     },
                     valueRange = 0f..1000f,
+                    modifier = Modifier.testTag("player_spatial_width_slider"),
                     colors = SliderDefaults.colors(activeTrackColor = AppPalette, thumbColor = AppPalette),
                 )
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Pinna Elevation / All-Pass Depth", color = Color.White, fontSize = 13.sp)
+                    Text("${(elevationDepth * 100f).roundToInt()}%", color = AppPalette, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+                Slider(
+                    value = elevationDepth,
+                    onValueChange = {
+                        elevationDepth = it
+                        com.music.spotui.data.preferences.setSpatialElevationDepth(context, it)
+                        SongPlayer.refreshAudioEffects(context)
+                        UiSoundEngine.playSliderTick(context, it)
+                    },
+                    valueRange = 0f..1f,
+                    modifier = Modifier.testTag("player_spatial_elevation_slider"),
+                    colors = SliderDefaults.colors(activeTrackColor = AppPalette, thumbColor = AppPalette),
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("8D Binaural Orbit (360°)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Smooth spherical-head stage orbit", color = Color.Gray, fontSize = 11.sp)
+                    }
+                    Switch(
+                        checked = orbit8dEnabled,
+                        onCheckedChange = {
+                            orbit8dEnabled = it
+                            UiSoundEngine.playToggleSound(context, it)
+                            com.music.spotui.data.preferences.setSpatial8dOrbitEnabled(context, it)
+                            SongPlayer.refreshAudioEffects(context)
+                        },
+                        modifier = Modifier.testTag("player_spatial_8d_switch"),
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = AppPalette),
+                    )
+                }
             }
 
             Row(

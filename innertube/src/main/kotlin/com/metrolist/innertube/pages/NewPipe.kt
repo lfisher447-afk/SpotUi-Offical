@@ -26,8 +26,19 @@ private class NewPipeDownloaderImpl : Downloader() {
     @Volatile
     private var cachedClient: OkHttpClient = buildClient()
 
-    private fun buildClient(): OkHttpClient =
-        AuthSessionStore.applyOkHttpSettings(OkHttpClient.Builder(), forStream = false).build()
+    private fun buildClient(): OkHttpClient {
+        val builder = OkHttpClient.Builder()
+            .dispatcher(
+                okhttp3.Dispatcher().apply {
+                    maxRequests = 64
+                    maxRequestsPerHost = 16
+                },
+            )
+            .connectionPool(okhttp3.ConnectionPool(16, 5, java.util.concurrent.TimeUnit.MINUTES))
+            .protocols(listOf(okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
+            .retryOnConnectionFailure(true)
+        return AuthSessionStore.applyOkHttpSettings(builder, forStream = false).build()
+    }
 
     private fun resolveClient(): OkHttpClient {
         val fingerprint = AuthSessionStore.currentNetworkFingerprint()

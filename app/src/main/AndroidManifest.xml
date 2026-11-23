@@ -206,6 +206,20 @@
             </intent-filter>
         </service>
 
+        <!-- One UI Accessibility Button Floating Mini-Player (TYPE_ACCESSIBILITY_OVERLAY, no SYSTEM_ALERT_WINDOW needed) -->
+        <service
+            android:name=".accessibility.MediaAccessibilityService"
+            android:exported="true"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
         <!-- Makes Spotui discoverable as a media button target for automation
              apps (MacroDroid, Tasker, Samsung Modes & Routines, etc.) and forwards
              media key events to the active PlaybackService MediaSession. -->
@@ -227,6 +241,11 @@
              strictly in background without launching MainActivity. -->
         <receiver
             android:name=".ui.notification.ExitPlaybackControlReceiver"
+            android:exported="false" />
+
+        <!-- Native Android PackageInstaller session commit callback receiver for in-app updates. -->
+        <receiver
+            android:name=".data.update.UpdateInstallReceiver"
             android:exported="false" />
 
         <!-- Compact 2x2 Glance Home Screen Widget -->

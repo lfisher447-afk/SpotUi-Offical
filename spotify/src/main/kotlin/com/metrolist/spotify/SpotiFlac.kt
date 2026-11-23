@@ -170,9 +170,18 @@ object SpotiFlac {
         HttpClient(OkHttp) {
             engine {
                 config {
-                    connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-                    readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                    writeTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                    dispatcher(
+                        okhttp3.Dispatcher().apply {
+                            maxRequests = 48
+                            maxRequestsPerHost = 12
+                        },
+                    )
+                    connectionPool(okhttp3.ConnectionPool(16, 3, java.util.concurrent.TimeUnit.MINUTES))
+                    protocols(listOf(okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
+                    retryOnConnectionFailure(true)
+                    connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+                    readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                    writeTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
                 }
             }
             expectSuccess = false
@@ -834,7 +843,7 @@ object SpotiFlac {
         val initBytes = httpBytes(initUrl) ?: return false
         val streamInfo = flacStreamInfoFromInit(initBytes) ?: return false
 
-        java.io.BufferedOutputStream(java.io.FileOutputStream(outFile)).use { out ->
+        java.io.BufferedOutputStream(java.io.FileOutputStream(outFile), 256 * 1024).use { out ->
             out.write(byteArrayOf(0x66, 0x4c, 0x61, 0x43)) // "fLaC"
             // metadata block header: last-block(0x80) | STREAMINFO(0) + 24-bit length
             out.write(0x80)
@@ -842,12 +851,26 @@ object SpotiFlac {
             out.write((streamInfo.size ushr 8) and 0xFF)
             out.write(streamInfo.size and 0xFF)
             out.write(streamInfo)
-            for (n in startNumber until startNumber + segCount) {
-                val seg = httpBytes(mediaTmpl.replace("\$Number\$", n.toString())) ?: return false
-                writeMdatPayloads(seg, out)
+
+            // Fetch DASH media segments in ordered parallel batches (6 concurrent connections)
+            val batchSize = 6
+            var segNum = startNumber
+            val endExclusive = startNumber + segCount
+            coroutineScope {
+                while (segNum < endExclusive) {
+                    val batchEnd = minOf(segNum + batchSize, endExclusive)
+                    val jobs = (segNum until batchEnd).map { idx ->
+                        async { httpBytes(mediaTmpl.replace("\$Number\$", idx.toString())) }
+                    }
+                    for (job in jobs) {
+                        val seg = job.await() ?: throw IllegalStateException("Missing DASH segment")
+                        writeMdatPayloads(seg, out)
+                    }
+                    segNum = batchEnd
+                }
             }
         }
-        log("D", "tidal DASH remuxed to FLAC (${segCount} segments)")
+        log("D", "tidal DASH remuxed to FLAC (${segCount} segments parallelized)")
         true
     }.getOrElse { log("W", "DASH remux failed: ${it.message}"); runCatching { outFile.delete() }; false }
 

@@ -10,6 +10,7 @@ package com.harmber2.suadat.lrclib
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.cio.endpoint
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
@@ -29,6 +30,15 @@ object LrcLib {
 
     private val client by lazy {
         HttpClient(CIO) {
+            engine {
+                maxConnectionsCount = 64
+                endpoint {
+                    maxConnectionsPerRoute = 16
+                    keepAliveTime = 30_000
+                    connectTimeout = 8_000
+                    requestTimeout = 12_000
+                }
+            }
             install(ContentNegotiation) {
                 json(
                     Json {

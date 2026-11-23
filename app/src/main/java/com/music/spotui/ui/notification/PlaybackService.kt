@@ -1000,6 +1000,13 @@ class PlaybackService : MediaLibraryService() {
             playerCommand: Int,
         ): Int {
             when (playerCommand) {
+                Player.COMMAND_PLAY_PAUSE -> {
+                    if (currentSongState.queue.value.isEmpty() || (SongPlayer.exoPlayer?.mediaItemCount ?: 0) == 0) {
+                        resumeFromPersistence(skipFirst = false)
+                        scheduleIdleStopCheck()
+                        return SessionResult.RESULT_INFO_SKIPPED
+                    }
+                }
                 Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> {
                     if (currentSongState.queue.value.isNotEmpty() && (SongPlayer.exoPlayer?.mediaItemCount ?: 0) > 0) {
                         SongPlayer.next(applicationContext)
@@ -1010,6 +1017,11 @@ class PlaybackService : MediaLibraryService() {
                     return SessionResult.RESULT_INFO_SKIPPED
                 }
                 Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> {
+                    if (currentSongState.queue.value.isEmpty() || (SongPlayer.exoPlayer?.mediaItemCount ?: 0) == 0) {
+                        resumeFromPersistence(skipFirst = false)
+                        scheduleIdleStopCheck()
+                        return SessionResult.RESULT_INFO_SKIPPED
+                    }
                     val posMs = runCatching { session.player.currentPosition }.getOrDefault(0L)
                     if (posMs <= 3_500L && currentSongState.queue.value.size > 1) {
                         SongPlayer.previous(applicationContext)

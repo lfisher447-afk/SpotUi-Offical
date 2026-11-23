@@ -60,13 +60,20 @@ object PaxsenixLyrics {
 
     private val client by lazy {
         HttpClient(OkHttp) {
+            engine {
+                config {
+                    connectionPool(okhttp3.ConnectionPool(8, 3, java.util.concurrent.TimeUnit.MINUTES))
+                    protocols(listOf(okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
+                    retryOnConnectionFailure(true)
+                }
+            }
             install(ContentNegotiation) {
                 json(json)
             }
 
             install(HttpTimeout) {
                 requestTimeoutMillis = 15000
-                connectTimeoutMillis = 10000
+                connectTimeoutMillis = 8000
                 socketTimeoutMillis = 15000
             }
 

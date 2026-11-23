@@ -223,18 +223,7 @@ object ArtworkHelper {
             if (file != null && file.exists()) {
                 runCatching { file.copyTo(coverFile, overwrite = true) }
             } else {
-                runCatching {
-                    val conn = (java.net.URL(song.coverUri).openConnection() as java.net.HttpURLConnection).apply {
-                        connectTimeout = 10000
-                        readTimeout = 10000
-                        instanceFollowRedirects = true
-                    }
-                    if (conn.responseCode in 200..299) {
-                        conn.inputStream.use { input ->
-                            coverFile.outputStream().use { output -> input.copyTo(output) }
-                        }
-                    }
-                }
+                org.eclipse.Mrbean.client.MrbeanDownloadClient.downloadSmallFile(appContext, song.coverUri, coverFile)
             }
         }
     }

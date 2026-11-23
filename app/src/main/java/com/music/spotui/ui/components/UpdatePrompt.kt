@@ -145,6 +145,8 @@ fun UpdatePrompt() {
         is UpdateDownloader.DownloadState.Downloading -> st.version == info.version
         is UpdateDownloader.DownloadState.Verifying -> st.version == info.version
         is UpdateDownloader.DownloadState.Completed -> st.version == info.version
+        is UpdateDownloader.DownloadState.Installing -> st.version == info.version
+        is UpdateDownloader.DownloadState.Installed -> st.version == info.version
         is UpdateDownloader.DownloadState.Failed -> st.version == info.version
         else -> false
     }
@@ -291,12 +293,44 @@ fun UpdatePrompt() {
                         Text("Verifying…", color = Color(0xFF9ED4FF))
                     }
                 }
+                is UpdateDownloader.DownloadState.Installing if st.version == info.version -> {
+                    TextButton(onClick = {}, enabled = false) {
+                        Text("Installing…", color = Color(0xFF1DB954), fontWeight = FontWeight.Bold)
+                    }
+                }
+                is UpdateDownloader.DownloadState.Installed if st.version == info.version -> {
+                    Button(
+                        onClick = { update = null },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF1DB954),
+                            contentColor = Color.Black,
+                        ),
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) {
+                        Text("Done", fontWeight = FontWeight.Bold)
+                    }
+                }
                 else -> {
+                    val failedSt = downloadState as? UpdateDownloader.DownloadState.Failed
+                    if (failedSt?.fallbackCompleted != null) {
+                        TextButton(
+                            onClick = {
+                                UpdateDownloader.openFileProviderFallbackInstaller(context, failedSt.fallbackCompleted)
+                            },
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) {
+                            Text("System Fallback", color = Color(0xFF9ED4FF), fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                     Button(
                         onClick = {
                             com.music.spotui.audio.UiSoundEngine.playTapChime(context)
                             autoOpenedInstallerVersion = null
-                            UpdateDownloader.startDownload(context, info, force = true)
+                            if (failedSt?.fallbackCompleted != null) {
+                                triggerPackageInstaller(failedSt.fallbackCompleted)
+                            } else {
+                                UpdateDownloader.startDownload(context, info, force = true)
+                            }
                         },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = Color(0xFF1DB954),
@@ -307,7 +341,11 @@ fun UpdatePrompt() {
                             .testTag("update_download_in_app_button"),
                     ) {
                         Text(
-                            text = if (downloadState is UpdateDownloader.DownloadState.Failed) "Retry In-App" else "Download & Install",
+                            text = when {
+                                failedSt?.fallbackCompleted != null -> "Retry Installer"
+                                failedSt != null -> "Retry In-App"
+                                else -> "Download & Install"
+                            },
                             fontWeight = FontWeight.Bold,
                         )
                     }
@@ -432,8 +470,42 @@ private fun InAppUpdateStatusCard(
                         fontSize = 10.sp,
                     )
                 }
+                is UpdateDownloader.DownloadState.Installing -> {
+                    val pct = (state.progressFraction.coerceIn(0f, 1f) * 100).toInt()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("Android PackageInstaller Session", color = Color(0xFF1DB954), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("$pct%", color = Color(0xFF1DB954), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                    LinearProgressIndicator(
+                        progress = { state.progressFraction.coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)),
+                        color = Color(0xFF1DB954),
+                        trackColor = Color(0xFF2B303D),
+                    )
+                    Text(state.statusMessage, color = Color(0xFFD0D5E0), fontSize = 11.sp)
+                }
+                is UpdateDownloader.DownloadState.Installed -> {
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = Color(0xFF1DB954),
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "SpotUI v${state.version} installed via Android PackageInstaller",
+                            color = Color(0xFF1DB954),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
                 is UpdateDownloader.DownloadState.Failed -> {
-                    Text("In-app download failed: ${state.reason}", color = Color(0xFFFF7A59), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Update step failed: ${state.reason}", color = Color(0xFFFF7A59), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
                 else -> Unit
             }

@@ -17,17 +17,24 @@ import com.metrolist.music.constants.AudioQuality
 import com.metrolist.music.utils.YTPlayerUtils
 import com.music.spotui.data.api.LyricsApi
 import com.music.spotui.util.AppDiagnostics
+import org.eclipse.Mrbean.client.MrbeanDownloadClient
 import org.eclipse.Mrbean.client.MrbeanNetworkSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import java.text.Normalizer
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
 import kotlin.math.PI
 import kotlin.math.cos
@@ -1604,176 +1611,138 @@ object SongPlayer {
     // Last download failure reason, surfaced to the user as a Toast for diagnosis.
     @Volatile var lastDownloadError: String? = null
 
-    // googlevideo stream URLs 403 without a browser User-Agent and need redirects
-    // followed (http↔https) — ExoPlayer does both, so a raw URLConnection must too.
-    private fun openDownloadConn(url: String): java.net.HttpURLConnection {
-        val context = appCtx ?: com.music.spotui.MyApplication.instanceOrNull
-        val tuning = context?.let { MrbeanNetworkSettings.snapshot(it) }
-        val connectMs = if (tuning != null && tuning.enabled) tuning.connectTimeoutMs else 15_000
-        val readMs = if (tuning != null && tuning.enabled) tuning.readTimeoutMs else 30_000
-        val activeProxy = com.metrolist.innertube.network.AuthSessionStore.streamOkHttpProxy()
-        val conn = if (activeProxy != null && activeProxy != java.net.Proxy.NO_PROXY) {
-            java.net.URL(url).openConnection(activeProxy)
-        } else {
-            java.net.URL(url).openConnection()
+    private val _batchQueuedCount = MutableStateFlow(0)
+    val batchQueuedCount: StateFlow<Int> = _batchQueuedCount.asStateFlow()
+
+    private val _batchTotalCount = MutableStateFlow(0)
+    val batchTotalCount: StateFlow<Int> = _batchTotalCount.asStateFlow()
+
+    private val batchLock = Any()
+    @Volatile private var activeBatchJob: kotlinx.coroutines.Job? = null
+    private val pendingBatchQueue = java.util.concurrent.ConcurrentLinkedQueue<com.music.spotui.data.entity.SongsModel>()
+
+    fun downloadThroughputBytesPerSec(): StateFlow<Long> = MrbeanDownloadClient.throughputBytesPerSec
+
+    fun cancelAllDownloads() {
+        synchronized(batchLock) {
+            pendingBatchQueue.clear()
+            activeBatchJob?.cancel()
+            activeBatchJob = null
+            _batchQueuedCount.value = 0
+            _batchTotalCount.value = 0
         }
-        return (conn as java.net.HttpURLConnection).apply {
-            connectTimeout = connectMs
-            readTimeout = readMs
-            instanceFollowRedirects = true
-            setRequestProperty(
-                "User-Agent",
-                "Mozilla/5.0 (Linux; Android 14; Pixel) AppleWebKit/537.36 " +
-                    "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-            )
-            // Range accounting must be against raw bytes; transparent compression breaks byte positions.
-            setRequestProperty("Accept-Encoding", "identity")
-            setRequestProperty("Accept", "*/*")
-            // Some signed media endpoints reject otherwise-valid byte-range requests
-            // that lack the web-player request context.
-            setRequestProperty("Referer", "https://music.youtube.com/")
-            setRequestProperty("Origin", "https://music.youtube.com")
-        }
+        onDownloadsChanged?.invoke()
     }
 
     /**
-     * Download [url] to [tmpFile] using HTTP **Range** requests in chunks, reporting
-     * progress (0..100) for [query]. A single full-file GET of a googlevideo stream gets
-     * reset partway through (`SocketException: Connection reset`) — the server expects the
-     * audio fetched in byte ranges, which is how ExoPlayer/NewPipe get it. Each chunk is a
-     * short connection (retried a few times on reset); writing is append-continuous so a
-     * retried chunk resumes from the current byte position. Returns true iff the whole
-     * file was written. Falls back gracefully if the server ignores Range (HTTP 200).
+     * High-speed HTTP/2 multi-range downloader backed by [MrbeanDownloadClient].
+     * Splits streams across parallel byte ranges when enabled, reuses warm keep-alive
+     * sockets + DNS cache, and streams live bandwidth to [MrbeanDownloadClient.throughputBytesPerSec].
      */
-    private fun httpDownloadRanged(url: String, tmpFile: java.io.File, query: String): Boolean {
+    private suspend fun httpDownloadRanged(
+        url: String,
+        tmpFile: java.io.File,
+        query: String,
+    ): Boolean {
         val context = appCtx ?: com.music.spotui.MyApplication.instanceOrNull
-        val tuning = context?.let { MrbeanNetworkSettings.snapshot(it) }
-        val chunkMiB = if (tuning != null && tuning.enabled) tuning.chunkMiB else 8
-        val maxRetries = if (tuning != null && tuning.enabled) tuning.rangeRetries else 3
-        val chunk = chunkMiB.toLong() * 1024 * 1024
-        var total = -1L
-        var position = 0L
-        downloadProgress[query] = 0
-        try {
-            java.io.BufferedOutputStream(tmpFile.outputStream()).use { output ->
-                outer@ while (true) {
-                    val end = if (total > 0) minOf(position + chunk - 1, total - 1) else position + chunk - 1
-                    var attempt = 0
-                    var fullBody = false
-                    while (true) {
-                        attempt++
-                        val conn = openDownloadConn(url)
-                        conn.setRequestProperty("Range", "bytes=$position-$end")
-                        try {
-                            val code = conn.responseCode
-                            if (code !in 200..299) {
-                                val retryable = code == 408 || code == 425 || code == 429 || code in 500..599
-                                if (retryable && attempt < maxRetries) {
-                                    Log.w(TAG, "chunk @$position returned HTTP $code; retrying $attempt/$maxRetries")
-                                    Thread.sleep((attempt * 350L).coerceAtMost(1_500L))
-                                    continue
-                                }
-                                lastDownloadError = "Stream returned HTTP $code"
-                                return false
-                            }
-                            val contentRange = conn.getHeaderField("Content-Range")
-                            if (code == java.net.HttpURLConnection.HTTP_PARTIAL) {
-                                val rangeStart = contentRange
-                                    ?.substringAfter("bytes ", "")
-                                    ?.substringBefore('-')
-                                    ?.toLongOrNull()
-                                if (rangeStart == null || rangeStart != position) {
-                                    lastDownloadError = "Server returned an invalid byte range"
-                                    return false
-                                }
-                            }
-                            if (total < 0) {
-                                total = contentRange?.substringAfter('/')?.toLongOrNull() ?: conn.contentLengthLong
-                            }
-                            fullBody = code == 200 // server ignored Range → whole file in one body
-                            if (fullBody && position > 0L) {
-                                // Appending a complete 200 response after prior 206 chunks corrupts the file.
-                                lastDownloadError = "Server ignored resumed byte range"
-                                return false
-                            }
-                            conn.inputStream.use { input ->
-                                val buf = ByteArray(64 * 1024)
-                                while (true) {
-                                    val r = input.read(buf)
-                                    if (r < 0) break
-                                    output.write(buf, 0, r)
-                                    position += r
-                                    if (total > 0) {
-                                        val pct = ((position * 100) / total).toInt().coerceIn(0, 100)
-                                        if (downloadProgress[query] != pct) {
-                                            downloadProgress[query] = pct
-                                            onDownloadsChanged?.invoke()
-                                        }
-                                    }
-                                }
-                            }
-                            break // this chunk completed
-                        } catch (e: Exception) {
-                            Log.w(TAG, "chunk @${position} failed (attempt $attempt): ${e.message}")
-                            if (attempt >= maxRetries) {
-                                lastDownloadError = e.message ?: "Connection reset"
-                                return false
-                            }
-                            // retry the remainder of this chunk from the current position
-                        } finally {
-                            conn.disconnect()
-                        }
-                    }
-                    if (fullBody) { total = position; break@outer }
-                    if (total in 1..position) break@outer
-                    if (total < 0) break@outer // couldn't determine size; assume done
-                }
-            }
-            downloadProgress[query] = 100
-            if (position < 8192L || !com.music.spotui.data.preferences.isValidAudioDownloadFile(tmpFile)) {
-                lastDownloadError = "Downloaded stream was empty or invalid (${position}B)"
-                return false
-            }
-            return total <= 0 || position >= total
-        } catch (e: Exception) {
-            lastDownloadError = e.message ?: "Download error"
+        if (context == null) {
+            lastDownloadError = "Application context unavailable"
             return false
         }
+        downloadProgress[query] = 0
+        val res = MrbeanDownloadClient.downloadRangedToFile(
+            context = context,
+            url = url,
+            destFile = tmpFile,
+        ) { pct ->
+            if (downloadProgress[query] != pct) {
+                downloadProgress[query] = pct
+                onDownloadsChanged?.invoke()
+            }
+        }
+        if (!res.success) {
+            lastDownloadError = res.error ?: "Download failed"
+            return false
+        }
+        downloadProgress[query] = 100
+        if (res.bytesWritten < 8192L || !com.music.spotui.data.preferences.isValidAudioDownloadFile(tmpFile)) {
+            lastDownloadError = "Downloaded stream was empty or invalid (${res.bytesWritten}B)"
+            return false
+        }
+        return true
     }
 
     /**
-     * Resolve the track's stream and save the audio to local storage for offline
-     * playback. Runs on the IO scope; invokes [onComplete] (main thread) with whether
-     * it succeeded. No-op if it's already downloaded or downloading.
-     */
-    /**
-     * Downloads a collection strictly in its supplied order. Parallel resolver requests were
-     * causing PoToken/player chains to compete and produced intermittent "Couldn't resolve
-     * stream" failures for playlists. The queue advances only after each track has completed
-     * (success or failure), so a failed item never stalls the remaining playlist.
+     * Concurrent Eclipse MrBean playlist/album download engine.
+     * Supports dynamic hot-scaling between 1 and 10 simultaneous song downloads via
+     * [MrbeanNetworkSettings.maxConcurrentDownloads], appending new requests smoothly onto
+     * an active worker pool so multiple playlists/batches never fight each other.
      */
     fun downloadAll(songs: List<com.music.spotui.data.entity.SongsModel>, context: Context) {
         val appContext = context.applicationContext
-        val ordered = songs.distinctBy { it.id to it.url }
-        scope.launch {
-            ordered.forEachIndexed { index, song ->
-                if (song.url.isBlank() || com.music.spotui.data.preferences.isDownloaded(appContext, song.id.toString())) {
-                    return@forEachIndexed
+        appCtx = appContext
+        val toQueue = songs.distinctBy { it.id to it.url }.filter { song ->
+            song.url.isNotBlank() &&
+                !com.music.spotui.data.preferences.isDownloaded(appContext, song.id.toString()) &&
+                !isDownloading(song.url)
+        }
+        if (toQueue.isEmpty()) return
+
+        synchronized(batchLock) {
+            val existingUrls = pendingBatchQueue.mapTo(HashSet()) { it.url }
+            var added = 0
+            toQueue.forEach { song ->
+                if (existingUrls.add(song.url)) {
+                    pendingBatchQueue.add(song)
+                    added++
                 }
-                // A direct user action may already own this item; preserve order by waiting
-                // for the next queue item instead of launching a competing resolve.
-                if (isDownloading(song.url)) return@forEachIndexed
-                val completion = kotlinx.coroutines.CompletableDeferred<Boolean>()
-                withContext(Dispatchers.Main) {
-                    downloadSong(song, appContext) { completion.complete(it) }
+            }
+            if (added > 0) {
+                _batchTotalCount.value = _batchTotalCount.value + added
+                _batchQueuedCount.value = pendingBatchQueue.size
+            }
+            if (activeBatchJob?.isActive == true) {
+                onDownloadsChanged?.invoke()
+                return
+            }
+
+            activeBatchJob = scope.launch {
+                val maxWorkers = MrbeanNetworkSettings.MAX_CONCURRENT_DOWNLOADS
+                val completedCounter = AtomicInteger(0)
+                try {
+                    coroutineScope {
+                        (0 until maxWorkers).map { workerIdx ->
+                            async(Dispatchers.IO) {
+                                while (isActive) {
+                                    val limit = MrbeanNetworkSettings.maxConcurrentDownloads(appContext)
+                                    if (workerIdx >= limit) {
+                                        if (pendingBatchQueue.isEmpty()) break
+                                        delay(220L)
+                                        continue
+                                    }
+                                    val song = pendingBatchQueue.poll() ?: break
+                                    _batchQueuedCount.value = pendingBatchQueue.size
+                                    onDownloadsChanged?.invoke()
+                                    val ok = executeSingleDownload(song, appContext, showFailureToast = false)
+                                    val n = completedCounter.incrementAndGet()
+                                    AppDiagnostics.info(
+                                        TAG,
+                                        "MrBean worker #${workerIdx + 1} finished #$n: ${song.title} (${if (ok) "OK" else "Failed"})",
+                                    )
+                                }
+                            }
+                        }.awaitAll()
+                    }
+                } finally {
+                    synchronized(batchLock) {
+                        if (pendingBatchQueue.isEmpty()) {
+                            _batchQueuedCount.value = 0
+                            _batchTotalCount.value = 0
+                            activeBatchJob = null
+                        }
+                    }
+                    onDownloadsChanged?.invoke()
                 }
-                val success = completion.await()
-                AppDiagnostics.info(
-                    TAG,
-                    "Ordered download ${index + 1}/${ordered.size}: ${song.title} (${if (success) "complete" else "failed"})",
-                )
-                // Small spacing lets the source resolver release network/session resources.
-                delay(180)
             }
         }
     }
@@ -1790,37 +1759,58 @@ object SongPlayer {
         }
     }
 
+    private suspend fun executeSingleDownload(
+        song: com.music.spotui.data.entity.SongsModel,
+        appContext: Context,
+        showFailureToast: Boolean,
+    ): Boolean {
+        val query = song.url
+        if (query.isBlank() ||
+            com.music.spotui.data.preferences.isDownloaded(appContext, song.id.toString()) ||
+            !downloading.add(query)
+        ) {
+            return false
+        }
+        downloadingSongs[query] = song
+        downloadProgress[query] = 0
+        onDownloadsChanged?.invoke()
+        val ok = runCatching { downloadToFile(song, appContext) }
+            .onFailure { lastDownloadError = it.message ?: "Unexpected error" }
+            .getOrDefault(false)
+        downloading.remove(query)
+        downloadProgress.remove(query)
+        downloadingSongs.remove(query)
+        withContext(Dispatchers.Main) {
+            if (!ok && showFailureToast) {
+                android.widget.Toast.makeText(
+                    appContext,
+                    "Download failed: ${lastDownloadError ?: "unknown reason"}",
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+            }
+            onDownloadsChanged?.invoke()
+        }
+        return ok
+    }
+
     fun downloadSong(
         song: com.music.spotui.data.entity.SongsModel,
         context: Context,
         onComplete: (Boolean) -> Unit = {},
     ) {
         val appContext = context.applicationContext
+        appCtx = appContext
         val query = song.url
         if (query.isBlank() ||
             com.music.spotui.data.preferences.isDownloaded(appContext, song.id.toString()) ||
-            !downloading.add(query)
-        ) return
-        downloadingSongs[query] = song
-        downloadProgress[query] = 0
-        onDownloadsChanged?.invoke()
+            downloading.contains(query)
+        ) {
+            return
+        }
         lastDownloadError = null
         scope.launch {
-            val ok = runCatching { downloadToFile(song, appContext) }
-                .onFailure { lastDownloadError = it.message ?: "Unexpected error" }
-                .getOrDefault(false)
-            downloading.remove(query)
-            downloadProgress.remove(query)
-            downloadingSongs.remove(query)
+            val ok = executeSingleDownload(song, appContext, showFailureToast = true)
             withContext(Dispatchers.Main) {
-                if (!ok) {
-                    android.widget.Toast.makeText(
-                        appContext,
-                        "Download failed: ${lastDownloadError ?: "unknown reason"}",
-                        android.widget.Toast.LENGTH_LONG,
-                    ).show()
-                }
-                onDownloadsChanged?.invoke()
                 onComplete(ok)
             }
         }
@@ -1920,35 +1910,40 @@ object SongPlayer {
             }
         }
         com.music.spotui.data.preferences.addDownload(appContext, song, outFile.absolutePath)
-        downloadCoverImage(song.coverUri, java.io.File(dir, "${song.id}_cover.jpg"))
+        val coverFile = java.io.File(dir, "${song.id}_cover.jpg")
+        if (MrbeanNetworkSettings.prefetchMetadataInParallel(appContext)) {
+            scope.launch(Dispatchers.IO) {
+                downloadMetadataExtras(appContext, song, coverFile)
+            }
+        } else {
+            downloadMetadataExtras(appContext, song, coverFile)
+        }
+        return true
+    }
+
+    private suspend fun downloadMetadataExtras(
+        appContext: Context,
+        song: com.music.spotui.data.entity.SongsModel,
+        coverFile: java.io.File,
+    ) {
+        downloadCoverImage(appContext, song.coverUri, coverFile)
         if (com.music.spotui.data.preferences.isAutoExportToMusicEnabled(appContext)) {
             com.music.spotui.data.preferences.exportDownload(appContext, song)
         }
-        // Eagerly cache lyrics so offline playback doesn't need a network round-trip.
         LyricsApi.removeFromCache(song.title, song.singer)
         val lyricsOk = runCatching {
             LyricsApi.fetch(song.title, song.singer, song.album, song.durationMs / 1000)
         }.getOrNull() != null
         if (!lyricsOk) LyricsApi.removeFromCache(song.title, song.singer)
-        return true
     }
 
-    private fun downloadCoverImage(coverUrl: String, destFile: java.io.File) {
+    private suspend fun downloadCoverImage(
+        appContext: Context,
+        coverUrl: String,
+        destFile: java.io.File,
+    ) {
         if (coverUrl.isBlank() || destFile.exists()) return
-        runCatching {
-            val conn = (java.net.URL(coverUrl).openConnection() as java.net.HttpURLConnection).apply {
-                connectTimeout = 10000
-                readTimeout = 10000
-                instanceFollowRedirects = true
-            }
-            if (conn.responseCode in 200..299) {
-                conn.inputStream.use { input ->
-                    destFile.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
-                }
-            }
-        }
+        MrbeanDownloadClient.downloadSmallFile(appContext, coverUrl, destFile)
     }
 
     /**
@@ -2001,9 +1996,11 @@ object SongPlayer {
                         }
                         if (dzOk && tmpFile.renameTo(outFile)) {
                             com.music.spotui.data.preferences.addDownload(appContext, song, outFile.absolutePath)
-                            downloadCoverImage(song.coverUri, java.io.File(dir, "${song.id}_cover.jpg"))
-                            if (com.music.spotui.data.preferences.isAutoExportToMusicEnabled(appContext)) {
-                                com.music.spotui.data.preferences.exportDownload(appContext, song)
+                            val coverFile = java.io.File(dir, "${song.id}_cover.jpg")
+                            if (MrbeanNetworkSettings.prefetchMetadataInParallel(appContext)) {
+                                scope.launch(Dispatchers.IO) { downloadMetadataExtras(appContext, song, coverFile) }
+                            } else {
+                                downloadMetadataExtras(appContext, song, coverFile)
                             }
                             return true
                         }
@@ -2042,16 +2039,12 @@ object SongPlayer {
             return false
         }
         com.music.spotui.data.preferences.addDownload(appContext, song, outFile.absolutePath)
-        downloadCoverImage(song.coverUri, java.io.File(dir, "${song.id}_cover.jpg"))
-        if (com.music.spotui.data.preferences.isAutoExportToMusicEnabled(appContext)) {
-            com.music.spotui.data.preferences.exportDownload(appContext, song)
+        val coverFile = java.io.File(dir, "${song.id}_cover.jpg")
+        if (MrbeanNetworkSettings.prefetchMetadataInParallel(appContext)) {
+            scope.launch(Dispatchers.IO) { downloadMetadataExtras(appContext, song, coverFile) }
+        } else {
+            downloadMetadataExtras(appContext, song, coverFile)
         }
-        // Eagerly cache lyrics so offline playback doesn't need a network round-trip.
-        LyricsApi.removeFromCache(song.title, song.singer)
-        val lyricsOk = runCatching {
-            LyricsApi.fetch(song.title, song.singer, song.album, song.durationMs / 1000)
-        }.getOrNull() != null
-        if (!lyricsOk) LyricsApi.removeFromCache(song.title, song.singer)
         Log.d(TAG, "FLAC downloaded (${flac.provider} ${flac.quality}-bit): ${song.title}")
         return true
     }
@@ -2692,6 +2685,10 @@ object SongPlayer {
         processor.headphoneCrossfeed = com.music.spotui.data.preferences.isHeadphoneCrossfeedEnabled(context)
         processor.autoHeadphoneHrtf = com.music.spotui.audio.AudioEffectController.refreshOutputRoute(context).isPersonalListening
         processor.roomDelayMs = com.music.spotui.data.preferences.getSpatialRoomDelayMs(context)
+        processor.orbit8dEnabled = com.music.spotui.data.preferences.isSpatial8dOrbitEnabled(context)
+        processor.orbitSpeedHz = com.music.spotui.data.preferences.getSpatialOrbitSpeed(context)
+        processor.elevationDepth = com.music.spotui.data.preferences.getSpatialElevationDepth(context)
+        processor.correlationGuard = com.music.spotui.data.preferences.isSpatialCorrelationGuardEnabled(context)
     }
 
     private fun syncCachedPlayerState(p: Player) {

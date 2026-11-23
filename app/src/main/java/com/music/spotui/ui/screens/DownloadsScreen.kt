@@ -49,6 +49,8 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -56,6 +58,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,7 +72,11 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import org.eclipse.Mrbean.client.MrbeanDownloadClient
+import org.eclipse.Mrbean.client.MrbeanNetworkSettings
+import kotlin.math.roundToInt
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -834,6 +841,70 @@ fun DownloadsScreen(navController: NavController) {
                     } else {
                         Spacer(modifier = Modifier.width(1.dp))
                     }
+                }
+
+                // ── MrBean Turbo Concurrency & Speed Control Card (1..10 simultaneous tracks) ──
+                val mrbeanRev by MrbeanNetworkSettings.settingsRevision.collectAsState()
+                val downloadSpeedBps by SongPlayer.downloadThroughputBytesPerSec().collectAsState()
+                val batchQueued by SongPlayer.batchQueuedCount.collectAsState()
+                val concurrentMax = remember(mrbeanRev) { MrbeanNetworkSettings.maxConcurrentDownloads(context) }
+                val slicesPerFile = remember(mrbeanRev) { MrbeanNetworkSettings.parallelChunksPerFile(context) }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 6.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xFF181A22))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "MrBean Turbo Queue · $concurrentMax concurrent × ${slicesPerFile}x range",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            val statusSub = buildString {
+                                append("${inProgress.size} downloading")
+                                if (batchQueued > 0) append(" · $batchQueued queued")
+                                if (downloadSpeedBps > 0L) append(" · ${MrbeanDownloadClient.formatSpeed(downloadSpeedBps)}")
+                            }
+                            Text(statusSub, color = accent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        if (inProgress.isNotEmpty() || batchQueued > 0) {
+                            TextButton(
+                                onClick = { SongPlayer.cancelAllDownloads() },
+                                modifier = Modifier.heightIn(min = 48.dp).testTag("downloads_cancel_all_button"),
+                            ) {
+                                Text("Cancel", color = Color(0xFFE57373), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("Simultaneous songs (live hot-scale)", color = Color(0xFFB8BECB), fontSize = 11.sp)
+                        Text("$concurrentMax / 10", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Slider(
+                        value = concurrentMax.toFloat(),
+                        onValueChange = {
+                            val next = it.roundToInt().coerceIn(1, 10)
+                            MrbeanNetworkSettings.setMaxConcurrentDownloads(context, next)
+                        },
+                        valueRange = 1f..10f,
+                        steps = 8,
+                        modifier = Modifier.testTag("downloads_concurrency_slider"),
+                        colors = SliderDefaults.colors(activeTrackColor = accent, thumbColor = accent),
+                    )
                 }
 
                 // ── In-progress downloads (with live progress bar) ──

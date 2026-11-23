@@ -34,8 +34,17 @@ object UpdateChecker {
     )
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
+        .dispatcher(
+            okhttp3.Dispatcher().apply {
+                maxRequests = 16
+                maxRequestsPerHost = 6
+            },
+        )
+        .connectionPool(okhttp3.ConnectionPool(6, 2, TimeUnit.MINUTES))
+        .protocols(listOf(okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
+        .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(12, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
         .build()
 
     sealed class ManualCheckResult {

@@ -6,16 +6,13 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import com.metrolist.innertube.network.AuthSessionStore
 import com.metrolist.innertube.network.DnsOverHttpsPreset
-import okhttp3.Interceptor
-import okhttp3.OkHttpClient
-import java.util.concurrent.TimeUnit
 
 /**
  * Concrete Media3 transport owner for MrBean settings.
  *
- * When enabled (or when DoH / custom proxy settings are configured), playback and
- * cache preloads use this OkHttp-backed DataSource honoring AuthSessionStore DoH
- * and stream proxy bypass settings.
+ * Reuses the cached, HTTP/2-multiplexed OkHttpClient and connection pool from
+ * [MrbeanDownloadClient] so playback and cache preloads never allocate fresh sockets
+ * or TLS handshakes per track.
  */
 object MrbeanMediaDataSource {
     private const val USER_AGENT = "Spotui-MrBean/2.0 (Android Media3)"
@@ -30,27 +27,8 @@ object MrbeanMediaDataSource {
                 .setUserAgent(USER_AGENT)
                 .setAllowCrossProtocolRedirects(true)
         }
-        val stableHeaders = Interceptor { chain ->
-            val request = chain.request().newBuilder()
-                .header("User-Agent", USER_AGENT)
-                .header("Accept", "*/*")
-                .header("Accept-Encoding", "identity")
-                .header("Cache-Control", "no-transform")
-                .build()
-            chain.proceed(request)
-        }
-        val builder = OkHttpClient.Builder()
-            .connectTimeout(snapshot.connectTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
-            .readTimeout(snapshot.readTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
-            .writeTimeout(snapshot.connectTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
-            .retryOnConnectionFailure(true)
-            .followRedirects(true)
-            .followSslRedirects(true)
-            .addNetworkInterceptor(stableHeaders)
-
-        AuthSessionStore.applyOkHttpSettings(builder, forStream = true)
-
-        return OkHttpDataSource.Factory(builder.build())
+        val client = MrbeanDownloadClient.playbackOkHttpClient(context)
+        return OkHttpDataSource.Factory(client)
             .setUserAgent(USER_AGENT)
             .setDefaultRequestProperties(
                 mapOf(

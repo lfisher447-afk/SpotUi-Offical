@@ -53,21 +53,40 @@ object DeezerSession {
     @Volatile var entitledQuality: Int = QUALITY_MP3_128
         private set
 
-    private val client: OkHttpClient by lazy { httpClient() }
+    private val sharedPool = okhttp3.ConnectionPool(16, 5, TimeUnit.MINUTES)
+    @Volatile private var cachedClientFp: String? = null
+    @Volatile private var cachedClient: OkHttpClient? = null
+    private val clientLock = Any()
+    private val client: OkHttpClient get() = httpClient()
 
     fun httpClient(): OkHttpClient {
-        val builder = OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(15, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(true)
-            .followRedirects(true)
-            .followSslRedirects(true)
+        val fp = runCatching { com.metrolist.innertube.network.AuthSessionStore.currentNetworkFingerprint() }.getOrDefault("")
+        cachedClient?.takeIf { cachedClientFp == fp }?.let { return it }
+        return synchronized(clientLock) {
+            cachedClient?.takeIf { cachedClientFp == fp }?.let { return@synchronized it }
+            val dispatcher = okhttp3.Dispatcher().apply {
+                maxRequests = 48
+                maxRequestsPerHost = 12
+            }
+            val builder = OkHttpClient.Builder()
+                .dispatcher(dispatcher)
+                .connectionPool(sharedPool)
+                .protocols(listOf(okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
+                .connectTimeout(12, TimeUnit.SECONDS)
+                .readTimeout(25, TimeUnit.SECONDS)
+                .writeTimeout(12, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(true)
+                .followRedirects(true)
+                .followSslRedirects(true)
 
-        runCatching {
-            com.metrolist.innertube.network.AuthSessionStore.applyOkHttpSettings(builder, forStream = true)
+            runCatching {
+                com.metrolist.innertube.network.AuthSessionStore.applyOkHttpSettings(builder, forStream = true)
+            }
+            val built = builder.build()
+            cachedClientFp = fp
+            cachedClient = built
+            built
         }
-        return builder.build()
     }
 
     @Synchronized

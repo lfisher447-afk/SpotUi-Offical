@@ -10,6 +10,8 @@ import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.PresetReverb
 import android.media.audiofx.Virtualizer
+import android.media.Spatializer
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import com.music.spotui.data.preferences.SpatialProfile
@@ -23,6 +25,8 @@ import com.music.spotui.data.preferences.getEqPreampDb
 import com.music.spotui.data.preferences.getEqSubBass
 import com.music.spotui.data.preferences.getEqTreble
 import com.music.spotui.data.preferences.getEqVocal
+import com.music.spotui.data.preferences.getSpatialElevationDepth
+import com.music.spotui.data.preferences.getSpatialOrbitSpeed
 import com.music.spotui.data.preferences.getSpatialProfile
 import com.music.spotui.data.preferences.getSpatialRoomDelayMs
 import com.music.spotui.data.preferences.getSpatialStrength
@@ -31,6 +35,8 @@ import com.music.spotui.data.preferences.isEqEnabled
 import com.music.spotui.data.preferences.isEqSpatialEnabled
 import com.music.spotui.data.preferences.isHeadphoneCrossfeedEnabled
 import com.music.spotui.data.preferences.isLimiterEnabled
+import com.music.spotui.data.preferences.isSpatial8dOrbitEnabled
+import com.music.spotui.data.preferences.isSpatialCorrelationGuardEnabled
 import com.music.spotui.ui.theme.ThemePreferences
 import com.music.spotui.util.AppDiagnostics
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -122,6 +128,10 @@ object AudioEffectController {
         val activeRoute: AudioOutputRoute = AudioOutputRoute.SPEAKER,
         val activeDeviceName: String = "Device Speaker",
         val bluetoothSafeBypassActive: Boolean = false,
+        val systemSpatializerAvailable: Boolean = false,
+        val systemSpatializerEnabled: Boolean = false,
+        val systemHeadTrackerAvailable: Boolean = false,
+        val systemSpatializerLabel: String = "SW HRTF Only",
     )
 
     @Volatile
@@ -330,14 +340,60 @@ object AudioEffectController {
             sp.headphoneCrossfeed = isHeadphoneCrossfeedEnabled(appCtx)
             sp.autoHeadphoneHrtf = route.isPersonalListening
             sp.roomDelayMs = getSpatialRoomDelayMs(appCtx)
+            sp.orbit8dEnabled = isSpatial8dOrbitEnabled(appCtx)
+            sp.orbitSpeedHz = getSpatialOrbitSpeed(appCtx)
+            sp.elevationDepth = getSpatialElevationDepth(appCtx)
+            sp.correlationGuard = isSpatialCorrelationGuardEnabled(appCtx)
         }
 
+        val sysSp = inspectSystemSpatializer(appCtx)
         latestCapabilities = latestCapabilities.copy(
             softwareDspAttached = softwareDspRef != null || softwareSpatialRef != null,
             activeRoute = route.route,
             activeDeviceName = route.deviceName,
             bluetoothSafeBypassActive = route.isBluetooth || softwareSpatialRef != null,
+            systemSpatializerAvailable = sysSp.available,
+            systemSpatializerEnabled = sysSp.enabled,
+            systemHeadTrackerAvailable = sysSp.headTracker,
+            systemSpatializerLabel = sysSp.label,
         )
+    }
+
+    private data class SystemSpatialInfo(
+        val available: Boolean = false,
+        val enabled: Boolean = false,
+        val headTracker: Boolean = false,
+        val label: String = "SW HRTF Active",
+    )
+
+    private fun inspectSystemSpatializer(context: Context): SystemSpatialInfo {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S_V2) {
+            return SystemSpatialInfo(label = "SW Woodworth HRTF")
+        }
+        return runCatching {
+            val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return@runCatching SystemSpatialInfo()
+            val spatializer = am.spatializer
+            val avail = spatializer.isAvailable
+            val on = spatializer.isEnabled
+            val headTrack = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                runCatching { spatializer.isHeadTrackerAvailable }.getOrDefault(false)
+            } else {
+                false
+            }
+            val level = spatializer.immersiveAudioLevel
+            val label = buildString {
+                if (avail && on) append("OS Spatializer ON")
+                else if (avail) append("OS Spatializer Ready")
+                else append("SW HRTF Active")
+                if (headTrack) append(" · Head-Track")
+                if (level > Spatializer.SPATIALIZER_IMMERSIVE_LEVEL_MULTICHANNEL) {
+                    append(" · 3D Objects")
+                } else if (level == Spatializer.SPATIALIZER_IMMERSIVE_LEVEL_MULTICHANNEL) {
+                    append(" · Multi-Ch")
+                }
+            }
+            SystemSpatialInfo(avail, on, headTrack, label)
+        }.getOrDefault(SystemSpatialInfo())
     }
 
     fun attach(context: Context, audioSessionId: Int) {
@@ -397,6 +453,7 @@ object AudioEffectController {
 
             val eqHolder = cachedEqualizer
             val route = _routeState.value
+            val sysSp = inspectSystemSpatializer(appCtx)
             latestCapabilities = CapabilityReport(
                 sessionId = audioSessionId,
                 equalizerAvailable = eqHolder != null,
@@ -412,6 +469,10 @@ object AudioEffectController {
                 activeRoute = route.route,
                 activeDeviceName = route.deviceName,
                 bluetoothSafeBypassActive = route.isBluetooth || softwareSpatialRef != null,
+                systemSpatializerAvailable = sysSp.available,
+                systemSpatializerEnabled = sysSp.enabled,
+                systemHeadTrackerAvailable = sysSp.headTracker,
+                systemSpatializerLabel = sysSp.label,
             )
 
             AppDiagnostics.info(
@@ -589,6 +650,7 @@ object AudioEffectController {
         lastBassEnabled = null
 
         val route = _routeState.value
+        val sysSp = runCatching { latestCapabilities }.getOrNull()
         latestCapabilities = CapabilityReport(
             sessionId = 0,
             equalizerAvailable = false,
@@ -601,6 +663,10 @@ object AudioEffectController {
             activeRoute = route.route,
             activeDeviceName = route.deviceName,
             bluetoothSafeBypassActive = route.isBluetooth || softwareSpatialRef != null,
+            systemSpatializerAvailable = sysSp?.systemSpatializerAvailable ?: false,
+            systemSpatializerEnabled = sysSp?.systemSpatializerEnabled ?: false,
+            systemHeadTrackerAvailable = sysSp?.systemHeadTrackerAvailable ?: false,
+            systemSpatializerLabel = sysSp?.systemSpatializerLabel ?: "SW HRTF Only",
         )
     }
 

@@ -31,14 +31,14 @@ enum class LosslessTimeout(
     LONG("Long wait", "Patient (8s) cutoff", 8_000L),
 }
 
-/** Spatial processing profiles. Each profile is rendered through the device audio session & PCM DSP. */
+/** Spatial processing profiles. Each profile is rendered through the 32-bit HRTF + Cascaded All-Pass DSP engine. */
 enum class SpatialProfile(val label: String, val detail: String) {
-    STUDIO("Studio", "Subtle width with a focused center image"),
-    WIDE("Wide", "Expanded stereo presentation"),
-    IMMERSIVE("Immersive", "Maximum supported surround processing"),
-    CINEMA("Cinema", "Large-room depth for albums and live sets"),
-    CONCERT_HALL("Concert Hall", "Natural acoustic reflections with warm stage width"),
-    BINAURAL_HEADPHONES("Headphone 3D", "HRTF crossfeed & ear-delay imaging for headphones"),
+    STUDIO("Studio", "Phase-safe nearfield stage with pinpoint vocal focus"),
+    WIDE("Wide", "Correlation-guarded stereo expansion with sub-bass anchor"),
+    IMMERSIVE("Immersive", "Woodworth HRTF + 3-stage Schroeder All-Pass 3D wrap"),
+    CINEMA("Cinema", "Front-center lock with deep theater all-pass diffusion"),
+    CONCERT_HALL("Concert Hall", "Lush prime all-pass acoustic reflections & stage air"),
+    BINAURAL_HEADPHONES("Headphone 3D", "Full outer-ear Pinna + ITD/ILD binaural externalization"),
 }
 
 enum class BufferProfile(val label: String, val detail: String, val minMs: Int, val maxMs: Int, val playbackMs: Int, val rebufferMs: Int) {
@@ -502,6 +502,27 @@ fun setHeadphoneCrossfeedEnabled(c: Context, v: Boolean) = prefs(c).edit().putBo
 
 fun getSpatialRoomDelayMs(c: Context): Float = prefs(c).getFloat(KEY_SPATIAL_ROOM_DELAY_MS, 12f).coerceIn(2f, 28f)
 fun setSpatialRoomDelayMs(c: Context, ms: Float) = prefs(c).edit().putFloat(KEY_SPATIAL_ROOM_DELAY_MS, ms.coerceIn(2f, 28f)).apply()
+
+private const val KEY_SPATIAL_8D_ORBIT = "audio_spatial_8d_orbit"
+private const val KEY_SPATIAL_ORBIT_SPEED = "audio_spatial_orbit_speed"
+private const val KEY_SPATIAL_ELEVATION_DEPTH = "audio_spatial_elevation_depth"
+private const val KEY_SPATIAL_CORRELATION_GUARD = "audio_spatial_correlation_guard"
+
+fun isSpatial8dOrbitEnabled(c: Context): Boolean = prefs(c).getBoolean(KEY_SPATIAL_8D_ORBIT, false)
+fun setSpatial8dOrbitEnabled(c: Context, enabled: Boolean) =
+    prefs(c).edit().putBoolean(KEY_SPATIAL_8D_ORBIT, enabled).apply()
+
+fun getSpatialOrbitSpeed(c: Context): Float = prefs(c).getFloat(KEY_SPATIAL_ORBIT_SPEED, 0.32f).coerceIn(0.10f, 1.50f)
+fun setSpatialOrbitSpeed(c: Context, hz: Float) =
+    prefs(c).edit().putFloat(KEY_SPATIAL_ORBIT_SPEED, hz.coerceIn(0.10f, 1.50f)).apply()
+
+fun getSpatialElevationDepth(c: Context): Float = prefs(c).getFloat(KEY_SPATIAL_ELEVATION_DEPTH, 0.70f).coerceIn(0f, 1f)
+fun setSpatialElevationDepth(c: Context, depth: Float) =
+    prefs(c).edit().putFloat(KEY_SPATIAL_ELEVATION_DEPTH, depth.coerceIn(0f, 1f)).apply()
+
+fun isSpatialCorrelationGuardEnabled(c: Context): Boolean = prefs(c).getBoolean(KEY_SPATIAL_CORRELATION_GUARD, true)
+fun setSpatialCorrelationGuardEnabled(c: Context, enabled: Boolean) =
+    prefs(c).edit().putBoolean(KEY_SPATIAL_CORRELATION_GUARD, enabled).apply()
 
 fun getAudioNormalizerTargetLufs(c: Context): Float = prefs(c).getFloat(KEY_NORMALIZER_TARGET_LUFS, -14f).coerceIn(-24f, -8f)
 fun setAudioNormalizerTargetLufs(c: Context, lufs: Float) = prefs(c).edit().putFloat(KEY_NORMALIZER_TARGET_LUFS, lufs.coerceIn(-24f, -8f)).apply()

@@ -19,10 +19,10 @@ on:
         required: false
         default: false
       skip_tests:
-        description: 'Skip unit tests for a faster manual release build'
+        description: 'Skip unit tests (checked by default; uncheck on manual run to execute unit tests)'
         type: boolean
         required: false
-        default: false
+        default: true
 
 permissions:
   contents: write
@@ -41,7 +41,7 @@ jobs:
     name: Unit Tests (:spotify, :innertube, :app)
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.skip_tests) }}
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.skip_tests }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4

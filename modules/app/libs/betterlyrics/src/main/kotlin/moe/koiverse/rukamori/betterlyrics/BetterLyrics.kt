@@ -35,14 +35,21 @@ object BetterLyrics {
 
     private val client by lazy {
         HttpClient(OkHttp) {
+            engine {
+                config {
+                    connectionPool(okhttp3.ConnectionPool(8, 3, java.util.concurrent.TimeUnit.MINUTES))
+                    protocols(listOf(okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
+                    retryOnConnectionFailure(true)
+                }
+            }
             install(ContentNegotiation) {
                 json(jsonFormat)
             }
 
             install(HttpTimeout) {
-                requestTimeoutMillis = 20000
-                connectTimeoutMillis = 15000
-                socketTimeoutMillis = 20000
+                requestTimeoutMillis = 15000
+                connectTimeoutMillis = 8000
+                socketTimeoutMillis = 15000
             }
 
             defaultRequest {

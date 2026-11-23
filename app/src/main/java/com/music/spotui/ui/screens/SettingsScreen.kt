@@ -42,9 +42,12 @@ import com.music.spotui.data.preferences.setWifiLosslessTimeout
 import com.music.spotui.util.BackupHelper
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -160,6 +163,7 @@ import com.music.spotui.ui.screens.settings.LosslessProviderSection
 import com.music.spotui.ui.screens.settings.ModuleLibsSettingsSection
 import com.music.spotui.ui.screens.settings.PlaybackAndToolsSection
 import com.music.spotui.ui.screens.settings.UiSoundAndStyleSection
+import com.music.spotui.accessibility.AccessibilityHelper
 import com.music.spotui.util.AppDiagnostics
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -183,6 +187,7 @@ fun SettingsScreen(navController: NavController) {
     var youtubeMusicWeb by remember { mutableStateOf(com.music.spotui.data.preferences.isYoutubeMusicWebEnabled(context)) }
     var playerVideoPreview by remember { mutableStateOf(com.music.spotui.data.preferences.isPlayerVideoPreviewEnabled(context)) }
     var batteryOptExempt by remember { mutableStateOf(BatteryOptimizationHelper.isIgnoringBatteryOptimization(context)) }
+    var accessibilityMiniPlayerEnabled by remember { mutableStateOf(AccessibilityHelper.isServiceEnabled(context)) }
     var updateRepoUrl by remember { mutableStateOf(getUpdateRepoUrl(context)) }
     var isDefaultLinkHandler by remember { mutableStateOf(DefaultLinkHelper.isAppDefaultLinkHandler(context)) }
     var showDefaultGuide by remember { mutableStateOf(false) }
@@ -209,6 +214,11 @@ fun SettingsScreen(navController: NavController) {
     var cornerRadiusDp by remember { mutableStateOf(com.music.spotui.data.preferences.getCornerRadiusDp(context)) }
     var novaAcImportStatus by remember { mutableStateOf<String?>(null) }
     var mrbeanEnabled by remember { mutableStateOf(org.eclipse.Mrbean.client.MrbeanNetworkSettings.isEnabled(context)) }
+    var mrbeanConcurrentDownloads by remember { mutableStateOf(org.eclipse.Mrbean.client.MrbeanNetworkSettings.maxConcurrentDownloads(context).toFloat()) }
+    var mrbeanParallelChunks by remember { mutableStateOf(org.eclipse.Mrbean.client.MrbeanNetworkSettings.parallelChunksPerFile(context).toFloat()) }
+    var mrbeanIoBufferKb by remember { mutableStateOf(org.eclipse.Mrbean.client.MrbeanNetworkSettings.ioBufferKb(context)) }
+    var mrbeanHttp2 by remember { mutableStateOf(org.eclipse.Mrbean.client.MrbeanNetworkSettings.http2Multiplexing(context)) }
+    var mrbeanPrefetchAsync by remember { mutableStateOf(org.eclipse.Mrbean.client.MrbeanNetworkSettings.prefetchMetadataInParallel(context)) }
     var mrbeanCandidateLimit by remember { mutableStateOf(org.eclipse.Mrbean.client.MrbeanNetworkSettings.candidateLimit(context).toFloat()) }
     var mrbeanConnectSeconds by remember { mutableStateOf(org.eclipse.Mrbean.client.MrbeanNetworkSettings.connectTimeoutMs(context) / 1_000f) }
     var mrbeanReadSeconds by remember { mutableStateOf(org.eclipse.Mrbean.client.MrbeanNetworkSettings.readTimeoutMs(context) / 1_000f) }
@@ -467,6 +477,7 @@ fun SettingsScreen(navController: NavController) {
                 isDefaultLinkHandler = DefaultLinkHelper.isAppDefaultLinkHandler(context)
                 youtubeSyncStatus = com.music.spotui.data.youtube.YouTubeMusicSync.status(context)
                 batteryOptExempt = BatteryOptimizationHelper.isIgnoringBatteryOptimization(context)
+                accessibilityMiniPlayerEnabled = AccessibilityHelper.isServiceEnabled(context)
                 hasNotifPerm = PermissionHelper.hasNotificationPermission(context)
                 hasMediaPerm = PermissionHelper.hasMediaReadPermission(context)
                 hasBluetoothPerm = PermissionHelper.hasBluetoothConnectPermission(context)
@@ -873,6 +884,97 @@ fun SettingsScreen(navController: NavController) {
                             tint = AppPalette,
                             modifier = Modifier.size(18.dp)
                         )
+                    }
+
+                    Spacer(Modifier.height(14.dp))
+
+                    // One UI 9.0 Game Mini-Player (Accessibility Button Overlay)
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFF22242E),
+                        border = BorderStroke(
+                            1.dp,
+                            if (accessibilityMiniPlayerEnabled) Color(0xFF2E6B3E) else Color(0xFF33384A),
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text(
+                                    "One UI Game Mini-Player",
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(
+                                            if (accessibilityMiniPlayerEnabled) Color(0xFF1E3A24) else Color(0xFF3D2A1C),
+                                        )
+                                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                                ) {
+                                    Text(
+                                        if (accessibilityMiniPlayerEnabled) "Active" else "Setup Needed",
+                                        color = if (accessibilityMiniPlayerEnabled) Color(0xFF81C784) else Color(0xFFFFB74D),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                AccessibilityHelper.ONE_UI_RESTRICTED_SETTINGS_TIP,
+                                color = Color(0xFFB3B3B3),
+                                fontSize = 11.sp,
+                                lineHeight = 16.sp,
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Button(
+                                    onClick = { AccessibilityHelper.openAccessibilitySettings(context) },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = AppPalette,
+                                        contentColor = Color.Black,
+                                    ),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 48.dp)
+                                        .testTag("oneui_accessibility_settings_button"),
+                                ) {
+                                    Text(
+                                        if (accessibilityMiniPlayerEnabled) "Manage Shortcut" else "Enable Service",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                                OutlinedButton(
+                                    onClick = { AccessibilityHelper.openAppInfoSettings(context) },
+                                    border = BorderStroke(1.dp, Color(0xFF4A5068)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 48.dp)
+                                        .testTag("oneui_restricted_settings_button"),
+                                ) {
+                                    Text(
+                                        "Allow Restricted",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1366,39 +1468,173 @@ fun SettingsScreen(navController: NavController) {
 
             CollapsibleSettingsSection(
                 title = "Eclipse MrBean Network Engine",
-                subtitle = "Resolver and ranged-download transport tuning",
+                subtitle = "Turbo 1–10 concurrent downloads, parallel HTTP/2 range slices & pooling",
                 expanded = mrbeanSectionExpanded,
                 onExpandedChange = { mrbeanSectionExpanded = it },
             ) {
+                val mrbeanSpeedBps by com.music.spotui.di.SongPlayer.downloadThroughputBytesPerSec().collectAsStateWithLifecycle()
                 Column(
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFF1A1A20)).padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF232530))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("MrBean Turbo Pipeline", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                "${mrbeanConcurrentDownloads.toInt()} songs × ${mrbeanParallelChunks.toInt()} slices · ${mrbeanIoBufferKb} KB buf · ${if (mrbeanHttp2) "HTTP/2 Pool" else "HTTP/1.1"}",
+                                color = Color(0xFFB3BAC8),
+                                fontSize = 11.sp,
+                            )
+                        }
+                        Text(
+                            text = if (mrbeanSpeedBps > 0L) org.eclipse.Mrbean.client.MrbeanDownloadClient.formatSpeed(mrbeanSpeedBps) else "Ready",
+                            color = AppPalette,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Column(Modifier.weight(1f)) {
                             Text("Enable MrBean transport tuning", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                            Text("Applies settings to stream-candidate fallback and byte-range downloads.", color = Color.Gray, fontSize = 11.sp)
+                            Text("Multi-slice HTTP/2 download pool, TTL DNS cache, and fast resolver fallback.", color = Color.Gray, fontSize = 11.sp)
                         }
                         Switch(
                             checked = mrbeanEnabled,
                             onCheckedChange = { enabled ->
                                 mrbeanEnabled = enabled
+                                UiSoundEngine.playToggleSound(context, enabled)
                                 org.eclipse.Mrbean.client.MrbeanNetworkSettings.setEnabled(context, enabled)
                             },
+                            modifier = Modifier.testTag("mrbean_enable_switch"),
                             colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = AppPalette),
                         )
                     }
+
+                    // Always configurable 1-10 simultaneous song downloads (live hot-scalable)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Simultaneous song downloads", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("${mrbeanConcurrentDownloads.toInt()} / 10 tracks", color = AppPalette, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Slider(
+                        value = mrbeanConcurrentDownloads,
+                        onValueChange = {
+                            val clamped = kotlin.math.round(it).toInt().coerceIn(1, 10)
+                            mrbeanConcurrentDownloads = clamped.toFloat()
+                            org.eclipse.Mrbean.client.MrbeanNetworkSettings.setMaxConcurrentDownloads(context, clamped)
+                        },
+                        valueRange = 1f..10f,
+                        steps = 8,
+                        modifier = Modifier.testTag("mrbean_concurrent_downloads_slider"),
+                        colors = SliderDefaults.colors(activeTrackColor = AppPalette, thumbColor = AppPalette),
+                    )
+
                     if (mrbeanEnabled) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Parallel HTTP Range connections per song", color = Color.White, fontSize = 13.sp)
+                            Text("${mrbeanParallelChunks.toInt()}x parallel", color = AppPalette, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Slider(
+                            value = mrbeanParallelChunks,
+                            onValueChange = {
+                                val clamped = kotlin.math.round(it).toInt().coerceIn(1, 6)
+                                mrbeanParallelChunks = clamped.toFloat()
+                                org.eclipse.Mrbean.client.MrbeanNetworkSettings.setParallelChunksPerFile(context, clamped)
+                            },
+                            valueRange = 1f..6f,
+                            steps = 4,
+                            modifier = Modifier.testTag("mrbean_parallel_chunks_slider"),
+                            colors = SliderDefaults.colors(activeTrackColor = AppPalette, thumbColor = AppPalette),
+                        )
+
+                        Text("I/O Stream Buffer Size", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            listOf(64, 128, 256, 512).forEach { kb ->
+                                val selected = mrbeanIoBufferKb == kb
+                                Box(
+                                    modifier = Modifier
+                                        .heightIn(min = 48.dp)
+                                        .clip(RoundedCornerShape(18.dp))
+                                        .background(if (selected) AppPalette else Color.White.copy(alpha = 0.08f))
+                                        .clickable {
+                                            mrbeanIoBufferKb = kb
+                                            UiSoundEngine.playTapChime(context)
+                                            org.eclipse.Mrbean.client.MrbeanNetworkSettings.setIoBufferKb(context, kb)
+                                        }
+                                        .testTag("mrbean_io_buffer_${kb}kb")
+                                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text("$kb KB", color = if (selected) Color.Black else Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("HTTP/2 Multiplexing + Keep-Alive Pool", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                Text("Shares warm TLS sockets across range workers and resolvers.", color = Color.Gray, fontSize = 11.sp)
+                            }
+                            Switch(
+                                checked = mrbeanHttp2,
+                                onCheckedChange = {
+                                    mrbeanHttp2 = it
+                                    UiSoundEngine.playToggleSound(context, it)
+                                    org.eclipse.Mrbean.client.MrbeanNetworkSettings.setHttp2Multiplexing(context, it)
+                                },
+                                modifier = Modifier.testTag("mrbean_http2_switch"),
+                                colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = AppPalette),
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Async Cover & Lyrics Prefetch", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                Text("Decouples artwork & lyrics caching so audio workers finish immediately.", color = Color.Gray, fontSize = 11.sp)
+                            }
+                            Switch(
+                                checked = mrbeanPrefetchAsync,
+                                onCheckedChange = {
+                                    mrbeanPrefetchAsync = it
+                                    UiSoundEngine.playToggleSound(context, it)
+                                    org.eclipse.Mrbean.client.MrbeanNetworkSettings.setPrefetchMetadataInParallel(context, it)
+                                },
+                                modifier = Modifier.testTag("mrbean_prefetch_async_switch"),
+                                colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = AppPalette),
+                            )
+                        }
+
                         Text("Candidate fallback: ${mrbeanCandidateLimit.toInt()} ranked sources", color = Color.White, fontSize = 13.sp)
                         Slider(
                             value = mrbeanCandidateLimit,
                             onValueChange = { mrbeanCandidateLimit = it },
                             onValueChangeFinished = {
-                                mrbeanCandidateLimit = mrbeanCandidateLimit.toInt().coerceIn(3, 8).toFloat()
+                                mrbeanCandidateLimit = kotlin.math.round(mrbeanCandidateLimit).toInt().coerceIn(3, 10).toFloat()
                                 org.eclipse.Mrbean.client.MrbeanNetworkSettings.setCandidateLimit(context, mrbeanCandidateLimit.toInt())
                             },
-                            valueRange = 3f..8f,
-                            steps = 4,
+                            valueRange = 3f..10f,
+                            steps = 6,
+                            modifier = Modifier.testTag("mrbean_candidate_limit_slider"),
                             colors = SliderDefaults.colors(activeTrackColor = AppPalette, thumbColor = AppPalette),
                         )
                         Text("Connection timeout: ${mrbeanConnectSeconds.toInt()} seconds", color = Color.White, fontSize = 13.sp)
@@ -1406,11 +1642,13 @@ fun SettingsScreen(navController: NavController) {
                             value = mrbeanConnectSeconds,
                             onValueChange = { mrbeanConnectSeconds = it },
                             onValueChangeFinished = {
-                                mrbeanConnectSeconds = (mrbeanConnectSeconds / 5f).toInt().coerceIn(1, 9).times(5).toFloat()
-                                org.eclipse.Mrbean.client.MrbeanNetworkSettings.setConnectTimeoutMs(context, (mrbeanConnectSeconds * 1_000).toInt())
+                                val snapped = kotlin.math.round(mrbeanConnectSeconds / 3f).toInt().coerceIn(1, 15).times(3)
+                                mrbeanConnectSeconds = snapped.toFloat()
+                                org.eclipse.Mrbean.client.MrbeanNetworkSettings.setConnectTimeoutMs(context, snapped * 1_000)
                             },
-                            valueRange = 5f..45f,
-                            steps = 7,
+                            valueRange = 3f..45f,
+                            steps = 13,
+                            modifier = Modifier.testTag("mrbean_connect_timeout_slider"),
                             colors = SliderDefaults.colors(activeTrackColor = AppPalette, thumbColor = AppPalette),
                         )
                         Text("Read timeout: ${mrbeanReadSeconds.toInt()} seconds", color = Color.White, fontSize = 13.sp)
@@ -1418,23 +1656,26 @@ fun SettingsScreen(navController: NavController) {
                             value = mrbeanReadSeconds,
                             onValueChange = { mrbeanReadSeconds = it },
                             onValueChangeFinished = {
-                                mrbeanReadSeconds = (mrbeanReadSeconds / 5f).toInt().coerceIn(2, 18).times(5).toFloat()
-                                org.eclipse.Mrbean.client.MrbeanNetworkSettings.setReadTimeoutMs(context, (mrbeanReadSeconds * 1_000).toInt())
+                                val snapped = kotlin.math.round(mrbeanReadSeconds / 5f).toInt().coerceIn(1, 18).times(5)
+                                mrbeanReadSeconds = snapped.toFloat()
+                                org.eclipse.Mrbean.client.MrbeanNetworkSettings.setReadTimeoutMs(context, snapped * 1_000)
                             },
-                            valueRange = 10f..90f,
-                            steps = 15,
+                            valueRange = 5f..90f,
+                            steps = 16,
+                            modifier = Modifier.testTag("mrbean_read_timeout_slider"),
                             colors = SliderDefaults.colors(activeTrackColor = AppPalette, thumbColor = AppPalette),
                         )
-                        Text("Ranged-download chunk: ${mrbeanChunkMiB.toInt()} MiB", color = Color.White, fontSize = 13.sp)
+                        Text("Ranged-download slice size: ${mrbeanChunkMiB.toInt()} MiB", color = Color.White, fontSize = 13.sp)
                         Slider(
                             value = mrbeanChunkMiB,
                             onValueChange = { mrbeanChunkMiB = it },
                             onValueChangeFinished = {
-                                mrbeanChunkMiB = mrbeanChunkMiB.toInt().coerceIn(1, 16).toFloat()
+                                mrbeanChunkMiB = kotlin.math.round(mrbeanChunkMiB).toInt().coerceIn(1, 16).toFloat()
                                 org.eclipse.Mrbean.client.MrbeanNetworkSettings.setChunkMiB(context, mrbeanChunkMiB.toInt())
                             },
                             valueRange = 1f..16f,
                             steps = 14,
+                            modifier = Modifier.testTag("mrbean_chunk_size_slider"),
                             colors = SliderDefaults.colors(activeTrackColor = AppPalette, thumbColor = AppPalette),
                         )
                         Text("Retries per byte range: ${mrbeanRetries.toInt()}", color = Color.White, fontSize = 13.sp)
@@ -1442,25 +1683,37 @@ fun SettingsScreen(navController: NavController) {
                             value = mrbeanRetries,
                             onValueChange = { mrbeanRetries = it },
                             onValueChangeFinished = {
-                                mrbeanRetries = mrbeanRetries.toInt().coerceIn(1, 5).toFloat()
+                                mrbeanRetries = kotlin.math.round(mrbeanRetries).toInt().coerceIn(1, 6).toFloat()
                                 org.eclipse.Mrbean.client.MrbeanNetworkSettings.setRangeRetries(context, mrbeanRetries.toInt())
                             },
-                            valueRange = 1f..5f,
-                            steps = 3,
+                            valueRange = 1f..6f,
+                            steps = 4,
+                            modifier = Modifier.testTag("mrbean_range_retries_slider"),
                             colors = SliderDefaults.colors(activeTrackColor = AppPalette, thumbColor = AppPalette),
                         )
                     }
                     Text(
-                        "Protocol note: the Android TLS stack negotiates HTTP/2 when supported. HTTP/3 is not bundled in this build, so it is never advertised as active.",
+                        "Protocol note: HTTP/2 multiplexing + connection pooling runs on Android's TLS stack across MrBean, SpotiFlac, InnerTube, and Deezer.",
                         color = Color(0xFF9FA9BC), fontSize = 11.sp,
                     )
-                    TextButton(onClick = {
-                        org.eclipse.Mrbean.client.MrbeanNetworkSettings.reset(context)
-                        val reset = org.eclipse.Mrbean.client.MrbeanNetworkSettings.snapshot(context)
-                        mrbeanEnabled = reset.enabled; mrbeanCandidateLimit = reset.candidateLimit.toFloat()
-                        mrbeanConnectSeconds = reset.connectTimeoutMs / 1_000f; mrbeanReadSeconds = reset.readTimeoutMs / 1_000f
-                        mrbeanChunkMiB = reset.chunkMiB.toFloat(); mrbeanRetries = reset.rangeRetries.toFloat()
-                    }) { Text("Restore recommended network defaults", color = AppPalette) }
+                    TextButton(
+                        onClick = {
+                            org.eclipse.Mrbean.client.MrbeanNetworkSettings.reset(context)
+                            val reset = org.eclipse.Mrbean.client.MrbeanNetworkSettings.snapshot(context)
+                            mrbeanEnabled = reset.enabled
+                            mrbeanConcurrentDownloads = reset.maxConcurrentDownloads.toFloat()
+                            mrbeanParallelChunks = reset.parallelChunksPerFile.toFloat()
+                            mrbeanIoBufferKb = reset.ioBufferKb
+                            mrbeanHttp2 = reset.http2Multiplexing
+                            mrbeanPrefetchAsync = reset.prefetchMetadataInParallel
+                            mrbeanCandidateLimit = reset.candidateLimit.toFloat()
+                            mrbeanConnectSeconds = reset.connectTimeoutMs / 1_000f
+                            mrbeanReadSeconds = reset.readTimeoutMs / 1_000f
+                            mrbeanChunkMiB = reset.chunkMiB.toFloat()
+                            mrbeanRetries = reset.rangeRetries.toFloat()
+                        },
+                        modifier = Modifier.heightIn(min = 48.dp).testTag("mrbean_reset_defaults_button"),
+                    ) { Text("Restore recommended turbo defaults", color = AppPalette) }
                 }
             }
 
@@ -2678,8 +2931,70 @@ fun SettingsScreen(navController: NavController) {
                                 )
                             }
                         }
+                        is UpdateDownloader.DownloadState.Installing -> {
+                            val pct = (dlState.progressFraction.coerceIn(0f, 1f) * 100).toInt()
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text("Android PackageInstaller Session", color = Color(0xFF81C784), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("$pct%", color = Color(0xFF81C784), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            LinearProgressIndicator(
+                                progress = { dlState.progressFraction.coerceIn(0f, 1f) },
+                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)),
+                                color = Color(0xFF81C784),
+                                trackColor = Color(0xFF2B2D36),
+                            )
+                            Text(dlState.statusMessage, color = Color(0xFFD0D6E0), fontSize = 11.sp)
+                        }
+                        is UpdateDownloader.DownloadState.Installed -> {
+                            Text(
+                                text = "✓ SpotUI v${dlState.version} installed via Android PackageInstaller",
+                                color = Color(0xFF81C784),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                         is UpdateDownloader.DownloadState.Failed -> {
-                            Text("In-app download failed: ${dlState.reason}", color = Color(0xFFFF7A59), fontSize = 11.sp)
+                            Text("Update failed: ${dlState.reason}", color = Color(0xFFFF7A59), fontSize = 11.sp)
+                            val fallback = dlState.fallbackCompleted
+                            if (fallback != null) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    TextButton(
+                                        modifier = Modifier.heightIn(min = 48.dp),
+                                        onClick = {
+                                            UiSoundEngine.playTapChime(context)
+                                            if (!UpdateDownloader.canRequestPackageInstalls(context)) {
+                                                settingsUnknownSourcesLauncher.launch(
+                                                    UpdateDownloader.buildUnknownAppSourcesIntent(context, newTask = false),
+                                                )
+                                            } else {
+                                                when (val res = UpdateDownloader.installApk(context, fallback)) {
+                                                    is UpdateDownloader.InstallLaunchResult.Launched -> {
+                                                        settingsInstallPermNeeded = false
+                                                        settingsInstallError = null
+                                                    }
+                                                    is UpdateDownloader.InstallLaunchResult.PermissionRequired -> {
+                                                        settingsInstallPermNeeded = true
+                                                    }
+                                                    is UpdateDownloader.InstallLaunchResult.Failed -> {
+                                                        settingsInstallError = res.reason
+                                                    }
+                                                }
+                                            }
+                                        },
+                                    ) {
+                                        Text("Retry PackageInstaller", color = AppPalette, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    TextButton(
+                                        modifier = Modifier.heightIn(min = 48.dp),
+                                        onClick = { UpdateDownloader.openFileProviderFallbackInstaller(context, fallback) },
+                                    ) {
+                                        Text("System Fallback", color = Color(0xFF9ED4FF), fontSize = 12.sp)
+                                    }
+                                }
+                            }
                         }
                         is UpdateDownloader.DownloadState.Cancelled -> {
                             Text("In-app update download cancelled.", color = Color(0xFFB3B3B3), fontSize = 11.sp)
@@ -2730,7 +3045,7 @@ fun SettingsScreen(navController: NavController) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Roadmap & Update Master Plan", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
-                    Text("View complete release history and version changelogs (v1.5.1 through v2.5.1)", color = Color(0xFFB3B3B3), fontSize = 12.sp)
+                    Text("View complete release history and version changelogs (including v1.5.2)", color = Color(0xFFB3B3B3), fontSize = 12.sp)
                 }
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.OpenInNew,

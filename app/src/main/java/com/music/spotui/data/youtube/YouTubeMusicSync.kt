@@ -36,13 +36,17 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
+import okhttp3.FormBody
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Response
 import java.io.BufferedReader
 import java.io.InputStreamReader
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.ServerSocket
-import java.net.URL
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.security.KeyStore
@@ -92,6 +96,18 @@ object YouTubeMusicSync {
     private const val UNIQUE_WORK = "spotui_youtube_music_sync"
 
     private val loopbackScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val httpClient: OkHttpClient = OkHttpClient.Builder()
+        .dispatcher(Dispatcher().apply {
+            maxRequests = 32
+            maxRequestsPerHost = 12
+        })
+        .connectionPool(ConnectionPool(8, 3, TimeUnit.MINUTES))
+        .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .build()
 
     private val _syncRevision = MutableStateFlow(0)
     val syncRevision: StateFlow<Int> = _syncRevision.asStateFlow()
@@ -699,36 +715,30 @@ object YouTubeMusicSync {
     }
 
     private fun getJson(url: String, accessToken: String): JSONObject {
-        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = 15_000
-            readTimeout = 30_000
-            setRequestProperty("Authorization", "Bearer $accessToken")
-            setRequestProperty("Accept", "application/json")
-        }
-        val text = connection.useResponse()
+        val req = Request.Builder()
+            .url(url)
+            .header("Authorization", "Bearer $accessToken")
+            .header("Accept", "application/json")
+            .build()
+        val text = httpClient.newCall(req).execute().use { it.useOkHttpResponse() }
         return JSONObject(text)
     }
 
     private fun postForm(endpoint: String, values: Map<String, String>): JSONObject {
-        val body = values.entries.joinToString("&") { (key, value) -> "${encode(key)}=${encode(value)}" }
-        val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            connectTimeout = 15_000
-            readTimeout = 30_000
-            doOutput = true
-            setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-            setRequestProperty("Accept", "application/json")
-        }
-        OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { it.write(body) }
-        return JSONObject(connection.useResponse())
+        val form = FormBody.Builder().apply {
+            values.forEach { (key, value) -> add(key, value) }
+        }.build()
+        val req = Request.Builder()
+            .url(endpoint)
+            .header("Accept", "application/json")
+            .post(form)
+            .build()
+        return JSONObject(httpClient.newCall(req).execute().use { it.useOkHttpResponse() })
     }
 
-    private fun HttpURLConnection.useResponse(): String {
-        val code = responseCode
-        val stream = if (code in 200..299) inputStream else errorStream
-        val text = stream?.bufferedReader()?.use(BufferedReader::readText).orEmpty()
-        if (code !in 200..299) {
+    private fun Response.useOkHttpResponse(): String {
+        val text = body?.string().orEmpty()
+        if (!isSuccessful) {
             val detail = runCatching { JSONObject(text).optString("error_description", JSONObject(text).optString("error")) }.getOrDefault(text)
             error("YouTube API HTTP $code: ${detail.ifBlank { "request failed" }}")
         }

@@ -39,6 +39,12 @@ private val client = HttpClient {
         gzip()
         deflate()
     }
+
+    install(io.ktor.client.plugins.HttpTimeout) {
+        requestTimeoutMillis = 12_000
+        connectTimeoutMillis = 8_000
+        socketTimeoutMillis = 12_000
+    }
 }
 
 private const val PAGE_SIZE = 8

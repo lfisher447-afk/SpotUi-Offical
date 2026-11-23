@@ -10,6 +10,7 @@ package com.harmber2.suadat.shazamkit
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.cio.endpoint
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
@@ -85,7 +86,13 @@ object Shazam {
             expectSuccess = false
 
             engine {
-                requestTimeout = 30000
+                maxConnectionsCount = 32
+                requestTimeout = 20000
+                endpoint {
+                    maxConnectionsPerRoute = 8
+                    keepAliveTime = 30_000
+                    connectTimeout = 8_000
+                }
             }
         }
     }

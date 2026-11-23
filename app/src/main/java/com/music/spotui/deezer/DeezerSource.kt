@@ -121,7 +121,8 @@ object DeezerSource {
                 var chunkIndex = 0L
                 var written = 0L
 
-                BufferedOutputStream(FileOutputStream(outFile)).use { out ->
+                var lastPct = -1
+                BufferedOutputStream(FileOutputStream(outFile), 256 * 1024).use { out ->
                     body.byteStream().use { input ->
                         var fill = 0
                         while (true) {
@@ -143,7 +144,11 @@ object DeezerSource {
                                 chunkIndex++
                                 fill = 0
                                 if (total > 0) {
-                                    onProgress(((written * 100) / total).toInt().coerceIn(0, 100))
+                                    val pct = ((written * 100) / total).toInt().coerceIn(0, 100)
+                                    if (pct != lastPct) {
+                                        lastPct = pct
+                                        onProgress(pct)
+                                    }
                                 }
                             }
                         }

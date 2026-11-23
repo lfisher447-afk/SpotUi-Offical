@@ -5,8 +5,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import java.net.HttpURLConnection
-import java.net.URL
+import okhttp3.ConnectionPool
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Request
+import java.util.concurrent.TimeUnit
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlin.math.floor
@@ -273,32 +276,36 @@ object SpotifyAuth {
         return output.toByteArray()
     }
 
-    private fun httpGet(urlString: String, extraHeaders: Map<String, String>): String {
-        val connection = java.net.URI.create(urlString).toURL().openConnection() as HttpURLConnection
-        try {
-            connection.requestMethod = "GET"
-            connection.instanceFollowRedirects = true
-            connection.connectTimeout = 15_000
-            connection.readTimeout = 15_000
-            connection.setRequestProperty("User-Agent", USER_AGENT)
-            connection.setRequestProperty("Accept", "application/json, text/plain, */*")
-            connection.setRequestProperty("Accept-Language", "en-US,en;q=0.9")
-            for ((key, value) in extraHeaders) {
-                connection.setRequestProperty(key, value)
-            }
+    private val authHttpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectionPool(ConnectionPool(8, 3, TimeUnit.MINUTES))
+            .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
+            .connectTimeout(12, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .retryOnConnectionFailure(true)
+            .build()
+    }
 
-            val responseCode = connection.responseCode
-            if (responseCode !in 200..299) {
-                val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+    private fun httpGet(urlString: String, extraHeaders: Map<String, String>): String {
+        val reqBuilder = Request.Builder()
+            .url(urlString)
+            .header("User-Agent", USER_AGENT)
+            .header("Accept", "application/json, text/plain, */*")
+            .header("Accept-Language", "en-US,en;q=0.9")
+        for ((key, value) in extraHeaders) {
+            reqBuilder.header(key, value)
+        }
+        authHttpClient.newCall(reqBuilder.build()).execute().use { resp ->
+            val bodyStr = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) {
                 throw Spotify.SpotifyException(
-                    responseCode,
-                    "HTTP $responseCode: ${errorBody.take(200)}",
+                    resp.code,
+                    "HTTP ${resp.code}: ${bodyStr.take(200)}",
                 )
             }
-
-            return connection.inputStream.bufferedReader().use { it.readText() }
-        } finally {
-            connection.disconnect()
+            return bodyStr
         }
     }
 }

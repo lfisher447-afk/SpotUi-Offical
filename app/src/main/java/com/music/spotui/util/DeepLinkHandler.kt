@@ -31,9 +31,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 import java.net.URLEncoder
+import java.util.concurrent.TimeUnit
 
 /**
  * Handles incoming Spotify/YouTube deep links, ACTION_SEND shares,
@@ -643,18 +642,35 @@ object DeepLinkHandler {
         val explicit: Boolean = false,
     )
 
+    private val metaHttpClient by lazy {
+        okhttp3.OkHttpClient.Builder()
+            .connectionPool(okhttp3.ConnectionPool(6, 2, TimeUnit.MINUTES))
+            .protocols(listOf(okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
+            .connectTimeout(6, TimeUnit.SECONDS)
+            .readTimeout(6, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .build()
+    }
+
+    private val noRedirectHttpClient by lazy {
+        metaHttpClient.newBuilder()
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .build()
+    }
+
     private fun fetchSpotifyEmbedMeta(type: String, id: String): SpotifyWebMeta? {
         return try {
             val url = "https://open.spotify.com/embed/$type/$id"
-            val conn = URL(url).openConnection() as HttpURLConnection
-            conn.connectTimeout = 6000
-            conn.readTimeout = 6000
-            conn.requestMethod = "GET"
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-            conn.setRequestProperty("Accept-Language", "en-US,en;q=0.9")
+            val req = okhttp3.Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .build()
 
-            if (conn.responseCode == 200) {
-                val html = conn.inputStream.bufferedReader().use { it.readText() }
+            metaHttpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@use null
+                val html = resp.body?.string().orEmpty()
                 val scriptMatch = Regex("""<script[^>]*id=["']__NEXT_DATA__["'][^>]*>(.*?)</script>""", RegexOption.DOT_MATCHES_ALL).find(html)
                 if (scriptMatch != null) {
                     val jsonText = scriptMatch.groupValues[1]
@@ -695,7 +711,7 @@ object DeepLinkHandler {
                         }
 
                         if (title.isNotBlank()) {
-                            return SpotifyWebMeta(
+                            return@use SpotifyWebMeta(
                                 title = title,
                                 artist = artist,
                                 coverUri = coverUri,
@@ -705,8 +721,8 @@ object DeepLinkHandler {
                         }
                     }
                 }
+                null
             }
-            null
         } catch (e: Exception) {
             Log.w(TAG, "Failed to fetch Spotify embed meta for $type/$id", e)
             null
@@ -723,13 +739,13 @@ object DeepLinkHandler {
         return try {
             val encodedUrl = URLEncoder.encode(spotifyUrl, "UTF-8")
             val oembedEndpoint = "https://open.spotify.com/oembed?url=$encodedUrl"
-            val conn = URL(oembedEndpoint).openConnection() as HttpURLConnection
-            conn.connectTimeout = 4000
-            conn.readTimeout = 4000
-            conn.requestMethod = "GET"
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-            if (conn.responseCode == 200) {
-                val jsonText = conn.inputStream.bufferedReader().use { it.readText() }
+            val req = okhttp3.Request.Builder()
+                .url(oembedEndpoint)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                .build()
+            metaHttpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@use null
+                val jsonText = resp.body?.string().orEmpty()
                 val json = JSONObject(jsonText)
                 val title = json.optString("title", "").trim()
                 val author = json.optString("author_name", "").trim()
@@ -737,7 +753,7 @@ object DeepLinkHandler {
                 if (title.isNotBlank() || author.isNotBlank()) {
                     OEmbedMetadata(title, author, thumbnail)
                 } else null
-            } else null
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to fetch oEmbed metadata for $spotifyUrl", e)
             null
@@ -748,15 +764,15 @@ object DeepLinkHandler {
         val host = uri.host?.lowercase() ?: return uri
         if (host.contains("link")) {
             try {
-                val conn = URL(uri.toString()).openConnection() as HttpURLConnection
-                conn.instanceFollowRedirects = false
-                conn.connectTimeout = 4000
-                conn.readTimeout = 4000
-                conn.requestMethod = "HEAD"
-                val location = conn.getHeaderField("Location")
-                conn.disconnect()
-                if (!location.isNullOrBlank()) {
-                    return Uri.parse(location)
+                val req = okhttp3.Request.Builder()
+                    .url(uri.toString())
+                    .head()
+                    .build()
+                noRedirectHttpClient.newCall(req).execute().use { resp ->
+                    val location = resp.header("Location")
+                    if (!location.isNullOrBlank()) {
+                        return Uri.parse(location)
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to resolve redirect for $uri", e)

@@ -9,9 +9,13 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Request
 import java.net.URLEncoder
+import java.util.concurrent.TimeUnit
 
 /**
  * Synced lyrics. Primary source is Spotify's own color-lyrics endpoint (the
@@ -24,6 +28,18 @@ import java.net.URLEncoder
 object LyricsApi {
     private const val BASE = "https://lrclib.net/api"
     private const val UA = "SpotuiSpotifyClone (https://github.com/)"
+
+    private val httpClient = OkHttpClient.Builder()
+        .dispatcher(Dispatcher().apply {
+            maxRequests = 32
+            maxRequestsPerHost = 16
+        })
+        .connectionPool(ConnectionPool(8, 3, TimeUnit.MINUTES))
+        .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
+        .connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .build()
 
     // In-memory cache keyed by "title|artist" so re-opening the lyrics view (or the
     // inline card + full-screen view, which both request the same track) is instant
@@ -271,21 +287,17 @@ object LyricsApi {
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
     private fun httpGet(spec: String): String? = runCatching {
-        val conn = (URL(spec).openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = 5000
-            readTimeout = 5000
-            setRequestProperty("User-Agent", UA)
-            setRequestProperty("Accept", "application/json")
-        }
-        try {
-            if (conn.responseCode != 200) {
-                Log.d("LyricsApi", "HTTP ${conn.responseCode} for $spec")
+        val req = Request.Builder()
+            .url(spec)
+            .header("User-Agent", UA)
+            .header("Accept", "application/json")
+            .build()
+        httpClient.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) {
+                Log.d("LyricsApi", "HTTP ${resp.code} for $spec")
                 return null
             }
-            conn.inputStream.bufferedReader().use { it.readText() }
-        } finally {
-            conn.disconnect()
+            resp.body?.string()
         }
     }.getOrElse { Log.e("LyricsApi", "request failed", it); null }
 }

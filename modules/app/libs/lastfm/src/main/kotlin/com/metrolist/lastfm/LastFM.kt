@@ -26,6 +26,15 @@ object LastFM {
 
     private val client by lazy {
         HttpClient(OkHttp) {
+            engine {
+                config {
+                    connectionPool(okhttp3.ConnectionPool(6, 3, java.util.concurrent.TimeUnit.MINUTES))
+                    protocols(listOf(okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
+                    connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+                    readTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
+                    retryOnConnectionFailure(true)
+                }
+            }
             install(ContentNegotiation) {
                 json(json)
             }

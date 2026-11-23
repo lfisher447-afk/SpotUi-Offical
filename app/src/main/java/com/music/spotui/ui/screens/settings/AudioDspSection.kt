@@ -65,6 +65,8 @@ import com.music.spotui.data.preferences.getEqPreset
 import com.music.spotui.data.preferences.getEqSubBass
 import com.music.spotui.data.preferences.getEqTreble
 import com.music.spotui.data.preferences.getEqVocal
+import com.music.spotui.data.preferences.getSpatialElevationDepth
+import com.music.spotui.data.preferences.getSpatialOrbitSpeed
 import com.music.spotui.data.preferences.getSpatialProfile
 import com.music.spotui.data.preferences.getSpatialRoomDelayMs
 import com.music.spotui.data.preferences.getSpatialStrength
@@ -73,6 +75,8 @@ import com.music.spotui.data.preferences.isEqEnabled
 import com.music.spotui.data.preferences.isEqSpatialEnabled
 import com.music.spotui.data.preferences.isHeadphoneCrossfeedEnabled
 import com.music.spotui.data.preferences.isLimiterEnabled
+import com.music.spotui.data.preferences.isSpatial8dOrbitEnabled
+import com.music.spotui.data.preferences.isSpatialCorrelationGuardEnabled
 import com.music.spotui.data.preferences.setAudioNormalizerEnabled
 import com.music.spotui.data.preferences.setAudioNormalizerGainMb
 import com.music.spotui.data.preferences.setAudioNormalizerTargetLufs
@@ -90,6 +94,10 @@ import com.music.spotui.data.preferences.setEqTreble
 import com.music.spotui.data.preferences.setEqVocal
 import com.music.spotui.data.preferences.setHeadphoneCrossfeedEnabled
 import com.music.spotui.data.preferences.setLimiterEnabled
+import com.music.spotui.data.preferences.setSpatial8dOrbitEnabled
+import com.music.spotui.data.preferences.setSpatialCorrelationGuardEnabled
+import com.music.spotui.data.preferences.setSpatialElevationDepth
+import com.music.spotui.data.preferences.setSpatialOrbitSpeed
 import com.music.spotui.data.preferences.setSpatialProfile
 import com.music.spotui.data.preferences.setSpatialRoomDelayMs
 import com.music.spotui.data.preferences.setSpatialStrength
@@ -145,6 +153,10 @@ fun AudioDspSection(
     var spatialProfile by remember { mutableStateOf(getSpatialProfile(context)) }
     var spatialStrength by remember { mutableStateOf(getSpatialStrength(context).toFloat()) }
     var roomDelayMs by remember { mutableStateOf(getSpatialRoomDelayMs(context)) }
+    var spatialElevationDepth by remember { mutableStateOf(getSpatialElevationDepth(context)) }
+    var spatial8dOrbit by remember { mutableStateOf(isSpatial8dOrbitEnabled(context)) }
+    var spatialOrbitSpeed by remember { mutableStateOf(getSpatialOrbitSpeed(context)) }
+    var spatialCorrelationGuard by remember { mutableStateOf(isSpatialCorrelationGuardEnabled(context)) }
     var headphoneCrossfeed by remember { mutableStateOf(isHeadphoneCrossfeedEnabled(context)) }
 
     val applyLiveDsp = remember {
@@ -157,7 +169,7 @@ fun AudioDspSection(
     val appVolumePercent by SongPlayer.appVolumePercentFlow.collectAsState()
     var lastNonZeroVolume by remember { mutableIntStateOf(if (appVolumePercent > 0) appVolumePercent else 80) }
     var dspTelemetry by remember { mutableStateOf(SongPlayer.dspTelemetrySummary()) }
-    LaunchedEffect(eqEnabled, eqSpatial, headphoneCrossfeed, routeInfo) {
+    LaunchedEffect(eqEnabled, eqSpatial, spatial8dOrbit, headphoneCrossfeed, routeInfo) {
         while (true) {
             dspTelemetry = SongPlayer.dspTelemetrySummary()
             delay(1200L)
@@ -166,7 +178,8 @@ fun AudioDspSection(
     val capabilities = remember(
         eqEnabled, eqSubBass, eqBass, eqLowMid, eqVocal, eqHighMid, eqTreble, eqBrilliance,
         preampDb, bassBoostStrength, limiterEnabled, audioNormalizer, eqSpatial, spatialProfile,
-        spatialStrength, roomDelayMs, headphoneCrossfeed, routeInfo,
+        spatialStrength, roomDelayMs, spatialElevationDepth, spatial8dOrbit, spatialOrbitSpeed,
+        spatialCorrelationGuard, headphoneCrossfeed, routeInfo,
     ) {
         AudioEffectController.capabilityReport()
     }
@@ -597,9 +610,9 @@ fun AudioDspSection(
                     Text("3D Spatial Soundstage Engine", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     Text(
                         if (routeInfo.isBluetooth) {
-                            "BT-Safe SW 3D active on ${routeInfo.deviceName} (HRTF + Soft Limiter)"
+                            "BT-Safe SW 3D active on ${routeInfo.deviceName} (Woodworth HRTF + All-Pass)"
                         } else {
-                            "Haas delay stereo widening, low-end anchor & prime room reflections"
+                            "Cascaded Schroeder All-Pass, Mono-Bass Anchor (<120Hz) & Woodworth HRTF"
                         },
                         color = if (routeInfo.isBluetooth) Color(0xFF81C784) else Color.Gray,
                         fontSize = 11.sp,
@@ -617,7 +630,7 @@ fun AudioDspSection(
                 )
             }
 
-            // Live Audio Route & Bluetooth Safe Telemetry Strip
+            // Live Audio Route & Bluetooth Safe + OS Spatializer Telemetry Strip
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -635,9 +648,13 @@ fun AudioDspSection(
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    text = if (routeInfo.isBluetooth) "BT HAL Safe" else if (routeInfo.isPersonalListening) "HRTF Ready" else "PCM Active",
+                    text = buildString {
+                        append(if (routeInfo.isBluetooth) "BT Safe" else if (routeInfo.isPersonalListening) "HRTF" else "PCM")
+                        append(" · ")
+                        append(capabilities.systemSpatializerLabel)
+                    },
                     color = AppPalette,
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                 )
             }
@@ -713,6 +730,82 @@ fun AudioDspSection(
                     modifier = Modifier.testTag("spatial_room_delay_slider"),
                     colors = SliderDefaults.colors(activeTrackColor = AppPalette, thumbColor = AppPalette),
                 )
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Pinna Elevation & All-Pass Depth", color = Color.White, fontSize = 13.sp)
+                    Text("${(spatialElevationDepth * 100f).roundToInt()}%", color = AppPalette, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+                Slider(
+                    value = spatialElevationDepth,
+                    onValueChange = {
+                        spatialElevationDepth = it
+                        setSpatialElevationDepth(context, it)
+                        applyLiveDsp()
+                    },
+                    valueRange = 0f..1f,
+                    modifier = Modifier.testTag("spatial_elevation_depth_slider"),
+                    colors = SliderDefaults.colors(activeTrackColor = AppPalette, thumbColor = AppPalette),
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("8D Binaural Orbit (360° Head Stage)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Smooth spherical-head azimuth panning around the listener", color = Color.Gray, fontSize = 11.sp)
+                    }
+                    Switch(
+                        checked = spatial8dOrbit,
+                        onCheckedChange = {
+                            spatial8dOrbit = it
+                            setSpatial8dOrbitEnabled(context, it)
+                            applyLiveDsp()
+                        },
+                        modifier = Modifier.testTag("spatial_8d_orbit_switch"),
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = AppPalette),
+                    )
+                }
+
+                if (spatial8dOrbit) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("8D Orbit Rotation Speed", color = Color.White, fontSize = 13.sp)
+                        Text("${String.format("%.2f", spatialOrbitSpeed)} Hz", color = AppPalette, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Slider(
+                        value = spatialOrbitSpeed,
+                        onValueChange = {
+                            spatialOrbitSpeed = it
+                            setSpatialOrbitSpeed(context, it)
+                            applyLiveDsp()
+                        },
+                        valueRange = 0.10f..1.50f,
+                        modifier = Modifier.testTag("spatial_8d_speed_slider"),
+                        colors = SliderDefaults.colors(activeTrackColor = AppPalette, thumbColor = AppPalette),
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Phase-Safe Correlation Guard", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Prevents out-of-phase hollowness on mono/speaker playback", color = Color.Gray, fontSize = 11.sp)
+                    }
+                    Switch(
+                        checked = spatialCorrelationGuard,
+                        onCheckedChange = {
+                            spatialCorrelationGuard = it
+                            setSpatialCorrelationGuardEnabled(context, it)
+                            applyLiveDsp()
+                        },
+                        modifier = Modifier.testTag("spatial_correlation_guard_switch"),
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = AppPalette),
+                    )
+                }
             }
 
             Row(

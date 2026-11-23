@@ -10,6 +10,7 @@ package com.harmber2.suadat.simpmusic
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.cio.endpoint
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
@@ -28,6 +29,14 @@ object SimpMusicLyrics {
 
     private val client by lazy {
         HttpClient(CIO) {
+            engine {
+                maxConnectionsCount = 48
+                endpoint {
+                    maxConnectionsPerRoute = 12
+                    keepAliveTime = 30_000
+                    connectTimeout = 8_000
+                }
+            }
             install(ContentNegotiation) {
                 json(
                     Json {
@@ -39,9 +48,9 @@ object SimpMusicLyrics {
             }
 
             install(HttpTimeout) {
-                requestTimeoutMillis = 15000
-                connectTimeoutMillis = 10000
-                socketTimeoutMillis = 15000
+                requestTimeoutMillis = 12000
+                connectTimeoutMillis = 8000
+                socketTimeoutMillis = 12000
             }
 
             defaultRequest {

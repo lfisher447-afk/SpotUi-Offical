@@ -10,5 +10,13 @@
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
         <item name="postSplashScreenTheme">@style/Theme.Spotui</item>
     </style>
+
+    <style name="Theme.Spotui.MiniPlayerOverlay" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:colorAccent">#FF1DB954</item>
+        <item name="android:colorControlActivated">#FF1DB954</item>
+        <item name="android:colorControlHighlight">#331DB954</item>
+        <item name="android:textColorPrimary">#FFFFFFFF</item>
+        <item name="android:textColorSecondary">#FFB8C0CE</item>
+    </style>
 </resources>
 

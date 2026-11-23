@@ -82,8 +82,27 @@ object Spotify {
             coerceInputValues = true
         }
 
+    private val sharedOkHttpPool by lazy {
+        okhttp3.ConnectionPool(16, 5, java.util.concurrent.TimeUnit.MINUTES)
+    }
+
     private val restClient by lazy {
         HttpClient(OkHttp) {
+            engine {
+                config {
+                    dispatcher(
+                        okhttp3.Dispatcher().apply {
+                            maxRequests = 48
+                            maxRequestsPerHost = 16
+                        },
+                    )
+                    connectionPool(sharedOkHttpPool)
+                    protocols(listOf(okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
+                    retryOnConnectionFailure(true)
+                    connectTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
+                    readTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
+                }
+            }
             install(ContentNegotiation) {
                 json(json)
             }
@@ -102,9 +121,18 @@ object Spotify {
         HttpClient(OkHttp) {
             engine {
                 config {
-                    connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                    readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                    writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                    dispatcher(
+                        okhttp3.Dispatcher().apply {
+                            maxRequests = 48
+                            maxRequestsPerHost = 16
+                        },
+                    )
+                    connectionPool(sharedOkHttpPool)
+                    protocols(listOf(okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
+                    retryOnConnectionFailure(true)
+                    connectTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
+                    readTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
+                    writeTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
                 }
             }
             defaultRequest {
