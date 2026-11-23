@@ -249,7 +249,13 @@ SpotUi-Offical/
 ### Option A — Automated GitHub Actions (`.github/workflows/release-apk.yml`)
 1. Push a commit to `main`/`master`, push a tag matching `v*` (e.g., `git tag v2.5.4 && git push origin v2.5.4`), or manually trigger **Actions -> Build & Publish Release APK -> Run workflow**.
 2. **Default Fast Builds (`skip_tests: true` by default)**: Tag/branch builds and default manual dispatches skip unit tests so release APKs build quickly and reliably. To run `:spotify:test`, `:innertube:testDebugUnitTest`, and `:app:testDebugUnitTest`, trigger **Run workflow** manually and **uncheck** `Skip unit tests`.
-3. CI builds `:app:assembleRelease`, verifies signatures with `apksigner`, generates a `.sha256` checksum, uploads build artifacts, and automatically publishes **`SpotUI-v2.5.4-release.apk`** + **`.sha256`** to **GitHub Releases** on `main`/`master` pushes, `v*` tags, and manual runs.
+3. **Persistent Signing Key Resolution (Prevents `Signing key mismatch`)**: Android requires every in-place update APK to use the exact same signing certificate as the installed build (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`). The workflow resolves `debug.keystore` in strict priority order:
+   1. **GitHub Actions Secret (`SIGNING_KEYSTORE_BASE64` or `DEBUG_KEYSTORE_BASE64`)** — Recommended so all CI builds share one consistent key even across branches/forks (`cat debug.keystore.base64` or `base64 -w0 debug.keystore`).
+   2. **Committed `debug.keystore.base64`** in the repository root (signing certificate short ID: `3e079b97f0…`). Ensure `debug.keystore.base64` is included when pushing to GitHub!
+   3. **Ephemeral `keytool` fallback** (only if both above are missing — emits a CI warning and prints a notice in the release notes because a one-off key cannot update over previous releases in-place).
+4. CI builds `:app:assembleRelease`, verifies signatures with `apksigner`, prints the **Signing Key ID** and **APK SHA-256** in the build summary & release notes, uploads build artifacts, and publishes **`SpotUI-v2.5.4-release.apk`** + **`.sha256`** to **GitHub Releases**.
+
+> **Fixing `Signing key mismatch` from an older build:** If your currently installed APK was signed with an earlier ephemeral key (different SHA-256 prefix than the new release), back up your library/settings in **Settings -> System -> Backup**, tap **Uninstall Old App** (or uninstall SpotUI once), and install the newly downloaded APK from `Downloads/SpotUI/`. Once installed with a persistent `SIGNING_KEYSTORE_BASE64` secret or `debug.keystore.base64`, all subsequent releases update cleanly in-place via Android `PackageInstaller`.
 
 ### Option B — Local Release Script (`tools/build-release-apk.sh`) or Gradle
 Requires **JDK 21** and **Android SDK Platform 36**:

@@ -67,11 +67,17 @@ jobs:
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
 
       - name: Prepare debug signing keystore
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
         run: |
           KEYSTORE_PATH="${{ github.workspace }}/debug.keystore"
           BASE64_PATH="${{ github.workspace }}/debug.keystore.base64"
-          if [ ! -f "$KEYSTORE_PATH" ] && [ -f "$BASE64_PATH" ]; then
-            base64 -d "$BASE64_PATH" > "$KEYSTORE_PATH" || true
+          SECRET_B64="${SIGNING_KEYSTORE_BASE64:-${DEBUG_KEYSTORE_BASE64:-}}"
+          if [ -n "$SECRET_B64" ]; then
+            printf '%s' "$SECRET_B64" | tr -d '\r\n ' | base64 -d > "$KEYSTORE_PATH"
+          elif [ ! -f "$KEYSTORE_PATH" ] && [ -f "$BASE64_PATH" ]; then
+            tr -d '\r\n ' < "$BASE64_PATH" | base64 -d > "$KEYSTORE_PATH" || rm -f "$KEYSTORE_PATH"
           fi
           if [ ! -f "$KEYSTORE_PATH" ]; then
             keytool -genkey -v -keystore "$KEYSTORE_PATH" -alias androiddebugkey \
@@ -121,19 +127,50 @@ jobs:
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
 
       - name: Prepare release signing keystore
+        id: keystore
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
         run: |
           KEYSTORE_PATH="${{ github.workspace }}/debug.keystore"
           BASE64_PATH="${{ github.workspace }}/debug.keystore.base64"
-          if [ ! -f "$KEYSTORE_PATH" ] && [ -f "$BASE64_PATH" ]; then
-            base64 -d "$BASE64_PATH" > "$KEYSTORE_PATH" || true
+          SIGNING_SOURCE=""
+          SECRET_B64="${SIGNING_KEYSTORE_BASE64:-${DEBUG_KEYSTORE_BASE64:-}}"
+
+          if [ -n "$SECRET_B64" ]; then
+            echo "Decoding signing keystore from GitHub Actions secret..."
+            printf '%s' "$SECRET_B64" | tr -d '\r\n ' | base64 -d > "$KEYSTORE_PATH"
+            SIGNING_SOURCE="github-secret"
+          elif [ -f "$KEYSTORE_PATH" ]; then
+            echo "Using existing debug.keystore from workspace..."
+            SIGNING_SOURCE="workspace-keystore"
+          elif [ -f "$BASE64_PATH" ]; then
+            echo "Decoding committed debug.keystore.base64..."
+            if tr -d '\r\n ' < "$BASE64_PATH" | base64 -d > "$KEYSTORE_PATH" && [ -s "$KEYSTORE_PATH" ]; then
+              SIGNING_SOURCE="repo-base64"
+            else
+              echo "::warning::debug.keystore.base64 failed to decode cleanly."
+              rm -f "$KEYSTORE_PATH"
+            fi
           fi
+
           if [ ! -f "$KEYSTORE_PATH" ]; then
-            echo "Generating fresh debug keystore via keytool..."
+            echo "::warning::No SIGNING_KEYSTORE_BASE64 secret or debug.keystore.base64 found! Generating an ephemeral one-time keystore — Android will block in-place updates with 'Signing key mismatch' across separate CI builds."
             keytool -genkey -v -keystore "$KEYSTORE_PATH" -alias androiddebugkey \
               -keypass android -storepass android -keyalg RSA -keysize 2048 \
               -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+            SIGNING_SOURCE="ephemeral"
           fi
+
+          CERT_SHA256=$(keytool -list -v -keystore "$KEYSTORE_PATH" -storepass android -alias androiddebugkey \
+            | grep -oE 'SHA256:[[:space:]]*[0-9A-Fa-f:]+' | head -n1 | awk '{print $2}')
+          CERT_SHORT=$(printf '%s' "${CERT_SHA256:-unknown}" | tr -d ':' | tr '[:upper:]' '[:lower:]' | cut -c1-10)
+          echo "Signing source: ${SIGNING_SOURCE} | Certificate SHA-256: ${CERT_SHA256} (SpotUI ID: ${CERT_SHORT}…)"
           ls -lh "$KEYSTORE_PATH"
+
+          echo "signing_source=${SIGNING_SOURCE}" >> "$GITHUB_OUTPUT"
+          echo "cert_sha256=${CERT_SHA256}" >> "$GITHUB_OUTPUT"
+          echo "cert_short=${CERT_SHORT}" >> "$GITHUB_OUTPUT"
 
       - name: Assemble Release APK
         run: |
@@ -163,10 +200,17 @@ jobs:
 
           APKSIGNER=$(ls -1 "${ANDROID_HOME:-/usr/local/lib/android/sdk}"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -n1 || true)
           SIGNER_INFO="apksigner not found on runner (skipped)"
+          APK_CERT_SHA256="${{ steps.keystore.outputs.cert_sha256 }}"
           if [ -n "$APKSIGNER" ] && [ -x "$APKSIGNER" ]; then
             "$APKSIGNER" verify --verbose "$RAW_APK"
-            SIGNER_INFO=$("$APKSIGNER" verify --print-certs "$RAW_APK" | head -n 4)
+            SIGNER_INFO=$("$APKSIGNER" verify --print-certs "$RAW_APK" | head -n 6)
+            EXTRACTED_DIGEST=$("$APKSIGNER" verify --print-certs "$RAW_APK" | sed -n 's/.*SHA-256 digest:[[:space:]]*//p' | head -n1 || true)
+            if [ -n "$EXTRACTED_DIGEST" ]; then
+              APK_CERT_SHA256="$EXTRACTED_DIGEST"
+            fi
           fi
+          APK_CERT_SHORT=$(printf '%s' "${APK_CERT_SHA256:-unknown}" | tr -d ':' | tr '[:upper:]' '[:lower:]' | cut -c1-10)
+          SIGNING_SOURCE="${{ steps.keystore.outputs.signing_source }}"
 
           mkdir -p dist
           APK_NAME="SpotUI-v${VERSION_NAME}-release.apk"
@@ -180,13 +224,31 @@ jobs:
           echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
 
           {
+            echo "### Download & Integrity"
+            echo "- **APK:** \`${APK_NAME}\` (${APK_SIZE})"
+            echo "- **APK SHA-256:** \`${SHA256_HASH}\`"
+            echo "- **Signing Key ID:** \`${APK_CERT_SHORT}…\` (\`${SIGNING_SOURCE}\`)"
+            if [ "$SIGNING_SOURCE" = "ephemeral" ]; then
+              echo ""
+              echo "> **Note:** Built with a one-off ephemeral key because neither \`SIGNING_KEYSTORE_BASE64\` secret nor \`debug.keystore.base64\` was present. If you see \`Signing key mismatch\` updating in-app, back up settings, uninstall the old build, and install this APK (then add \`SIGNING_KEYSTORE_BASE64\` or commit \`debug.keystore.base64\` so future releases update in-place)."
+            fi
+            echo ""
+          } > dist/release-notes-header.md
+
+          {
             echo "## SpotUI Release Build Summary"
+            if [ "$SIGNING_SOURCE" = "ephemeral" ]; then
+              echo "> **WARNING:** Built with an **ephemeral** keystore! Add \`SIGNING_KEYSTORE_BASE64\` in Repository Secrets or commit \`debug.keystore.base64\` so future GitHub Releases don't trigger \`Signing key mismatch\` in the in-app updater."
+              echo ""
+            fi
             echo "| Property | Value |"
             echo "| --- | --- |"
             echo "| Version | \`v${VERSION_NAME}\` (\`${VERSION_CODE}\`) |"
             echo "| Release Tag | \`${TAG_NAME}\` |"
             echo "| APK File | \`${APK_NAME}\` (${APK_SIZE}) |"
-            echo "| SHA-256 | \`${SHA256_HASH}\` |"
+            echo "| APK SHA-256 | \`${SHA256_HASH}\` |"
+            echo "| Signing Source | \`${SIGNING_SOURCE}\` |"
+            echo "| Signing Key ID | \`${APK_CERT_SHORT}…\` (\`${APK_CERT_SHA256}\`) |"
             echo ""
             echo "<details><summary>APK Signing Details</summary>"
             echo ""
@@ -204,6 +266,7 @@ jobs:
           path: |
             dist/*.apk
             dist/*.sha256
+            dist/release-notes-header.md
 
   publish-release:
     name: Publish GitHub Release
@@ -227,5 +290,8 @@ jobs:
           tag_name: ${{ needs.build-release-apk.outputs.release_tag }}
           name: SpotUI ${{ needs.build-release-apk.outputs.release_tag }}
           prerelease: ${{ inputs.prerelease == true }}
+          body_path: dist/release-notes-header.md
           generate_release_notes: true
-          files: dist/*
+          files: |
+            dist/*.apk
+            dist/*.sha256

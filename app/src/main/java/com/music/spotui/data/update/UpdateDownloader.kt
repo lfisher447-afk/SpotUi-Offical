@@ -459,7 +459,7 @@ object UpdateDownloader {
                 val newShort = archiveCerts.first().take(10)
                 return ApkCompatCheck(
                     signatureMismatch = true,
-                    reason = "Signing key mismatch (installed $curShort… vs update $newShort…). Android refuses in-place updates across different keys — tap 'Uninstall Old App', then open the APK saved in Downloads/SpotUI.",
+                    reason = "Signing key mismatch (installed $curShort… vs update $newShort…). Android blocks in-place updates across different keys (e.g., an older ephemeral CI key). Back up in Settings → Backup first, tap 'Uninstall Old App', then install the saved APK in Downloads/SpotUI — future builds using the same persistent keystore update in-place.",
                 )
             }
             ApkCompatCheck()
@@ -919,8 +919,18 @@ object UpdateDownloader {
                 throw t
             }
         } else {
-            val targetDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-                ?: File(context.filesDir, "downloads")
+            @Suppress("DEPRECATION")
+            val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val publicSpotUiDir = File(publicDownloads, "SpotUI")
+            val usePublic = runCatching {
+                (publicSpotUiDir.exists() || publicSpotUiDir.mkdirs()) && publicSpotUiDir.canWrite()
+            }.getOrDefault(false)
+            val targetDir = if (usePublic) {
+                publicSpotUiDir
+            } else {
+                context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                    ?: File(context.filesDir, "downloads")
+            }
             if (!targetDir.exists()) targetDir.mkdirs()
             val destFile = File(targetDir, fileName)
             FileInputStream(sourceFile).use { input ->
@@ -929,7 +939,8 @@ object UpdateDownloader {
                     output.flush()
                 }
             }
-            return destFile.absolutePath to destFile.toURI().toString()
+            val display = if (usePublic) "${Environment.DIRECTORY_DOWNLOADS}/SpotUI/$fileName" else destFile.absolutePath
+            return display to destFile.toURI().toString()
         }
     }
 
