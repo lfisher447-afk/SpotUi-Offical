@@ -24,6 +24,8 @@ data class YouTubeClient(
     val useWebPoTokens: Boolean = false,
     val requirePoToken: Boolean = false,
     val includeUserAgentInContext: Boolean = false,
+    val isBrowserClient: Boolean = true,
+    val useYoutubeiApiHost: Boolean = false,
 ) {
     fun toContext(locale: YouTubeLocale, visitorData: String?, dataSyncId: String?) = Context(
         thirdParty = if (isEmbedded) Context.ThirdParty(embedUrl = "https://www.reddit.com/") else null,
@@ -48,6 +50,7 @@ data class YouTubeClient(
     fun requestOrigin(): String =
         when (clientName.uppercase(java.util.Locale.US)) {
             "WEB_REMIX", "WEB_CREATOR" -> ORIGIN_YOUTUBE_MUSIC
+            "MWEB" -> ORIGIN_YOUTUBE_MOBILE
             else -> ORIGIN_YOUTUBE
         }
 
@@ -55,27 +58,45 @@ data class YouTubeClient(
 
     fun requestApiUrl(endpoint: String): String {
         val cleanEndpoint = endpoint.trimStart('/')
-        return "${requestOrigin()}/youtubei/v1/$cleanEndpoint"
+        val base = if (useYoutubeiApiHost) ORIGIN_YOUTUBEI_API else requestOrigin()
+        return "$base/youtubei/v1/$cleanEndpoint"
     }
 
     companion object {
         const val USER_AGENT_WEB = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0"
+        const val USER_AGENT_MOBILE_WEB =
+            "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Mobile Safari/537.36"
 
         const val ORIGIN_YOUTUBE = "https://www.youtube.com"
+        const val ORIGIN_YOUTUBE_MOBILE = "https://m.youtube.com"
         const val ORIGIN_YOUTUBE_MUSIC = "https://music.youtube.com"
+        const val ORIGIN_YOUTUBEI_API = "https://youtubei.googleapis.com"
         const val REFERER_YOUTUBE_MUSIC = "$ORIGIN_YOUTUBE_MUSIC/"
         const val API_URL_YOUTUBE_MUSIC = "$ORIGIN_YOUTUBE_MUSIC/youtubei/v1/"
 
         val WEB = YouTubeClient(
             clientName = "WEB",
-            clientVersion = "2.20260114.08.00",
+            clientVersion = "2.20260410.08.00",
             clientId = "1",
             userAgent = USER_AGENT_WEB,
+            useSignatureTimestamp = true,
+            useWebPoTokens = true,
+        )
+
+        val MWEB = YouTubeClient(
+            clientName = "MWEB",
+            clientVersion = "2.20260410.01.00",
+            clientId = "2",
+            userAgent = USER_AGENT_MOBILE_WEB,
+            friendlyName = "Mobile Web",
+            loginSupported = true,
+            useSignatureTimestamp = true,
+            useWebPoTokens = true,
         )
 
         val WEB_REMIX = YouTubeClient(
             clientName = "WEB_REMIX",
-            clientVersion = "1.20260114.03.00",
+            clientVersion = "1.20260410.03.00",
             clientId = "67",
             userAgent = USER_AGENT_WEB,
             loginSupported = true,
@@ -85,7 +106,7 @@ data class YouTubeClient(
 
         val WEB_CREATOR = YouTubeClient(
             clientName = "WEB_CREATOR",
-            clientVersion = "1.20260114.05.00",
+            clientVersion = "1.20260410.05.00",
             clientId = "62",
             userAgent = USER_AGENT_WEB,
             loginSupported = true,
@@ -96,7 +117,7 @@ data class YouTubeClient(
 
         val TVHTML5 = YouTubeClient(
             clientName = "TVHTML5",
-            clientVersion = "7.20260114.12.00",
+            clientVersion = "7.20260410.12.00",
             clientId = "7",
             userAgent = "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.30.1034943-gold (unlike Gecko), Unknown_TV_Unknown_0/Unknown (Unknown, Unknown)",
             loginSupported = true,
@@ -136,6 +157,26 @@ data class YouTubeClient(
             clientId = "5",
             userAgent = "com.google.ios.youtube/21.03.1 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)",
             osVersion = "18.2.22C152",
+            isBrowserClient = false,
+            useYoutubeiApiHost = true,
+        )
+
+        val ANDROID_MUSIC = YouTubeClient(
+            clientName = "ANDROID_MUSIC",
+            clientVersion = "8.10.52",
+            clientId = "21",
+            userAgent = "com.google.android.apps.youtube.music/8.10.52 (Linux; U; Android 14; en_US; Pixel 8; Build/AP2A.240905.003) gzip",
+            osName = "Android",
+            osVersion = "14",
+            deviceMake = "Google",
+            deviceModel = "Pixel 8",
+            androidSdkVersion = "34",
+            packageName = "com.google.android.apps.youtube.music",
+            friendlyName = "Android YT Music",
+            loginSupported = true,
+            useSignatureTimestamp = true,
+            isBrowserClient = false,
+            useYoutubeiApiHost = true,
         )
 
         val MOBILE = YouTubeClient(
@@ -144,7 +185,9 @@ data class YouTubeClient(
             clientId = "3",
             userAgent = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip",
             loginSupported = true,
-            useSignatureTimestamp = true
+            useSignatureTimestamp = true,
+            isBrowserClient = false,
+            useYoutubeiApiHost = true,
         )
 
         /**
@@ -159,7 +202,9 @@ data class YouTubeClient(
             userAgent = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip",
             friendlyName = "Android No SDK",
             loginSupported = false,
-            useSignatureTimestamp = false
+            useSignatureTimestamp = false,
+            isBrowserClient = false,
+            useYoutubeiApiHost = true,
         )
 
         val ANDROID_VR_NO_AUTH = YouTubeClient(
@@ -170,6 +215,8 @@ data class YouTubeClient(
             loginSupported = false,
             useSignatureTimestamp = false,
             includeUserAgentInContext = true,
+            isBrowserClient = false,
+            useYoutubeiApiHost = true,
         )
 
         val ANDROID_VR_1_65_10 = YouTubeClient(
@@ -186,6 +233,8 @@ data class YouTubeClient(
             loginSupported = false,
             useSignatureTimestamp = false,
             includeUserAgentInContext = true,
+            isBrowserClient = false,
+            useYoutubeiApiHost = true,
         )
 
         /**
@@ -209,6 +258,8 @@ data class YouTubeClient(
             loginSupported = false,
             useSignatureTimestamp = false,
             includeUserAgentInContext = true,
+            isBrowserClient = false,
+            useYoutubeiApiHost = true,
         )
 
         /**
@@ -232,6 +283,8 @@ data class YouTubeClient(
             loginSupported = false,
             useSignatureTimestamp = false,
             includeUserAgentInContext = true,
+            isBrowserClient = false,
+            useYoutubeiApiHost = true,
         )
 
         /**
@@ -252,7 +305,9 @@ data class YouTubeClient(
             packageName = "com.google.android.apps.youtube.creator",
             friendlyName = "Android Studio",
             loginSupported = true,
-            useSignatureTimestamp = true
+            useSignatureTimestamp = true,
+            isBrowserClient = false,
+            useYoutubeiApiHost = true,
         )
 
         /**
@@ -288,7 +343,9 @@ data class YouTubeClient(
             friendlyName = "iPadOS",
             loginSupported = false,
             useSignatureTimestamp = false,
-            packageName = "com.google.ios.youtube"
+            packageName = "com.google.ios.youtube",
+            isBrowserClient = false,
+            useYoutubeiApiHost = true,
         )
     }
 }

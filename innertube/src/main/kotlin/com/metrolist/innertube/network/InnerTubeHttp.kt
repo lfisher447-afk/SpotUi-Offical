@@ -21,6 +21,7 @@ import com.metrolist.innertube.utils.sapisidAuthorizationHeader
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.ResponseException
 import io.ktor.client.plugins.compression.ContentEncoding
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
@@ -171,12 +172,14 @@ class InnerTubeHttp(
         val referer = client.requestReferer()
         contentType(ContentType.Application.Json)
         headers {
-            append("X-Goog-Api-Format-Version", "1")
+            append("X-Goog-Api-Format-Version", if (client.isBrowserClient) "1" else "2")
             append("X-YouTube-Client-Name", client.clientId)
             append("X-YouTube-Client-Version", client.clientVersion)
-            append("X-Origin", origin)
-            append("Origin", origin)
-            append("Referer", referer)
+            if (client.isBrowserClient) {
+                append("X-Origin", origin)
+                append("Origin", origin)
+                append("Referer", referer)
+            }
             authState.visitorData?.let { append("X-Goog-Visitor-Id", it) }
             if (setLogin && client.loginSupported) {
                 authState.delegatedSessionId?.let { append("X-Goog-PageId", it) }
@@ -189,6 +192,9 @@ class InnerTubeHttp(
             }
         }
         userAgent(client.userAgent)
+        if (client.useYoutubeiApiHost) {
+            parameter("key", YOUTUBE_API_KEY)
+        }
         parameter("prettyPrint", false)
     }
 
@@ -232,6 +238,26 @@ class InnerTubeHttp(
                 }
                 delay(currentDelay)
                 currentDelay = (currentDelay * factor).toLong()
+            } catch (httpErr: ResponseException) {
+                val status = httpErr.response.status.value
+                val retryable = status == 429 || status in 500..599
+                if (retryable) {
+                    attempt++
+                    if (status == 429) sessionStore.onProxyRequestFailed()
+                    if (attempt < maxAttempts) {
+                        delay(currentDelay)
+                        currentDelay = (currentDelay * factor).toLong()
+                        continue
+                    }
+                }
+                timingHook?.onRequest(
+                    endpoint = endpoint,
+                    method = method,
+                    durationMs = (System.currentTimeMillis() - start).coerceAtLeast(0L),
+                    statusCode = status,
+                    error = httpErr.message ?: "HTTP $status",
+                )
+                throw httpErr
             } catch (t: Throwable) {
                 timingHook?.onRequest(
                     endpoint = endpoint,
@@ -468,6 +494,14 @@ class InnerTubeHttp(
     suspend fun getSwJsData(): HttpResponse =
         executeTracked("sw.js_data", method = "GET") { http ->
             http.get("https://music.youtube.com/sw.js_data")
+        }
+
+    suspend fun getMusicHomeHtml(): HttpResponse =
+        executeTracked("music_home_html", method = "GET") { http ->
+            http.get("https://music.youtube.com/") {
+                userAgent(YouTubeClient.USER_AGENT_WEB)
+                header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            }
         }
 
     suspend fun accountMenu(client: YouTubeClient): HttpResponse {

@@ -15,8 +15,8 @@ android {
         applicationId = "com.music.spotui"
         minSdk = 26
         targetSdk = 36
-        versionCode = 202611233
-        versionName = "2.5.3"
+        versionCode = 202611234
+        versionName = "2.5.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -66,6 +66,9 @@ android {
         buildConfig = true
     }
     packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
@@ -178,6 +181,10 @@ dependencies {
     // ML Kit on-device translation & language identification (free, no API key, works offline after model download)
     implementation(libs.mlkit.translate)
     implementation(libs.mlkit.language.id)
+
+    // Embedded APK-native yt-dlp + FFmpeg engine
+    implementation(libs.youtubedl.library)
+    implementation(libs.youtubedl.ffmpeg)
 
     //core library desugaring (required by :innertube)
     coreLibraryDesugaring(libs.desugaring)

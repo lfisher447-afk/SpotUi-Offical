@@ -16,6 +16,7 @@ import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.network.AuthSessionStore
 import com.metrolist.innertube.models.YouTubeClient
 import com.metrolist.innertube.models.YouTubeClient.Companion.ANDROID_CREATOR
+import com.metrolist.innertube.models.YouTubeClient.Companion.ANDROID_MUSIC
 import com.metrolist.innertube.models.YouTubeClient.Companion.ANDROID_NO_SDK
 import com.metrolist.innertube.models.YouTubeClient.Companion.ANDROID_VR_1_43_32
 import com.metrolist.innertube.models.YouTubeClient.Companion.ANDROID_VR_1_61_48
@@ -24,6 +25,7 @@ import com.metrolist.innertube.models.YouTubeClient.Companion.ANDROID_VR_NO_AUTH
 import com.metrolist.innertube.models.YouTubeClient.Companion.IOS
 import com.metrolist.innertube.models.YouTubeClient.Companion.IPADOS
 import com.metrolist.innertube.models.YouTubeClient.Companion.MOBILE
+import com.metrolist.innertube.models.YouTubeClient.Companion.MWEB
 import com.metrolist.innertube.models.YouTubeClient.Companion.TVHTML5
 import com.metrolist.innertube.models.YouTubeClient.Companion.TVHTML5_SIMPLY_EMBEDDED_PLAYER
 import com.metrolist.innertube.models.YouTubeClient.Companion.VISIONOS
@@ -36,6 +38,11 @@ import com.metrolist.music.utils.cipher.CipherDeobfuscator
 import com.metrolist.music.utils.potoken.PoTokenGenerator
 import com.metrolist.music.utils.potoken.PoTokenResult
 import com.metrolist.music.utils.sabr.EjsNTransformSolver
+import com.music.spotui.MyApplication
+import com.music.spotui.data.preferences.ModuleLibsConfig
+import com.music.spotui.data.preferences.SpotuiModuleId
+import com.music.spotui.engine.YtDlpEngine
+import com.music.spotui.util.DevConsoleManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -45,6 +52,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import timber.log.Timber
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 object YTPlayerUtils {
@@ -107,12 +115,36 @@ object YTPlayerUtils {
 
     private val poTokenGenerator = PoTokenGenerator()
 
+    /** Per-client circuit breaker: avoids wasting seconds on throttled/403 clients on subsequent tracks. */
+    private const val CLIENT_COOLDOWN_MS = 90_000L
+    private val clientCooldownUntilMs = ConcurrentHashMap<String, Long>()
+
+    private fun clientKey(client: YouTubeClient): String =
+        "${client.clientName}:${client.clientVersion}"
+
+    private fun isClientInCooldown(client: YouTubeClient): Boolean {
+        val until = clientCooldownUntilMs[clientKey(client)] ?: return false
+        return System.currentTimeMillis() < until
+    }
+
+    private fun markClientUnhealthy(client: YouTubeClient, reason: String) {
+        val key = clientKey(client)
+        clientCooldownUntilMs[key] = System.currentTimeMillis() + CLIENT_COOLDOWN_MS
+        DevConsoleManager.logWarning("InnerTube", "Circuit-breaker cooled down $key for 90s ($reason)")
+    }
+
+    private fun markClientHealthy(client: YouTubeClient) {
+        clientCooldownUntilMs.remove(clientKey(client))
+    }
+
     val MAIN_CLIENT: YouTubeClient = WEB_REMIX
 
     val STREAM_FALLBACK_CLIENTS: Array<YouTubeClient> = arrayOf(
+        ANDROID_VR_1_65_10,
         VISIONOS,
         TVHTML5_SIMPLY_EMBEDDED_PLAYER,
-        ANDROID_VR_1_65_10,
+        ANDROID_MUSIC,
+        MWEB,
         IOS,
         IPADOS,
         MOBILE,
@@ -146,11 +178,32 @@ object YTPlayerUtils {
         audioQuality: AudioQuality,
         connectivityManager: ConnectivityManager,
         skipValidation: Boolean = false,
+        context: Context? = null,
     ): Result<PlaybackData> = runCatching {
+        val appContext = context?.applicationContext ?: MyApplication.instanceOrNull
         Timber.tag(TAG).d("=== PLAYER RESPONSE FOR PLAYBACK ===")
         Timber.tag(TAG).d("videoId: $videoId")
         Timber.tag(TAG).d("playlistId: $playlistId")
         Timber.tag(TAG).d("audioQuality: $audioQuality")
+
+        // If user enabled Dedicated yt-dlp Primary Extraction, resolve directly via embedded yt-dlp first.
+        if (appContext != null &&
+            ModuleLibsConfig.isModuleEnabled(appContext, SpotuiModuleId.YTDLP) &&
+            ModuleLibsConfig.isYtDlpPrimaryEnabled(appContext)
+        ) {
+            YtDlpEngine.resolveAudioStream(appContext, videoId, audioQuality)?.let { ytdlp ->
+                if (skipValidation || validateStatus(ytdlp.streamUrl)) {
+                    return@runCatching PlaybackData(
+                        audioConfig = null,
+                        videoDetails = ytdlp.videoDetails,
+                        playbackTracking = null,
+                        format = ytdlp.format,
+                        streamUrl = ytdlp.streamUrl,
+                        streamExpiresInSeconds = ytdlp.expiresInSeconds,
+                    )
+                }
+            }
+        }
 
         // Check if this is an uploaded/privately owned track
         val isUploadedTrack = playlistId == "MLPT" || playlistId?.contains("MLPT") == true
@@ -307,6 +360,34 @@ object YTPlayerUtils {
             else -> -1
         }
 
+        // Fast Tier-1 Parallel Race: when entering the fallback chain immediately (startIndex >= 0),
+        // prefetch the top 2 healthy, auth-eligible fallback clients concurrently so startup isn't
+        // delayed by sequential round-trips if the #1 fallback 403s or throttles.
+        val prefetchedResponses = HashMap<Int, PlayerResponse?>()
+        if (startIndex >= 0 && !isPrivateTrack) {
+            val topHealthyIndices = (startIndex until STREAM_FALLBACK_CLIENTS.size)
+                .filter { idx ->
+                    val c = STREAM_FALLBACK_CLIENTS[idx]
+                    !isClientInCooldown(c) && !(c.loginRequired && !isLoggedIn && YouTube.cookie == null)
+                }
+                .take(2)
+            if (topHealthyIndices.size > 1) {
+                coroutineScope {
+                    val jobs = topHealthyIndices.map { idx ->
+                        val c = STREAM_FALLBACK_CLIENTS[idx]
+                        val cPo = if (c.useWebPoTokens && authState.webClientPoTokenEnabled) {
+                            poToken?.playerRequestPoToken ?: authState.resolvePlayerPoToken(c)
+                        } else null
+                        val cSig = if (wasOriginallyAgeRestricted) null else signatureTimestamp.timestamp
+                        idx to async(Dispatchers.IO) {
+                            YouTube.player(videoId, playlistId, c, cSig, cPo).getOrNull()
+                        }
+                    }
+                    jobs.forEach { (idx, job) -> prefetchedResponses[idx] = job.await() }
+                }
+            }
+        }
+
         for (clientIndex in (startIndex until STREAM_FALLBACK_CLIENTS.size)) {
             // reset for each client
             format = null
@@ -323,6 +404,10 @@ object YTPlayerUtils {
             } else {
                 // after main client use fallback clients
                 client = STREAM_FALLBACK_CLIENTS[clientIndex]
+                if (!isPrivateTrack && isClientInCooldown(client) && clientIndex < STREAM_FALLBACK_CLIENTS.size - 2) {
+                    Timber.tag(logTag).d("Skipping fallback client ${client.clientName} (in 90s cooldown)")
+                    continue
+                }
                 Timber.tag(logTag).d("Trying fallback client ${clientIndex + 1}/${STREAM_FALLBACK_CLIENTS.size}: ${client.clientName}")
 
                 if (client.loginRequired && !isLoggedIn && YouTube.cookie == null) {
@@ -331,17 +416,18 @@ object YTPlayerUtils {
                     continue
                 }
 
-                Timber.tag(logTag).d("Fetching player response for fallback client: ${client.clientName}")
-                // Only pass poToken for clients that support it
-                val clientPoToken = if (client.useWebPoTokens && authState.webClientPoTokenEnabled) {
-                    poToken?.playerRequestPoToken ?: authState.resolvePlayerPoToken(client)
+                streamPlayerResponse = if (prefetchedResponses.containsKey(clientIndex)) {
+                    prefetchedResponses[clientIndex]
                 } else {
-                    null
-                }
-                // Skip signature timestamp for age-restricted (faster), use it for normal content
-                val clientSigTimestamp = if (wasOriginallyAgeRestricted) null else signatureTimestamp.timestamp
-                streamPlayerResponse =
+                    Timber.tag(logTag).d("Fetching player response for fallback client: ${client.clientName}")
+                    val clientPoToken = if (client.useWebPoTokens && authState.webClientPoTokenEnabled) {
+                        poToken?.playerRequestPoToken ?: authState.resolvePlayerPoToken(client)
+                    } else {
+                        null
+                    }
+                    val clientSigTimestamp = if (wasOriginallyAgeRestricted) null else signatureTimestamp.timestamp
                     YouTube.player(videoId, playlistId, client, clientSigTimestamp, clientPoToken).getOrNull()
+                }
             }
 
             // YouTube content substitution guard: a client with a mismatched
@@ -488,15 +574,49 @@ object YTPlayerUtils {
 
                 if (skipValidation || validateStatus(streamUrl)) {
                     // working stream found
+                    markClientHealthy(currentClient)
+                    DevConsoleManager.logInfo(
+                        "InnerTube",
+                        "Playback resolved via ${currentClient.clientName} (${format.mimeType.substringBefore(';')}, ${format.bitrate / 1000} kbps)",
+                    )
                     Timber.tag(logTag).d("Stream validated successfully with client: ${currentClient.clientName}")
                     // Log for release builds
                     Timber.tag(TAG).i("Playback: client=${currentClient.clientName}, videoId=$videoId")
                     break
                 } else {
+                    markClientUnhealthy(currentClient, "Stream HTTP 403/404/410 probe rejection")
                     Timber.tag(logTag).d("Stream validation failed for client: ${currentClient.clientName}")
                 }
             } else {
-                Timber.tag(logTag).d("Player response status not OK: ${streamPlayerResponse?.playabilityStatus?.status}, reason: ${streamPlayerResponse?.playabilityStatus?.reason}")
+                val failClient = if (clientIndex == -1) (usedAgeRestrictedClient ?: MAIN_CLIENT) else STREAM_FALLBACK_CLIENTS[clientIndex]
+                val failStatus = streamPlayerResponse?.playabilityStatus?.status ?: "NULL"
+                val failReason = streamPlayerResponse?.playabilityStatus?.reason ?: "No response"
+                if (failReason.contains("bot", ignoreCase = true) || failStatus == "LOGIN_REQUIRED") {
+                    markClientUnhealthy(failClient, "$failStatus: $failReason")
+                }
+                Timber.tag(logTag).d("Player response status not OK: $failStatus, reason: $failReason")
+            }
+        }
+
+        // Dedicated embedded yt-dlp + FFmpeg final fallback if InnerTube clients all failed
+        val innerTubeFailed = streamPlayerResponse == null ||
+            streamPlayerResponse.playabilityStatus.status != "OK" ||
+            streamExpiresInSeconds == null ||
+            format == null ||
+            streamUrl == null
+
+        if (innerTubeFailed && appContext != null && ModuleLibsConfig.isModuleEnabled(appContext, SpotuiModuleId.YTDLP)) {
+            Timber.tag(logTag).w("All InnerTube clients failed for $videoId; invoking embedded YtDlpEngine fallback")
+            val ytdlp = YtDlpEngine.resolveAudioStream(appContext, videoId, audioQuality)
+            if (ytdlp != null && (skipValidation || validateStatus(ytdlp.streamUrl))) {
+                return@runCatching PlaybackData(
+                    audioConfig = mainPlayerResponse?.playerConfig?.audioConfig,
+                    videoDetails = ytdlp.videoDetails ?: mainPlayerResponse?.videoDetails,
+                    playbackTracking = mainPlayerResponse?.playbackTracking,
+                    format = ytdlp.format,
+                    streamUrl = ytdlp.streamUrl,
+                    streamExpiresInSeconds = ytdlp.expiresInSeconds,
+                )
             }
         }
 
@@ -574,9 +694,13 @@ object YTPlayerUtils {
     ): PlayerResponse.StreamingData.Format? {
         Timber.tag(logTag).d("Finding format with audioQuality: $audioQuality, network metered: ${connectivityManager.isActiveNetworkMetered}")
 
-        val format = playerResponse.streamingData?.adaptiveFormats
-            ?.filter { it.isAudio && it.isOriginal }
-            ?.maxByOrNull {
+        val adaptive = playerResponse.streamingData?.adaptiveFormats.orEmpty()
+        val audioCandidates = adaptive
+            .filter { it.isAudio && it.isOriginal }
+            .ifEmpty { adaptive.filter { it.isAudio } }
+
+        val format = audioCandidates
+            .maxByOrNull {
                 it.bitrate * when (audioQuality) {
                     AudioQuality.AUTO -> if (connectivityManager.isActiveNetworkMetered) -1 else 1
                     AudioQuality.HIGH -> 1
@@ -736,6 +860,7 @@ object YTPlayerUtils {
     fun resetSession(context: Context) {
         Timber.tag(logTag).d("Resetting Player Utils Sessions")
         poTokenGenerator.reset()
+        clientCooldownUntilMs.clear()
         
         runCatching {
             val spotUiPrefs = Class.forName("com.music.spotui.data.preferences")

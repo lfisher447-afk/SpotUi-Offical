@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Persistent transport tuning for Spotui's media resolver and high-speed
- * multi-stream ranged-download engine (v2.5.3).
+ * multi-stream ranged-download engine (v2.5.4).
  */
 object MrbeanNetworkSettings {
     private const val PREFS = "mrbean_network_settings"

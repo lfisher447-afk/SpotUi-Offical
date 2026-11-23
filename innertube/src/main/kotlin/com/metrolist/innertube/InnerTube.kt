@@ -157,6 +157,8 @@ class InnerTube(
 
     suspend fun getSwJsData() = http.getSwJsData()
 
+    suspend fun getMusicHomeHtml() = http.getMusicHomeHtml()
+
     suspend fun accountMenu(client: YouTubeClient) = http.accountMenu(client)
 
     suspend fun likeVideo(

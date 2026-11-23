@@ -11,18 +11,16 @@ import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.PixelFormat
-import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.text.TextUtils
 import android.view.ContextThemeWrapper
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
-import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
@@ -30,7 +28,9 @@ import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.SeekBar
 import android.widget.TextView
 import androidx.core.content.ContextCompat
@@ -56,6 +56,8 @@ import com.music.spotui.data.preferences.getEqTreble
 import com.music.spotui.data.preferences.getEqVocal
 import com.music.spotui.data.preferences.getFloaterAutoHideMs
 import com.music.spotui.data.preferences.getFloaterHapticStrength
+import com.music.spotui.data.preferences.getPlaybackPitchPref
+import com.music.spotui.data.preferences.getPlaybackSpeedPref
 import com.music.spotui.data.preferences.getSpatialElevationDepth
 import com.music.spotui.data.preferences.getSpatialOrbitSpeed
 import com.music.spotui.data.preferences.getSpatialProfile
@@ -69,6 +71,7 @@ import com.music.spotui.data.preferences.isFloaterHapticsEnabled
 import com.music.spotui.data.preferences.isFloaterStartExpanded
 import com.music.spotui.data.preferences.isHeadphoneCrossfeedEnabled
 import com.music.spotui.data.preferences.isLimiterEnabled
+import com.music.spotui.data.preferences.isSkipSilenceEnabled
 import com.music.spotui.data.preferences.isSpatial8dOrbitEnabled
 import com.music.spotui.data.preferences.isSpatialCorrelationGuardEnabled
 import com.music.spotui.data.preferences.setAudioNormalizerEnabled
@@ -79,8 +82,14 @@ import com.music.spotui.data.preferences.setEqPreampDb
 import com.music.spotui.data.preferences.setEqSpatialEnabled
 import com.music.spotui.data.preferences.setEqTreble
 import com.music.spotui.data.preferences.setEqVocal
+import com.music.spotui.data.preferences.setFloaterAutoHideMs
+import com.music.spotui.data.preferences.setFloaterHapticStrength
+import com.music.spotui.data.preferences.setFloaterHapticsEnabled
 import com.music.spotui.data.preferences.setHeadphoneCrossfeedEnabled
 import com.music.spotui.data.preferences.setLimiterEnabled
+import com.music.spotui.data.preferences.setPlaybackPitchPref
+import com.music.spotui.data.preferences.setPlaybackSpeedPref
+import com.music.spotui.data.preferences.setSkipSilenceEnabled
 import com.music.spotui.data.preferences.setSpatial8dOrbitEnabled
 import com.music.spotui.data.preferences.setSpatialCorrelationGuardEnabled
 import com.music.spotui.data.preferences.setSpatialElevationDepth
@@ -88,6 +97,7 @@ import com.music.spotui.data.preferences.setSpatialOrbitSpeed
 import com.music.spotui.data.preferences.setSpatialProfile
 import com.music.spotui.data.preferences.setSpatialRoomDelayMs
 import com.music.spotui.data.preferences.setSpatialStrength
+import com.music.spotui.di.RepeatMode
 import com.music.spotui.di.SongPlayer
 import com.music.spotui.ui.notification.PlaybackService
 import com.music.spotui.util.DevConsoleManager
@@ -96,32 +106,39 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * Samsung One UI 9.0 / Android 17 Accessibility Button Floating Studio Console.
+ * Samsung One UI Game Booster Edition Floating Audio Studio Console.
  *
- * Uses [WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY] with
- * `canRetrieveWindowContent="false"` and `isAccessibilityTool="true"` so Spotui never
- * requires `SYSTEM_ALERT_WINDOW` and displays safely over full-screen landscape games
- * without disrupting gameplay.
+ * Renders an obsidian glass overlay (`TYPE_ACCESSIBILITY_OVERLAY`) with
+ * `canRetrieveWindowContent="false"` and `isAccessibilityTool="true"` so users can control
+ * SpotUI seamlessly over full-screen apps and landscape games without `SYSTEM_ALERT_WINDOW`.
  *
- * Architecture & capabilities:
- * - **In-App Volume Control**: Adjusts [SongPlayer] internal gain (0–100%) without mutating
- *   Android OS volume, with mute/unmute toggle, `-5%` / `+5%` step pills, and live SeekBar.
- * - **Interactive EQ & 3D Studio Drawer**: Full 7-band EQ presets ([EqPresetCatalog]), Bass Boost,
- *   Bass/Vocal/Treble/Preamp sliders, Normalizer, Soft Limiter, and 3D Spatial Audio (profiles,
- *   depth, room delay, elevation, 8D orbit + speed, HRTF crossfeed, phase guard).
- * - **Top-Start Coordinate & Corner-Drag Resizing**: Bottom-left & bottom-right resize grips
- *   update width/height cleanly with anchored opposite corners, live `"W × H dp"` geometry badge,
- *   and per-orientation persisted placement/sizes.
- * - **Dedicated Haptic Engine**: Uses [VibratorManager]/[Vibrator] + [VibrationEffect] scaled by
- *   user-configured [FloaterHapticStrength].
+ * Key capabilities:
+ * - Always renders the real active playing/paused/last song directly via [SongPlayer.getNowPlayingSnapshot]
+ *   with [MediaController] backup, live progress bar, quality badge, Favorite heart, Shuffle & Loop.
+ * - Direct Play/Pause/Prev/Next routed through [SongPlayer] + [PlaybackService] for zero-fail response.
+ * - Dedicated In-App Volume booster (0–100%, OS media volume untouched) + mute/-5%/+5% steps.
+ * - Docked Left Sidebar Navigation Rail with organized sections (`MEDIA`, `SOUND`, `PRO`) and 5
+ *   interactive tabs (`Player`, `Queue`, `EQ`, `3D`, `Tools`) plus compact width toggle.
+ * - Bottom-left & bottom-right corner-drag resizing + tactile [VibratorManager]/[Vibrator] haptics.
  */
 class MediaAccessibilityService : AccessibilityService() {
+
+    private enum class FloaterTab(val key: String) {
+        PLAYER("player"),
+        QUEUE("queue"),
+        EQ("eq"),
+        SPATIAL_3D("3d"),
+        TOOLS("tools"),
+    }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var overlayScope: CoroutineScope? = null
@@ -133,20 +150,29 @@ class MediaAccessibilityService : AccessibilityService() {
 
     private var overlayView: View? = null
     private var overlayParams: WindowManager.LayoutParams? = null
-    private var themedContextRef: Context? = null
     private var currentOrientation: Int = Configuration.ORIENTATION_UNDEFINED
     private var isDrawerExpanded: Boolean = false
-    private var isEqTabActive: Boolean = true
+    private var activeTab: FloaterTab = FloaterTab.PLAYER
+    private var isSidebarCompact: Boolean = false
 
+    // Header & Now Playing Card
     private var statusBadgeTextView: TextView? = null
+    private var coverDiscImageView: ImageView? = null
     private var titleTextView: TextView? = null
     private var artistTextView: TextView? = null
+    private var sourceBadgeTextView: TextView? = null
+    private var compactProgressBar: ProgressBar? = null
+    private var likeButton: ImageButton? = null
+    private var openAppButton: ImageButton? = null
+    private var fxToggleButton: ImageButton? = null
+    private var closeButton: ImageButton? = null
+
+    // Transport Controls
+    private var shuffleButton: ImageButton? = null
     private var prevButton: ImageButton? = null
     private var playPauseButton: ImageButton? = null
     private var nextButton: ImageButton? = null
-    private var closeButton: ImageButton? = null
-    private var openAppButton: ImageButton? = null
-    private var fxToggleButton: ImageButton? = null
+    private var repeatButton: ImageButton? = null
 
     // In-App Volume
     private var volumeMuteButton: ImageButton? = null
@@ -157,16 +183,61 @@ class MediaAccessibilityService : AccessibilityService() {
     private var isUserSeekingVolume = false
     private var lastUnmutedVolumePct = 100
 
-    // Studio FX Drawer & Tabs
+    // Drawer + Left Sidebar Rail
     private var studioDrawerLayout: LinearLayout? = null
-    private var tabEqTextView: TextView? = null
-    private var tab3dTextView: TextView? = null
+    private var sidebarScrollView: View? = null
+    private var btnSidebarCompactToggle: ImageButton? = null
+    private var tvSectionMedia: TextView? = null
+    private var tvSectionSound: TextView? = null
+    private var tvSectionTools: TextView? = null
+
+    private var navTabPlayer: LinearLayout? = null
+    private var navTabQueue: LinearLayout? = null
+    private var navTabEq: LinearLayout? = null
+    private var navTab3d: LinearLayout? = null
+    private var navTabTools: LinearLayout? = null
+
+    private var ivNavPlayer: ImageView? = null
+    private var ivNavQueue: ImageView? = null
+    private var ivNavEq: ImageView? = null
+    private var ivNav3d: ImageView? = null
+    private var ivNavTools: ImageView? = null
+
+    private var tvNavPlayer: TextView? = null
+    private var tvNavQueue: TextView? = null
+    private var tvNavEq: TextView? = null
+    private var tvNav3d: TextView? = null
+    private var tvNavTools: TextView? = null
+
+    private var panelPlayerLayout: LinearLayout? = null
+    private var panelQueueLayout: LinearLayout? = null
     private var panelEqLayout: LinearLayout? = null
     private var panel3dLayout: LinearLayout? = null
-    private var eqPresetsContainer: LinearLayout? = null
-    private var spatialProfilesContainer: LinearLayout? = null
+    private var panelToolsLayout: LinearLayout? = null
 
-    // EQ Controls
+    // Tab 1: Player
+    private var tvPlayerTabTitle: TextView? = null
+    private var tvPlayerTabArtist: TextView? = null
+    private var tvPlayerTabSource: TextView? = null
+    private var seekPlayerTrack: SeekBar? = null
+    private var tvPlayerPosTime: TextView? = null
+    private var tvPlayerDurTime: TextView? = null
+    private var btnPlayerRew10: TextView? = null
+    private var btnPlayerFwd10: TextView? = null
+    private var chipPlayerShuffle: TextView? = null
+    private var chipPlayerRepeat: TextView? = null
+    private var tvPlayerRouteChip: TextView? = null
+    private var isUserSeekingTrack = false
+
+    // Tab 2: Queue
+    private var tvQueueCount: TextView? = null
+    private var btnQueueShuffleUpcoming: TextView? = null
+    private var btnQueueDedupe: TextView? = null
+    private var containerQueueItems: LinearLayout? = null
+    private var lastQueueRenderHash: Int = 0
+
+    // Tab 3: EQ Controls
+    private var eqPresetsContainer: LinearLayout? = null
     private var toggleEqView: TextView? = null
     private var seekBassBoost: SeekBar? = null
     private var tvBassBoostVal: TextView? = null
@@ -182,7 +253,8 @@ class MediaAccessibilityService : AccessibilityService() {
     private var toggleLimiter: TextView? = null
     private var btnEqReset: TextView? = null
 
-    // 3D Controls
+    // Tab 4: 3D Controls
+    private var spatialProfilesContainer: LinearLayout? = null
     private var toggle3dView: TextView? = null
     private var tvRouteInfo: TextView? = null
     private var seekSpatialStrength: SeekBar? = null
@@ -198,27 +270,47 @@ class MediaAccessibilityService : AccessibilityService() {
     private var toggleCrossfeed: TextView? = null
     private var toggleCorrGuard: TextView? = null
 
+    // Tab 5: Pro Tools
+    private var seekToolsSpeed: SeekBar? = null
+    private var tvToolsSpeedVal: TextView? = null
+    private var seekToolsPitch: SeekBar? = null
+    private var tvToolsPitchVal: TextView? = null
+    private var btnToolsSpeedReset: TextView? = null
+    private var toggleToolsSkipSilence: TextView? = null
+    private var tvToolsSleepStatus: TextView? = null
+    private var btnSleepOff: TextView? = null
+    private var btnSleep10m: TextView? = null
+    private var btnSleep15m: TextView? = null
+    private var btnSleep30m: TextView? = null
+    private var btnSleep60m: TextView? = null
+    private var tvToolsAbStatus: TextView? = null
+    private var btnAbSetA: TextView? = null
+    private var btnAbSetB: TextView? = null
+    private var btnAbClear: TextView? = null
+    private var btnToolsAutohide: TextView? = null
+    private var btnToolsHaptics: TextView? = null
+
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var mediaController: MediaController? = null
     private var accessibilityButtonCallback: AccessibilityButtonController.AccessibilityButtonCallback? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val autoDismissRunnable = Runnable {
-        DevConsoleManager.log(LogLevel.INFO, TAG, "Studio Floater auto-dismissed after idle timeout")
+        DevConsoleManager.log(LogLevel.INFO, TAG, "One UI Booster Floater auto-dismissed after idle timeout")
         hideOverlay()
     }
 
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            updatePlayPauseIcon(isPlaying)
+            syncPlaybackSnapshotToUi()
         }
 
         override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
-            updateTrackMetadataUi(mediaMetadata)
+            syncPlaybackSnapshotToUi()
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
-            mediaController?.let { syncUiFromController(it) }
+            syncPlaybackSnapshotToUi()
         }
     }
 
@@ -234,7 +326,7 @@ class MediaAccessibilityService : AccessibilityService() {
         DevConsoleManager.log(
             LogLevel.INFO,
             TAG,
-            "MediaAccessibilityService connected (One UI Studio Floater ready)",
+            "MediaAccessibilityService connected (One UI Game Booster Studio Floater ready)",
         )
     }
 
@@ -263,7 +355,7 @@ class MediaAccessibilityService : AccessibilityService() {
             DevConsoleManager.log(
                 LogLevel.WARNING,
                 TAG,
-                "Failed updating Studio Floater layout on orientation change: ${err.message}",
+                "Failed updating Booster Floater layout on orientation change: ${err.message}",
                 err,
             )
         }
@@ -341,11 +433,18 @@ class MediaAccessibilityService : AccessibilityService() {
         try {
             currentOrientation = resources.configuration.orientation
             val themedContext = ContextThemeWrapper(this, R.style.Theme_Spotui_MiniPlayerOverlay)
-            themedContextRef = themedContext
             val rootView = LayoutInflater.from(themedContext).inflate(R.layout.layout_mini_player, null)
 
             val fxAllowed = isFloaterEqAnd3dEnabled(this)
-            isDrawerExpanded = fxAllowed && isFloaterStartExpanded(this)
+            isDrawerExpanded = isFloaterStartExpanded(this)
+            isSidebarCompact = prefs.getBoolean(KEY_SIDEBAR_COMPACT, false)
+            activeTab = FloaterTab.entries.firstOrNull {
+                it.key == prefs.getString(KEY_ACTIVE_TAB, FloaterTab.PLAYER.key)
+            } ?: FloaterTab.PLAYER
+            if (!fxAllowed && (activeTab == FloaterTab.EQ || activeTab == FloaterTab.SPATIAL_3D)) {
+                activeTab = FloaterTab.PLAYER
+            }
+            lastQueueRenderHash = 0
 
             val params = WindowManager.LayoutParams(
                 getSavedWidthPx(currentOrientation, isDrawerExpanded),
@@ -373,22 +472,23 @@ class MediaAccessibilityService : AccessibilityService() {
 
             performHaptic(rootView, isAccent = false)
             ensureMediaControllerConnected()
-            mediaController?.let { syncUiFromController(it) }
+            syncPlaybackSnapshotToUi()
             syncVolumeFlowAndUi()
             syncAudioFxUiFromPreferences()
+            syncToolsUiFromState(SongPlayer.getNowPlayingSnapshot(this))
             startReactiveCollectors(themedContext, rootView, params)
             resetAutoDismissTimer()
 
             DevConsoleManager.log(
                 LogLevel.INFO,
                 TAG,
-                "Studio Floater opened (expanded=$isDrawerExpanded, fxHook=$fxAllowed, inAppVol=${SongPlayer.getAppVolumePercent(this)}%)",
+                "Booster Floater opened (expanded=$isDrawerExpanded, tab=${activeTab.key}, inAppVol=${SongPlayer.getAppVolumePercent(this)}%)",
             )
         } catch (t: Throwable) {
             DevConsoleManager.log(
                 LogLevel.ERROR,
                 TAG,
-                "Failed to inflate/attach Studio Floater overlay: ${t.message}",
+                "Failed to inflate/attach Booster Floater overlay: ${t.message}",
                 t,
             )
             hideOverlay()
@@ -403,6 +503,15 @@ class MediaAccessibilityService : AccessibilityService() {
         overlayScope?.cancel()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         overlayScope = scope
+
+        // Live 400ms ticker ensures Now Playing title, progress bar, Play/Pause, Shuffle/Loop,
+        // Queue list, Sleep Timer countdown, and A-B loop stay 100% synced at all times.
+        scope.launch {
+            while (isActive && overlayView === rootView) {
+                syncPlaybackSnapshotToUi()
+                delay(400L)
+            }
+        }
 
         scope.launch {
             SongPlayer.appVolumePercentFlow.collectLatest { pct ->
@@ -424,15 +533,19 @@ class MediaAccessibilityService : AccessibilityService() {
         }
         scope.launch {
             AudioEffectController.routeState.collectLatest { routeInfo ->
-                tvRouteInfo?.text = "Route: ${routeInfo.route.label} (${routeInfo.deviceName})"
+                val routeStr = "Output: ${routeInfo.route.label} (${routeInfo.deviceName})"
+                tvRouteInfo?.text = routeStr
+                tvPlayerRouteChip?.text = routeStr
             }
         }
         scope.launch {
             floaterSettingsUpdates.collectLatest {
                 val fxAllowed = isFloaterEqAnd3dEnabled(themedContext)
-                fxToggleButton?.visibility = if (fxAllowed) View.VISIBLE else View.GONE
-                if (!fxAllowed && isDrawerExpanded) {
-                    setDrawerExpanded(expanded = false, rootView = rootView, params = params)
+                navTabEq?.visibility = if (fxAllowed) View.VISIBLE else View.GONE
+                navTab3d?.visibility = if (fxAllowed) View.VISIBLE else View.GONE
+                tvSectionSound?.visibility = if (fxAllowed && !isSidebarCompact) View.VISIBLE else View.GONE
+                if (!fxAllowed && (activeTab == FloaterTab.EQ || activeTab == FloaterTab.SPATIAL_3D)) {
+                    switchFloaterTab(FloaterTab.PLAYER)
                 }
                 val prefix = if (currentOrientation == Configuration.ORIENTATION_LANDSCAPE) {
                     KEY_LANDSCAPE_PREFIX
@@ -446,6 +559,7 @@ class MediaAccessibilityService : AccessibilityService() {
                         if (rootView.isAttachedToWindow) windowManager?.updateViewLayout(rootView, params)
                     }
                 }
+                syncToolsUiFromState(SongPlayer.getNowPlayingSnapshot(themedContext))
                 resetAutoDismissTimer()
             }
         }
@@ -458,11 +572,53 @@ class MediaAccessibilityService : AccessibilityService() {
         fxAllowed: Boolean,
     ) {
         statusBadgeTextView = rootView.findViewById(R.id.tv_mini_status_badge)
+        coverDiscImageView = rootView.findViewById(R.id.iv_mini_cover_disc)
         titleTextView = rootView.findViewById<TextView>(R.id.tv_mini_title)?.apply {
             isSelected = true
         }
         artistTextView = rootView.findViewById(R.id.tv_mini_artist)
+        sourceBadgeTextView = rootView.findViewById(R.id.tv_mini_source_badge)
+        compactProgressBar = rootView.findViewById(R.id.progress_mini_compact)
 
+        likeButton = rootView.findViewById<ImageButton>(R.id.btn_mini_like)?.apply {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                val nowLiked = SongPlayer.toggleCurrentTrackLike(applicationContext)
+                performHaptic(view, isAccent = nowLiked)
+                updateLikeButtonUi(nowLiked)
+                DevConsoleManager.log(LogLevel.INFO, TAG, "Floater favorite -> liked=$nowLiked")
+            }
+        }
+        openAppButton = rootView.findViewById<ImageButton>(R.id.btn_mini_open_app)?.apply {
+            setOnClickListener { view ->
+                performHaptic(view, isAccent = true)
+                openMainAppAndDismiss()
+            }
+        }
+        fxToggleButton = rootView.findViewById<ImageButton>(R.id.btn_mini_fx_toggle)?.apply {
+            setOnClickListener { view ->
+                performHaptic(view, isAccent = true)
+                setDrawerExpanded(!isDrawerExpanded, rootView, params)
+                resetAutoDismissTimer()
+            }
+        }
+        closeButton = rootView.findViewById<ImageButton>(R.id.btn_mini_close)?.apply {
+            setOnClickListener { view ->
+                performHaptic(view, isAccent = false)
+                hideOverlay()
+            }
+        }
+
+        // Transport Buttons
+        shuffleButton = rootView.findViewById<ImageButton>(R.id.btn_mini_shuffle)?.apply {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                val enabled = SongPlayer.toggleShuffle(applicationContext)
+                performHaptic(view, isAccent = enabled)
+                syncPlaybackSnapshotToUi()
+                DevConsoleManager.log(LogLevel.INFO, TAG, "Floater Shuffle -> $enabled")
+            }
+        }
         prevButton = rootView.findViewById<ImageButton>(R.id.btn_mini_prev)?.apply {
             setOnClickListener { view ->
                 resetAutoDismissTimer()
@@ -484,25 +640,13 @@ class MediaAccessibilityService : AccessibilityService() {
                 handleNextClick()
             }
         }
-        closeButton = rootView.findViewById<ImageButton>(R.id.btn_mini_close)?.apply {
+        repeatButton = rootView.findViewById<ImageButton>(R.id.btn_mini_repeat)?.apply {
             setOnClickListener { view ->
-                performHaptic(view, isAccent = false)
-                hideOverlay()
-            }
-        }
-        openAppButton = rootView.findViewById<ImageButton>(R.id.btn_mini_open_app)?.apply {
-            setOnClickListener { view ->
-                performHaptic(view, isAccent = true)
-                openMainAppAndDismiss()
-            }
-        }
-        fxToggleButton = rootView.findViewById<ImageButton>(R.id.btn_mini_fx_toggle)?.apply {
-            visibility = if (fxAllowed) View.VISIBLE else View.GONE
-            setOnClickListener { view ->
-                if (!isFloaterEqAnd3dEnabled(themedContext)) return@setOnClickListener
-                performHaptic(view, isAccent = true)
-                setDrawerExpanded(!isDrawerExpanded, rootView, params)
                 resetAutoDismissTimer()
+                val mode = SongPlayer.cycleRepeatMode(applicationContext)
+                performHaptic(view, isAccent = mode != RepeatMode.OFF)
+                syncPlaybackSnapshotToUi()
+                DevConsoleManager.log(LogLevel.INFO, TAG, "Floater Loop mode -> $mode")
             }
         }
 
@@ -559,38 +703,97 @@ class MediaAccessibilityService : AccessibilityService() {
                     DevConsoleManager.log(
                         LogLevel.INFO,
                         TAG,
-                        "Floater adjusted In-App Volume -> ${seekBar?.progress ?: 0}% (OS untouched)",
+                        "Floater In-App Volume -> ${seekBar?.progress ?: 0}% (OS untouched)",
                     )
                     resetAutoDismissTimer()
                 }
             })
         }
 
-        // Studio Drawer & Tabs
+        // Studio Drawer + Left Navigation Rail
         studioDrawerLayout = rootView.findViewById(R.id.layout_studio_drawer)
-        tabEqTextView = rootView.findViewById<TextView>(R.id.tab_floater_eq)?.apply {
+        sidebarScrollView = rootView.findViewById(R.id.scroll_floater_sidebar)
+        tvSectionMedia = rootView.findViewById(R.id.tv_sidebar_section_media)
+        tvSectionSound = rootView.findViewById(R.id.tv_sidebar_section_sound)
+        tvSectionTools = rootView.findViewById(R.id.tv_sidebar_section_tools)
+
+        btnSidebarCompactToggle = rootView.findViewById<ImageButton>(R.id.btn_sidebar_compact_toggle)?.apply {
             setOnClickListener { view ->
                 resetAutoDismissTimer()
-                performHaptic(view, isAccent = false)
-                switchStudioTab(isEqTab = true)
+                isSidebarCompact = !isSidebarCompact
+                prefs.edit().putBoolean(KEY_SIDEBAR_COMPACT, isSidebarCompact).apply()
+                applySidebarCompactState(fxAllowed)
+                performHaptic(view, isAccent = true)
             }
         }
-        tab3dTextView = rootView.findViewById<TextView>(R.id.tab_floater_3d)?.apply {
-            setOnClickListener { view ->
-                resetAutoDismissTimer()
-                performHaptic(view, isAccent = false)
-                switchStudioTab(isEqTab = false)
-            }
+
+        navTabPlayer = rootView.findViewById(R.id.nav_tab_player)
+        navTabQueue = rootView.findViewById(R.id.nav_tab_queue)
+        navTabEq = rootView.findViewById(R.id.nav_tab_eq)
+        navTab3d = rootView.findViewById(R.id.nav_tab_3d)
+        navTabTools = rootView.findViewById(R.id.nav_tab_tools)
+
+        ivNavPlayer = rootView.findViewById(R.id.iv_nav_player)
+        ivNavQueue = rootView.findViewById(R.id.iv_nav_queue)
+        ivNavEq = rootView.findViewById(R.id.iv_nav_eq)
+        ivNav3d = rootView.findViewById(R.id.iv_nav_3d)
+        ivNavTools = rootView.findViewById(R.id.iv_nav_tools)
+
+        tvNavPlayer = rootView.findViewById(R.id.tv_nav_player)
+        tvNavQueue = rootView.findViewById(R.id.tv_nav_queue)
+        tvNavEq = rootView.findViewById(R.id.tv_nav_eq)
+        tvNav3d = rootView.findViewById(R.id.tv_nav_3d)
+        tvNavTools = rootView.findViewById(R.id.tv_nav_tools)
+
+        navTabEq?.visibility = if (fxAllowed) View.VISIBLE else View.GONE
+        navTab3d?.visibility = if (fxAllowed) View.VISIBLE else View.GONE
+
+        navTabPlayer?.setOnClickListener { v ->
+            resetAutoDismissTimer()
+            performHaptic(v, isAccent = false)
+            switchFloaterTab(FloaterTab.PLAYER)
         }
+        navTabQueue?.setOnClickListener { v ->
+            resetAutoDismissTimer()
+            performHaptic(v, isAccent = false)
+            switchFloaterTab(FloaterTab.QUEUE)
+        }
+        navTabEq?.setOnClickListener { v ->
+            if (!isFloaterEqAnd3dEnabled(themedContext)) return@setOnClickListener
+            resetAutoDismissTimer()
+            performHaptic(v, isAccent = false)
+            switchFloaterTab(FloaterTab.EQ)
+        }
+        navTab3d?.setOnClickListener { v ->
+            if (!isFloaterEqAnd3dEnabled(themedContext)) return@setOnClickListener
+            resetAutoDismissTimer()
+            performHaptic(v, isAccent = false)
+            switchFloaterTab(FloaterTab.SPATIAL_3D)
+        }
+        navTabTools?.setOnClickListener { v ->
+            resetAutoDismissTimer()
+            performHaptic(v, isAccent = false)
+            switchFloaterTab(FloaterTab.TOOLS)
+        }
+
+        panelPlayerLayout = rootView.findViewById(R.id.panel_floater_player)
+        panelQueueLayout = rootView.findViewById(R.id.panel_floater_queue)
         panelEqLayout = rootView.findViewById(R.id.panel_floater_eq)
         panel3dLayout = rootView.findViewById(R.id.panel_floater_3d)
+        panelToolsLayout = rootView.findViewById(R.id.panel_floater_tools)
+
         eqPresetsContainer = rootView.findViewById(R.id.container_eq_presets)
         spatialProfilesContainer = rootView.findViewById(R.id.container_spatial_profiles)
 
+        bindPlayerTabControls(rootView)
+        bindQueueTabControls(rootView)
         buildEqPresetChips(themedContext)
         buildSpatialProfileChips(themedContext)
         bindEqAnd3dControls(rootView, themedContext)
-        switchStudioTab(isEqTabActive)
+        bindToolsTabControls(rootView, themedContext)
+
+        applySidebarCompactState(fxAllowed)
+        switchFloaterTab(activeTab)
 
         // Dismiss on outside touch
         rootView.setOnTouchListener { _, event ->
@@ -602,7 +805,7 @@ class MediaAccessibilityService : AccessibilityService() {
             }
         }
 
-        // Panning gesture on top header pill bar
+        // Panning gesture on header pill bar and top track strip
         val touchSlop = ViewConfiguration.get(themedContext).scaledTouchSlop
         val dragPillArea = rootView.findViewById<View>(R.id.layout_drag_pill_area)
         val topBarView = rootView.findViewById<View>(R.id.layout_top_bar)
@@ -619,10 +822,327 @@ class MediaAccessibilityService : AccessibilityService() {
         resizeBr?.setOnTouchListener(resizeListener)
         resizeBl?.setOnTouchListener(resizeListener)
 
-        // Apply initial expanded/collapsed visual state cleanly
         studioDrawerLayout?.visibility = if (isDrawerExpanded) View.VISIBLE else View.GONE
         updateFxToggleButtonTint()
         updateGeometryBadge(params.width, params.height, rootView)
+    }
+
+    private fun bindPlayerTabControls(rootView: View) {
+        tvPlayerTabTitle = rootView.findViewById(R.id.tv_player_tab_title)
+        tvPlayerTabArtist = rootView.findViewById(R.id.tv_player_tab_artist)
+        tvPlayerTabSource = rootView.findViewById(R.id.tv_player_tab_source)
+        tvPlayerPosTime = rootView.findViewById(R.id.tv_player_pos_time)
+        tvPlayerDurTime = rootView.findViewById(R.id.tv_player_dur_time)
+        tvPlayerRouteChip = rootView.findViewById(R.id.tv_player_route_chip)
+
+        seekPlayerTrack = rootView.findViewById<SeekBar>(R.id.seek_floater_track)?.apply {
+            max = 1000
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (fromUser) {
+                        resetAutoDismissTimer()
+                        val dur = SongPlayer.getNowPlayingSnapshot(applicationContext).durationMs
+                        if (dur > 0L) {
+                            tvPlayerPosTime?.text = formatDurationMs((dur * progress) / 1000L)
+                        }
+                    }
+                }
+
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {
+                    isUserSeekingTrack = true
+                    cancelAutoDismissTimer()
+                }
+
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                    isUserSeekingTrack = false
+                    val progress = seekBar?.progress ?: 0
+                    val dur = SongPlayer.getNowPlayingSnapshot(applicationContext).durationMs
+                    if (dur > 0L) {
+                        val targetMs = (dur * progress) / 1000L
+                        SongPlayer.seekTo(targetMs)
+                        mediaController?.takeIf { it.isConnected }?.seekTo(targetMs)
+                        performHaptic(seekBar, isAccent = false)
+                    }
+                    resetAutoDismissTimer()
+                }
+            })
+        }
+
+        btnPlayerRew10 = rootView.findViewById<TextView>(R.id.btn_player_rew10)?.apply {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                performHaptic(view, isAccent = false)
+                val cur = SongPlayer.getNowPlayingSnapshot(applicationContext).positionMs
+                val target = (cur - 10_000L).coerceAtLeast(0L)
+                SongPlayer.seekTo(target)
+                syncPlaybackSnapshotToUi()
+            }
+        }
+        btnPlayerFwd10 = rootView.findViewById<TextView>(R.id.btn_player_fwd10)?.apply {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                performHaptic(view, isAccent = false)
+                val snap = SongPlayer.getNowPlayingSnapshot(applicationContext)
+                val target = if (snap.durationMs > 0L) {
+                    (snap.positionMs + 10_000L).coerceAtMost(snap.durationMs)
+                } else {
+                    snap.positionMs + 10_000L
+                }
+                SongPlayer.seekTo(target)
+                syncPlaybackSnapshotToUi()
+            }
+        }
+        chipPlayerShuffle = rootView.findViewById<TextView>(R.id.chip_player_shuffle)?.apply {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                val enabled = SongPlayer.toggleShuffle(applicationContext)
+                performHaptic(view, isAccent = enabled)
+                syncPlaybackSnapshotToUi()
+            }
+        }
+        chipPlayerRepeat = rootView.findViewById<TextView>(R.id.chip_player_repeat)?.apply {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                val mode = SongPlayer.cycleRepeatMode(applicationContext)
+                performHaptic(view, isAccent = mode != RepeatMode.OFF)
+                syncPlaybackSnapshotToUi()
+            }
+        }
+    }
+
+    private fun bindQueueTabControls(rootView: View) {
+        tvQueueCount = rootView.findViewById(R.id.tv_queue_count)
+        containerQueueItems = rootView.findViewById(R.id.container_queue_items)
+
+        btnQueueShuffleUpcoming = rootView.findViewById<TextView>(R.id.btn_queue_shuffle_upcoming)?.apply {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                val count = SongPlayer.shuffleUpcomingQueue()
+                performHaptic(view, isAccent = count > 0)
+                lastQueueRenderHash = 0
+                syncPlaybackSnapshotToUi()
+                DevConsoleManager.log(LogLevel.INFO, TAG, "Floater shuffled $count upcoming tracks")
+            }
+        }
+        btnQueueDedupe = rootView.findViewById<TextView>(R.id.btn_queue_dedupe)?.apply {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                val removed = SongPlayer.deduplicateQueue()
+                performHaptic(view, isAccent = removed > 0)
+                lastQueueRenderHash = 0
+                syncPlaybackSnapshotToUi()
+                DevConsoleManager.log(LogLevel.INFO, TAG, "Floater deduped $removed duplicate tracks")
+            }
+        }
+    }
+
+    private fun bindToolsTabControls(rootView: View, ctx: Context) {
+        seekToolsSpeed = rootView.findViewById<SeekBar>(R.id.seek_tools_speed)?.apply {
+            max = 15 // 0.5x to 2.0x in 0.1x steps
+            setOnSeekBarChangeListener(createSimpleSeekBarListener(
+                onChanged = { p ->
+                    val speed = 0.5f + (p * 0.1f)
+                    setPlaybackSpeedPref(ctx, speed)
+                    SongPlayer.refreshPlaybackTuning(ctx)
+                    tvToolsSpeedVal?.text = String.format(Locale.US, "%.1fx", speed)
+                },
+            ))
+        }
+        tvToolsSpeedVal = rootView.findViewById(R.id.tv_tools_speed_val)
+
+        seekToolsPitch = rootView.findViewById<SeekBar>(R.id.seek_tools_pitch)?.apply {
+            max = 10 // 0.50x to 1.50x in 0.10x steps
+            setOnSeekBarChangeListener(createSimpleSeekBarListener(
+                onChanged = { p ->
+                    val pitch = 0.5f + (p * 0.1f)
+                    setPlaybackPitchPref(ctx, pitch)
+                    SongPlayer.refreshPlaybackTuning(ctx)
+                    tvToolsPitchVal?.text = String.format(Locale.US, "%.2fx", pitch)
+                },
+            ))
+        }
+        tvToolsPitchVal = rootView.findViewById(R.id.tv_tools_pitch_val)
+
+        btnToolsSpeedReset = rootView.findViewById<TextView>(R.id.btn_tools_speed_reset)?.apply {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                performHaptic(view, isAccent = true)
+                setPlaybackSpeedPref(ctx, 1.0f)
+                setPlaybackPitchPref(ctx, 1.0f)
+                setSkipSilenceEnabled(ctx, false)
+                SongPlayer.refreshPlaybackTuning(ctx)
+                syncToolsUiFromState(SongPlayer.getNowPlayingSnapshot(ctx))
+            }
+        }
+
+        toggleToolsSkipSilence = rootView.findViewById<TextView>(R.id.toggle_tools_skip_silence)?.apply {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                val next = !isSkipSilenceEnabled(ctx)
+                setSkipSilenceEnabled(ctx, next)
+                SongPlayer.refreshPlaybackTuning(ctx)
+                performHaptic(view, isAccent = next)
+                syncToolsUiFromState(SongPlayer.getNowPlayingSnapshot(ctx))
+            }
+        }
+
+        tvToolsSleepStatus = rootView.findViewById(R.id.tv_tools_sleep_status)
+        btnSleepOff = rootView.findViewById<TextView>(R.id.btn_sleep_off)?.apply {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                SongPlayer.cancelSleepTimer()
+                performHaptic(view, isAccent = false)
+                syncToolsUiFromState(SongPlayer.getNowPlayingSnapshot(ctx))
+            }
+        }
+        btnSleep10m = rootView.findViewById<TextView>(R.id.btn_sleep_10m)?.apply {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                SongPlayer.setSleepTimer(10 * 60_000L)
+                performHaptic(view, isAccent = true)
+                syncToolsUiFromState(SongPlayer.getNowPlayingSnapshot(ctx))
+            }
+        }
+        btnSleep15m = rootView.findViewById<TextView>(R.id.btn_sleep_15m)?.apply {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                SongPlayer.setSleepTimer(15 * 60_000L)
+                performHaptic(view, isAccent = true)
+                syncToolsUiFromState(SongPlayer.getNowPlayingSnapshot(ctx))
+            }
+        }
+        btnSleep30m = rootView.findViewById<TextView>(R.id.btn_sleep_30m)?.apply {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                SongPlayer.setSleepTimer(30 * 60_000L)
+                performHaptic(view, isAccent = true)
+                syncToolsUiFromState(SongPlayer.getNowPlayingSnapshot(ctx))
+            }
+        }
+        btnSleep60m = rootView.findViewById<TextView>(R.id.btn_sleep_60m)?.apply {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                SongPlayer.setSleepTimer(60 * 60_000L)
+                performHaptic(view, isAccent = true)
+                syncToolsUiFromState(SongPlayer.getNowPlayingSnapshot(ctx))
+            }
+        }
+
+        tvToolsAbStatus = rootView.findViewById(R.id.tv_tools_ab_status)
+        btnAbSetA = rootView.findViewById<TextView>(R.id.btn_ab_set_a)?.apply {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                SongPlayer.setAbLoopStart()
+                performHaptic(view, isAccent = true)
+                syncToolsUiFromState(SongPlayer.getNowPlayingSnapshot(ctx))
+            }
+        }
+        btnAbSetB = rootView.findViewById<TextView>(R.id.btn_ab_set_b)?.apply {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                SongPlayer.setAbLoopEnd()
+                performHaptic(view, isAccent = true)
+                syncToolsUiFromState(SongPlayer.getNowPlayingSnapshot(ctx))
+            }
+        }
+        btnAbClear = rootView.findViewById<TextView>(R.id.btn_ab_clear)?.apply {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                SongPlayer.clearAbLoop()
+                performHaptic(view, isAccent = false)
+                syncToolsUiFromState(SongPlayer.getNowPlayingSnapshot(ctx))
+            }
+        }
+
+        btnToolsAutohide = rootView.findViewById<TextView>(R.id.btn_tools_autohide)?.apply {
+            setOnClickListener { view ->
+                val options = longArrayOf(0L, 8_000L, 12_000L, 20_000L, 45_000L)
+                val cur = getFloaterAutoHideMs(ctx)
+                val idx = options.indexOfFirst { it == cur }
+                val next = options[(idx + 1) % options.size]
+                setFloaterAutoHideMs(ctx, next)
+                performHaptic(view, isAccent = true)
+                resetAutoDismissTimer()
+                syncToolsUiFromState(SongPlayer.getNowPlayingSnapshot(ctx))
+            }
+        }
+        btnToolsHaptics = rootView.findViewById<TextView>(R.id.btn_tools_haptics)?.apply {
+            setOnClickListener { view ->
+                resetAutoDismissTimer()
+                val enabled = isFloaterHapticsEnabled(ctx)
+                val strength = getFloaterHapticStrength(ctx)
+                when {
+                    !enabled -> {
+                        setFloaterHapticsEnabled(ctx, true)
+                        setFloaterHapticStrength(ctx, FloaterHapticStrength.LIGHT)
+                    }
+                    strength == FloaterHapticStrength.LIGHT -> setFloaterHapticStrength(ctx, FloaterHapticStrength.MEDIUM)
+                    strength == FloaterHapticStrength.MEDIUM -> setFloaterHapticStrength(ctx, FloaterHapticStrength.STRONG)
+                    else -> setFloaterHapticsEnabled(ctx, false)
+                }
+                performHaptic(view, isAccent = true)
+                syncToolsUiFromState(SongPlayer.getNowPlayingSnapshot(ctx))
+            }
+        }
+    }
+
+    private fun switchFloaterTab(tab: FloaterTab) {
+        activeTab = tab
+        prefs.edit().putString(KEY_ACTIVE_TAB, tab.key).apply()
+
+        panelPlayerLayout?.visibility = if (tab == FloaterTab.PLAYER) View.VISIBLE else View.GONE
+        panelQueueLayout?.visibility = if (tab == FloaterTab.QUEUE) View.VISIBLE else View.GONE
+        panelEqLayout?.visibility = if (tab == FloaterTab.EQ) View.VISIBLE else View.GONE
+        panel3dLayout?.visibility = if (tab == FloaterTab.SPATIAL_3D) View.VISIBLE else View.GONE
+        panelToolsLayout?.visibility = if (tab == FloaterTab.TOOLS) View.VISIBLE else View.GONE
+
+        styleNavItem(navTabPlayer, ivNavPlayer, tvNavPlayer, tab == FloaterTab.PLAYER)
+        styleNavItem(navTabQueue, ivNavQueue, tvNavQueue, tab == FloaterTab.QUEUE)
+        styleNavItem(navTabEq, ivNavEq, tvNavEq, tab == FloaterTab.EQ)
+        styleNavItem(navTab3d, ivNav3d, tvNav3d, tab == FloaterTab.SPATIAL_3D)
+        styleNavItem(navTabTools, ivNavTools, tvNavTools, tab == FloaterTab.TOOLS)
+
+        if (tab == FloaterTab.QUEUE) {
+            lastQueueRenderHash = 0
+            syncPlaybackSnapshotToUi()
+        }
+    }
+
+    private fun styleNavItem(
+        container: LinearLayout?,
+        icon: ImageView?,
+        label: TextView?,
+        selected: Boolean,
+    ) {
+        container?.background = if (selected) {
+            ContextCompat.getDrawable(this, R.drawable.bg_mini_nav_item_active)
+        } else {
+            null
+        }
+        val tintColor = if (selected) Color.parseColor("#FF1ED760") else Color.parseColor("#FFB8C2D4")
+        icon?.imageTintList = ColorStateList.valueOf(tintColor)
+        label?.setTextColor(tintColor)
+    }
+
+    private fun applySidebarCompactState(fxAllowed: Boolean) {
+        val sidebar = sidebarScrollView ?: return
+        val lp = sidebar.layoutParams
+        lp.width = dpToPx(if (isSidebarCompact) 48 else 72)
+        sidebar.layoutParams = lp
+
+        val labelVis = if (isSidebarCompact) View.GONE else View.VISIBLE
+        tvNavPlayer?.visibility = labelVis
+        tvNavQueue?.visibility = labelVis
+        tvNavEq?.visibility = labelVis
+        tvNav3d?.visibility = labelVis
+        tvNavTools?.visibility = labelVis
+
+        tvSectionMedia?.visibility = labelVis
+        tvSectionSound?.visibility = if (!isSidebarCompact && fxAllowed) View.VISIBLE else View.GONE
+        tvSectionTools?.visibility = labelVis
+        btnSidebarCompactToggle?.imageTintList = ColorStateList.valueOf(
+            if (isSidebarCompact) Color.parseColor("#FF1ED760") else Color.parseColor("#FF9CA6B8"),
+        )
     }
 
     private fun setDrawerExpanded(
@@ -631,7 +1151,6 @@ class MediaAccessibilityService : AccessibilityService() {
         params: WindowManager.LayoutParams,
     ) {
         if (isDrawerExpanded == expanded) return
-        if (expanded && !isFloaterEqAnd3dEnabled(this)) return
 
         isDrawerExpanded = expanded
         studioDrawerLayout?.visibility = if (expanded) View.VISIBLE else View.GONE
@@ -644,7 +1163,7 @@ class MediaAccessibilityService : AccessibilityService() {
             WindowManager.LayoutParams.WRAP_CONTENT
         }
 
-        val estHeight = if (params.height > 0) params.height else dpToPx(196)
+        val estHeight = if (params.height > 0) params.height else dpToPx(236)
         val (clampedX, clampedY) = clampCoordinatesToDisplay(params.x, params.y, params.width, estHeight)
         params.x = clampedX
         params.y = clampedY
@@ -659,8 +1178,304 @@ class MediaAccessibilityService : AccessibilityService() {
 
     private fun updateFxToggleButtonTint() {
         val btn = fxToggleButton ?: return
-        val tintColor = if (isDrawerExpanded) Color.parseColor("#FF1DB954") else Color.WHITE
+        val tintColor = if (isDrawerExpanded) Color.parseColor("#FF1ED760") else Color.WHITE
         btn.imageTintList = ColorStateList.valueOf(tintColor)
+    }
+
+    private fun syncPlaybackSnapshotToUi() {
+        if (overlayView == null) return
+
+        val snap = SongPlayer.getNowPlayingSnapshot(applicationContext)
+        val ctrl = mediaController?.takeIf { it.isConnected }
+        val ctrlMeta = ctrl?.mediaMetadata?.takeIf { !it.title.isNullOrBlank() }
+            ?: ctrl?.currentMediaItem?.mediaMetadata
+
+        val displayTitle = snap.title.takeIf { it.isNotBlank() }
+            ?: ctrlMeta?.title?.toString()?.takeIf { it.isNotBlank() }
+            ?: getString(R.string.mini_player_idle_title)
+        val displayArtist = snap.artist.takeIf { it.isNotBlank() }
+            ?: ctrlMeta?.artist?.toString()?.takeIf { it.isNotBlank() }
+            ?: ctrlMeta?.albumArtist?.toString()?.takeIf { it.isNotBlank() }
+            ?: getString(R.string.mini_player_idle_artist)
+
+        val playingNow = snap.isPlaying || (ctrl?.isPlaying == true)
+
+        if (titleTextView?.text?.toString() != displayTitle) {
+            titleTextView?.text = displayTitle
+        }
+        titleTextView?.isSelected = true
+        if (artistTextView?.text?.toString() != displayArtist) {
+            artistTextView?.text = displayArtist
+        }
+
+        // Source/Status pill badge on main card
+        val srcBadgeText = when {
+            snap.isResolving -> "SYNCING"
+            snap.qualityLabel.isNotBlank() && snap.qualityLabel != "—" ->
+                "${snap.sourceLabel.uppercase(Locale.US)} · ${snap.qualityLabel.uppercase(Locale.US)}"
+            playingNow -> "PLAYING · ${snap.sourceLabel.uppercase(Locale.US)}"
+            snap.title.isNotBlank() -> "PAUSED"
+            else -> "READY"
+        }
+        sourceBadgeTextView?.apply {
+            text = srcBadgeText
+            setTextColor(
+                when {
+                    playingNow || snap.isResolving -> Color.parseColor("#FF1ED760")
+                    snap.title.isNotBlank() -> Color.parseColor("#FF8BE9FD")
+                    else -> Color.parseColor("#FFB8C0CE")
+                },
+            )
+        }
+
+        coverDiscImageView?.imageTintList = ColorStateList.valueOf(
+            if (playingNow) Color.parseColor("#FF1ED760") else Color.parseColor("#FF9AA5BA"),
+        )
+
+        updatePlayPauseIcon(playingNow)
+        updateLikeButtonUi(snap.isLiked)
+        updateShuffleButtonUi(snap.isShuffled)
+        updateRepeatButtonUi(snap.repeatMode)
+
+        // Compact + Expanded progress bars
+        val posMs = snap.positionMs.coerceAtLeast(0L)
+        val durMs = snap.durationMs.coerceAtLeast(0L)
+        val progressRatio = if (durMs > 0L) ((posMs * 1000L) / durMs).toInt().coerceIn(0, 1000) else 0
+        compactProgressBar?.progress = progressRatio
+
+        if (!isUserSeekingTrack) {
+            seekPlayerTrack?.progress = progressRatio
+            tvPlayerPosTime?.text = formatDurationMs(posMs)
+        }
+        tvPlayerDurTime?.text = formatDurationMs(durMs)
+        tvPlayerTabTitle?.text = displayTitle
+        tvPlayerTabArtist?.text = if (snap.album.isNotBlank()) "$displayArtist · ${snap.album}" else displayArtist
+        tvPlayerTabSource?.text = "Engine: ${snap.sourceLabel} · ${snap.qualityLabel}"
+
+        chipPlayerShuffle?.apply {
+            text = if (snap.isShuffled) "Shuffle ON" else "Shuffle OFF"
+            setBackgroundResource(if (snap.isShuffled) R.drawable.bg_mini_chip_active else R.drawable.bg_mini_chip_inactive)
+            setTextColor(if (snap.isShuffled) Color.parseColor("#FF0B0E11") else Color.WHITE)
+        }
+        chipPlayerRepeat?.apply {
+            text = when (snap.repeatMode) {
+                RepeatMode.OFF -> "Loop OFF"
+                RepeatMode.ALL -> "Loop ALL"
+                RepeatMode.ONE -> "Loop ONE"
+            }
+            val active = snap.repeatMode != RepeatMode.OFF
+            setBackgroundResource(if (active) R.drawable.bg_mini_chip_active else R.drawable.bg_mini_chip_inactive)
+            setTextColor(if (active) Color.parseColor("#FF0B0E11") else Color.WHITE)
+        }
+
+        val routeInfo = AudioEffectController.routeState.value
+        val routeText = "Output: ${routeInfo.route.label} (${routeInfo.deviceName})"
+        if (tvPlayerRouteChip?.text?.toString() != routeText) {
+            tvPlayerRouteChip?.text = routeText
+        }
+
+        if (activeTab == FloaterTab.QUEUE) {
+            renderQueueIfNeeded(snap.queue, snap.activeQueueIndex)
+        }
+        if (activeTab == FloaterTab.TOOLS) {
+            syncToolsUiFromState(snap)
+        }
+    }
+
+    private fun renderQueueIfNeeded(
+        queue: List<com.music.spotui.data.entity.SongsModel>,
+        activeIndex: Int,
+    ) {
+        val container = containerQueueItems ?: return
+        val hash = queue.hashCode() * 31 + activeIndex
+        if (hash == lastQueueRenderHash) return
+        lastQueueRenderHash = hash
+
+        tvQueueCount?.text = "Up Next (${queue.size})"
+        container.removeAllViews()
+
+        if (queue.isEmpty()) {
+            val emptyTv = TextView(this).apply {
+                setPadding(dpToPx(12), dpToPx(14), dpToPx(12), dpToPx(14))
+                setBackgroundResource(R.drawable.bg_mini_card_inner)
+                text = "Queue is empty. Play a song or playlist in SpotUI."
+                textSize = 11f
+                setTextColor(Color.parseColor("#FFB8C2D4"))
+            }
+            container.addView(emptyTv)
+            return
+        }
+
+        val startIdx = (activeIndex - 1).coerceAtLeast(0)
+        val endIdx = (startIdx + 24).coerceAtMost(queue.lastIndex)
+        for (i in startIdx..endIdx) {
+            val song = queue[i]
+            val isCurrent = i == activeIndex
+            val row = LinearLayout(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply {
+                    bottomMargin = dpToPx(5)
+                }
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setBackgroundResource(
+                    if (isCurrent) R.drawable.bg_gb_now_playing_card else R.drawable.bg_mini_card_inner,
+                )
+                setPadding(dpToPx(10), dpToPx(7), dpToPx(10), dpToPx(7))
+                setOnClickListener { view ->
+                    resetAutoDismissTimer()
+                    performHaptic(view, isAccent = true)
+                    SongPlayer.playQueueItemAt(applicationContext, i)
+                    lastQueueRenderHash = 0
+                    mainHandler.postDelayed({ syncPlaybackSnapshotToUi() }, 180L)
+                }
+            }
+
+            val indexTv = TextView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(dpToPx(24), LinearLayout.LayoutParams.WRAP_CONTENT)
+                text = if (isCurrent) "▶" else "${i + 1}"
+                textSize = 10.5f
+                setTextColor(if (isCurrent) Color.parseColor("#FF1ED760") else Color.parseColor("#FF8892A6"))
+                setTypeface(null, android.graphics.Typeface.BOLD)
+            }
+            val textCol = LinearLayout(this).apply {
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, 0, dpToPx(6), 0)
+            }
+            val songTitleTv = TextView(this).apply {
+                text = song.title.ifBlank { "Track ${i + 1}" }
+                textSize = 11.5f
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                setTextColor(if (isCurrent) Color.parseColor("#FF1ED760") else Color.WHITE)
+                setTypeface(null, android.graphics.Typeface.BOLD)
+            }
+            val songArtistTv = TextView(this).apply {
+                text = song.singer.ifBlank { song.album }
+                textSize = 9.5f
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                setTextColor(Color.parseColor("#FFB8C2D4"))
+            }
+            textCol.addView(songTitleTv)
+            textCol.addView(songArtistTv)
+
+            val durTv = TextView(this).apply {
+                text = if (song.durationMs > 0) formatDurationMs(song.durationMs.toLong()) else ""
+                textSize = 9.5f
+                setTextColor(Color.parseColor("#FF8892A6"))
+            }
+
+            row.addView(indexTv)
+            row.addView(textCol)
+            if (song.durationMs > 0) row.addView(durTv)
+            container.addView(row)
+        }
+    }
+
+    private fun syncToolsUiFromState(snap: SongPlayer.FloaterPlaybackSnapshot) {
+        val ctx = this
+        val speed = getPlaybackSpeedPref(ctx)
+        seekToolsSpeed?.progress = ((speed - 0.5f) / 0.1f).roundToInt().coerceIn(0, 15)
+        tvToolsSpeedVal?.text = String.format(Locale.US, "%.1fx", speed)
+
+        val pitch = getPlaybackPitchPref(ctx)
+        seekToolsPitch?.progress = ((pitch - 0.5f) / 0.1f).roundToInt().coerceIn(0, 10)
+        tvToolsPitchVal?.text = String.format(Locale.US, "%.2fx", pitch)
+
+        val skipSil = isSkipSilenceEnabled(ctx)
+        toggleToolsSkipSilence?.apply {
+            text = if (skipSil) "Skip Silence: ON" else "Skip Silence: OFF"
+            setBackgroundResource(if (skipSil) R.drawable.bg_mini_chip_active else R.drawable.bg_mini_chip_inactive)
+            setTextColor(if (skipSil) Color.parseColor("#FF0B0E11") else Color.WHITE)
+        }
+
+        val rem = snap.sleepTimerRemainingMs
+        tvToolsSleepStatus?.text = if (rem > 0L) {
+            "Sleep Timer: ${formatDurationMs(rem)} remaining"
+        } else {
+            "Sleep Timer: Off"
+        }
+
+        val aMs = snap.abLoopStartMs
+        val bMs = snap.abLoopEndMs
+        tvToolsAbStatus?.text = when {
+            aMs >= 0L && bMs > aMs -> "A-B Loop Active: ${formatDurationMs(aMs)} → ${formatDurationMs(bMs)}"
+            aMs >= 0L -> "A-B Loop: A=${formatDurationMs(aMs)} (tap Set B)"
+            else -> "A-B Loop: Not set"
+        }
+
+        val autoMs = getFloaterAutoHideMs(ctx)
+        btnToolsAutohide?.text = if (autoMs == 0L) "Auto-Hide: Off" else "Auto-Hide: ${autoMs / 1000L}s"
+
+        val hapticsLabel = if (!isFloaterHapticsEnabled(ctx)) {
+            "Haptics: Off"
+        } else {
+            "Haptics: ${getFloaterHapticStrength(ctx).label}"
+        }
+        btnToolsHaptics?.text = hapticsLabel
+    }
+
+    private fun updatePlayPauseIcon(isPlaying: Boolean) {
+        val button = playPauseButton ?: return
+        button.setImageResource(
+            if (isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play,
+        )
+        button.contentDescription = if (isPlaying) "Pause" else "Play"
+    }
+
+    private fun updateLikeButtonUi(liked: Boolean) {
+        val btn = likeButton ?: return
+        btn.setImageResource(if (liked) R.drawable.ic_favorite_filled else R.drawable.ic_favorite_border)
+        btn.imageTintList = ColorStateList.valueOf(
+            if (liked) Color.parseColor("#FF1ED760") else Color.parseColor("#E6FFFFFF"),
+        )
+    }
+
+    private fun updateShuffleButtonUi(shuffled: Boolean) {
+        val btn = shuffleButton ?: return
+        btn.setImageResource(if (shuffled) R.drawable.ic_player_shuffle else R.drawable.ic_shuffle_off)
+        btn.imageTintList = ColorStateList.valueOf(
+            if (shuffled) Color.parseColor("#FF1ED760") else Color.parseColor("#CCFFFFFF"),
+        )
+    }
+
+    private fun updateRepeatButtonUi(mode: RepeatMode) {
+        val btn = repeatButton ?: return
+        val resId = when (mode) {
+            RepeatMode.OFF -> R.drawable.ic_repeat_off
+            RepeatMode.ALL -> R.drawable.ic_repeat
+            RepeatMode.ONE -> R.drawable.ic_repeat_one
+        }
+        btn.setImageResource(resId)
+        btn.imageTintList = ColorStateList.valueOf(
+            if (mode == RepeatMode.OFF) Color.parseColor("#CCFFFFFF") else Color.parseColor("#FF1ED760"),
+        )
+    }
+
+    private fun handlePlayPauseClick() {
+        val wasPlaying = SongPlayer.isPlaybackActiveNow() || (mediaController?.isPlaying == true)
+        SongPlayer.togglePlayOrResume(applicationContext)
+        // Optimistic immediate flip + follow-up real state reconciliation
+        updatePlayPauseIcon(!wasPlaying)
+        mainHandler.postDelayed({ syncPlaybackSnapshotToUi() }, 180L)
+        mainHandler.postDelayed({ syncPlaybackSnapshotToUi() }, 650L)
+        DevConsoleManager.log(LogLevel.INFO, TAG, "Floater Play/Pause clicked (wasPlaying=$wasPlaying)")
+    }
+
+    private fun handleNextClick() {
+        SongPlayer.triggerNext(applicationContext)
+        mainHandler.postDelayed({ syncPlaybackSnapshotToUi() }, 200L)
+        mainHandler.postDelayed({ syncPlaybackSnapshotToUi() }, 700L)
+    }
+
+    private fun handlePreviousClick() {
+        SongPlayer.triggerPrevious(applicationContext)
+        mainHandler.postDelayed({ syncPlaybackSnapshotToUi() }, 200L)
+        mainHandler.postDelayed({ syncPlaybackSnapshotToUi() }, 700L)
     }
 
     private fun syncVolumeFlowAndUi() {
@@ -699,32 +1514,8 @@ class MediaAccessibilityService : AccessibilityService() {
             if (muted) R.drawable.ic_mini_vol_off else R.drawable.ic_mini_vol_up,
         )
         btn.imageTintList = ColorStateList.valueOf(
-            if (muted) Color.parseColor("#FFFF6B6B") else Color.parseColor("#FF1DB954"),
+            if (muted) Color.parseColor("#FFFF6B6B") else Color.parseColor("#FF1ED760"),
         )
-    }
-
-    private fun switchStudioTab(isEqTab: Boolean) {
-        isEqTabActive = isEqTab
-        val eqTab = tabEqTextView ?: return
-        val d3Tab = tab3dTextView ?: return
-        val eqPanel = panelEqLayout ?: return
-        val d3Panel = panel3dLayout ?: return
-
-        if (isEqTab) {
-            eqTab.setBackgroundResource(R.drawable.bg_mini_chip_active)
-            eqTab.setTextColor(Color.parseColor("#FF0B0E11"))
-            d3Tab.setBackgroundResource(R.drawable.bg_mini_chip_inactive)
-            d3Tab.setTextColor(Color.WHITE)
-            eqPanel.visibility = View.VISIBLE
-            d3Panel.visibility = View.GONE
-        } else {
-            d3Tab.setBackgroundResource(R.drawable.bg_mini_chip_active)
-            d3Tab.setTextColor(Color.parseColor("#FF0B0E11"))
-            eqTab.setBackgroundResource(R.drawable.bg_mini_chip_inactive)
-            eqTab.setTextColor(Color.WHITE)
-            d3Panel.visibility = View.VISIBLE
-            eqPanel.visibility = View.GONE
-        }
     }
 
     private fun buildEqPresetChips(context: Context) {
@@ -832,7 +1623,7 @@ class MediaAccessibilityService : AccessibilityService() {
                 onChanged = { p ->
                     setEqBass(ctx, p.toFloat())
                     SongPlayer.refreshAudioEffects(ctx)
-                    tvEqBassVal?.text = String.format("%+.1f dB", ((p - 50f) * 12f / 50f))
+                    tvEqBassVal?.text = String.format(Locale.US, "%+.1f dB", ((p - 50f) * 12f / 50f))
                 },
             ))
         }
@@ -844,7 +1635,7 @@ class MediaAccessibilityService : AccessibilityService() {
                 onChanged = { p ->
                     setEqVocal(ctx, p.toFloat())
                     SongPlayer.refreshAudioEffects(ctx)
-                    tvEqVocalVal?.text = String.format("%+.1f dB", ((p - 50f) * 12f / 50f))
+                    tvEqVocalVal?.text = String.format(Locale.US, "%+.1f dB", ((p - 50f) * 12f / 50f))
                 },
             ))
         }
@@ -856,7 +1647,7 @@ class MediaAccessibilityService : AccessibilityService() {
                 onChanged = { p ->
                     setEqTreble(ctx, p.toFloat())
                     SongPlayer.refreshAudioEffects(ctx)
-                    tvEqTrebleVal?.text = String.format("%+.1f dB", ((p - 50f) * 12f / 50f))
+                    tvEqTrebleVal?.text = String.format(Locale.US, "%+.1f dB", ((p - 50f) * 12f / 50f))
                 },
             ))
         }
@@ -869,7 +1660,7 @@ class MediaAccessibilityService : AccessibilityService() {
                     val db = -12.0f + (p * 18.0f / 180.0f)
                     setEqPreampDb(ctx, db)
                     SongPlayer.refreshAudioEffects(ctx)
-                    tvEqPreampVal?.text = String.format("%+.1f dB", db)
+                    tvEqPreampVal?.text = String.format(Locale.US, "%+.1f dB", db)
                 },
             ))
         }
@@ -970,7 +1761,7 @@ class MediaAccessibilityService : AccessibilityService() {
                     val hz = 0.10f + (p.toFloat() / 100f)
                     setSpatialOrbitSpeed(ctx, hz)
                     SongPlayer.refreshAudioEffects(ctx)
-                    tv8dSpeedVal?.text = String.format("%.2fHz", hz)
+                    tv8dSpeedVal?.text = String.format(Locale.US, "%.2fHz", hz)
                 },
             ))
         }
@@ -1046,19 +1837,19 @@ class MediaAccessibilityService : AccessibilityService() {
 
         val bassVal = getEqBass(ctx)
         seekEqBass?.progress = bassVal.roundToInt()
-        tvEqBassVal?.text = String.format("%+.1f dB", ((bassVal - 50f) * 12f / 50f))
+        tvEqBassVal?.text = String.format(Locale.US, "%+.1f dB", ((bassVal - 50f) * 12f / 50f))
 
         val vocalVal = getEqVocal(ctx)
         seekEqVocal?.progress = vocalVal.roundToInt()
-        tvEqVocalVal?.text = String.format("%+.1f dB", ((vocalVal - 50f) * 12f / 50f))
+        tvEqVocalVal?.text = String.format(Locale.US, "%+.1f dB", ((vocalVal - 50f) * 12f / 50f))
 
         val trebleVal = getEqTreble(ctx)
         seekEqTreble?.progress = trebleVal.roundToInt()
-        tvEqTrebleVal?.text = String.format("%+.1f dB", ((trebleVal - 50f) * 12f / 50f))
+        tvEqTrebleVal?.text = String.format(Locale.US, "%+.1f dB", ((trebleVal - 50f) * 12f / 50f))
 
         val preampDb = getEqPreampDb(ctx)
         seekEqPreamp?.progress = ((preampDb + 12f) * 180f / 18f).roundToInt().coerceIn(0, 180)
-        tvEqPreampVal?.text = String.format("%+.1f dB", preampDb)
+        tvEqPreampVal?.text = String.format(Locale.US, "%+.1f dB", preampDb)
 
         val normActive = isAudioNormalizerEnabled(ctx)
         toggleNormalizer?.setBackgroundResource(if (normActive) R.drawable.bg_mini_chip_active else R.drawable.bg_mini_chip_inactive)
@@ -1095,7 +1886,7 @@ class MediaAccessibilityService : AccessibilityService() {
         toggle8d?.setTextColor(if (orbitEnabled) Color.parseColor("#FF0B0E11") else Color.WHITE)
         val speedHz = getSpatialOrbitSpeed(ctx)
         seek8dSpeed?.progress = ((speedHz - 0.10f) * 100f).roundToInt().coerceIn(0, 140)
-        tv8dSpeedVal?.text = String.format("%.2fHz", speedHz)
+        tv8dSpeedVal?.text = String.format(Locale.US, "%.2fHz", speedHz)
 
         val crossfeedActive = isHeadphoneCrossfeedEnabled(ctx)
         toggleCrossfeed?.setBackgroundResource(if (crossfeedActive) R.drawable.bg_mini_chip_active else R.drawable.bg_mini_chip_inactive)
@@ -1193,7 +1984,7 @@ class MediaAccessibilityService : AccessibilityService() {
         return View.OnTouchListener { v, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    initialWidth = if (params.width > 0) params.width else targetView.width.coerceAtLeast(dpToPx(280))
+                    initialWidth = if (params.width > 0) params.width else targetView.width.coerceAtLeast(dpToPx(296))
                     initialHeight = currentMeasuredHeight(targetView, params)
                     initialX = params.x
                     initialTouchX = event.rawX
@@ -1211,13 +2002,12 @@ class MediaAccessibilityService : AccessibilityService() {
                         val dx = (event.rawX - initialTouchX).roundToInt()
                         val dy = (event.rawY - initialTouchY).roundToInt()
                         val metrics = resources.displayMetrics
-                        val maxW = (metrics.widthPixels - dpToPx(12)).coerceAtMost(dpToPx(560))
-                        val minW = dpToPx(276)
-                        val maxH = (metrics.heightPixels - dpToPx(32)).coerceAtLeast(dpToPx(240))
-                        val minExpandedH = dpToPx(260)
+                        val maxW = (metrics.widthPixels - dpToPx(12)).coerceAtMost(dpToPx(600))
+                        val minW = dpToPx(292)
+                        val maxH = (metrics.heightPixels - dpToPx(32)).coerceAtLeast(dpToPx(280))
+                        val minExpandedH = dpToPx(280)
 
-                        // Auto-expand into Studio Drawer if user drags a bottom corner downward > 36dp while collapsed
-                        if (!isDrawerExpanded && dy > dpToPx(36) && isFloaterEqAnd3dEnabled(context)) {
+                        if (!isDrawerExpanded && dy > dpToPx(36)) {
                             isDrawerExpanded = true
                             studioDrawerLayout?.visibility = View.VISIBLE
                             updateFxToggleButtonTint()
@@ -1269,9 +2059,6 @@ class MediaAccessibilityService : AccessibilityService() {
                         saveGeometry(resources.configuration.orientation, params.width, finalH)
                         saveDragCoordinates(resources.configuration.orientation, params.x, params.y, finalH, params.width)
                         performHaptic(v, isAccent = true)
-                        val wDp = (params.width / resources.displayMetrics.density).roundToInt()
-                        val hDp = (finalH / resources.displayMetrics.density).roundToInt()
-                        DevConsoleManager.log(LogLevel.INFO, TAG, "Floater resized to ${wDp}x${hDp}dp (expanded=$isDrawerExpanded)")
                     }
                     resetAutoDismissTimer()
                     true
@@ -1285,7 +2072,7 @@ class MediaAccessibilityService : AccessibilityService() {
         when {
             params.height > 0 -> params.height
             targetView.height > 0 -> targetView.height
-            else -> dpToPx(if (isDrawerExpanded) 380 else 196)
+            else -> dpToPx(if (isDrawerExpanded) 440 else 236)
         }
 
     private fun updateGeometryBadge(widthPx: Int, heightPx: Int, rootView: View? = overlayView) {
@@ -1295,10 +2082,10 @@ class MediaAccessibilityService : AccessibilityService() {
         val resolvedH = when {
             heightPx > 0 -> heightPx
             (rootView?.height ?: 0) > 0 -> rootView!!.height
-            else -> dpToPx(196)
+            else -> dpToPx(236)
         }
         val hDp = (resolvedH / density).roundToInt()
-        badge.text = "${wDp}×${hDp}dp"
+        badge.text = "BOOSTER · ${wDp}×${hDp}"
     }
 
     private fun openMainAppAndDismiss() {
@@ -1365,27 +2152,70 @@ class MediaAccessibilityService : AccessibilityService() {
         val view = overlayView
         overlayView = null
         overlayParams = null
-        themedContextRef = null
         statusBadgeTextView = null
+        coverDiscImageView = null
         titleTextView = null
         artistTextView = null
+        sourceBadgeTextView = null
+        compactProgressBar = null
+        likeButton = null
+        openAppButton = null
+        fxToggleButton = null
+        closeButton = null
+        shuffleButton = null
         prevButton = null
         playPauseButton = null
         nextButton = null
-        closeButton = null
-        openAppButton = null
-        fxToggleButton = null
+        repeatButton = null
         volumeMuteButton = null
         volumeSeekBar = null
         volumePercentTextView = null
         volumeStepDownButton = null
         volumeStepUpButton = null
         isUserSeekingVolume = false
+        isUserSeekingTrack = false
         studioDrawerLayout = null
-        tabEqTextView = null
-        tab3dTextView = null
+        sidebarScrollView = null
+        btnSidebarCompactToggle = null
+        tvSectionMedia = null
+        tvSectionSound = null
+        tvSectionTools = null
+        navTabPlayer = null
+        navTabQueue = null
+        navTabEq = null
+        navTab3d = null
+        navTabTools = null
+        ivNavPlayer = null
+        ivNavQueue = null
+        ivNavEq = null
+        ivNav3d = null
+        ivNavTools = null
+        tvNavPlayer = null
+        tvNavQueue = null
+        tvNavEq = null
+        tvNav3d = null
+        tvNavTools = null
+        panelPlayerLayout = null
+        panelQueueLayout = null
         panelEqLayout = null
         panel3dLayout = null
+        panelToolsLayout = null
+        tvPlayerTabTitle = null
+        tvPlayerTabArtist = null
+        tvPlayerTabSource = null
+        seekPlayerTrack = null
+        tvPlayerPosTime = null
+        tvPlayerDurTime = null
+        btnPlayerRew10 = null
+        btnPlayerFwd10 = null
+        chipPlayerShuffle = null
+        chipPlayerRepeat = null
+        tvPlayerRouteChip = null
+        tvQueueCount = null
+        btnQueueShuffleUpcoming = null
+        btnQueueDedupe = null
+        containerQueueItems = null
+        lastQueueRenderHash = 0
         eqPresetsContainer = null
         spatialProfilesContainer = null
         toggleEqView = null
@@ -1416,6 +2246,24 @@ class MediaAccessibilityService : AccessibilityService() {
         toggle8d = null
         toggleCrossfeed = null
         toggleCorrGuard = null
+        seekToolsSpeed = null
+        tvToolsSpeedVal = null
+        seekToolsPitch = null
+        tvToolsPitchVal = null
+        btnToolsSpeedReset = null
+        toggleToolsSkipSilence = null
+        tvToolsSleepStatus = null
+        btnSleepOff = null
+        btnSleep10m = null
+        btnSleep15m = null
+        btnSleep30m = null
+        btnSleep60m = null
+        tvToolsAbStatus = null
+        btnAbSetA = null
+        btnAbSetB = null
+        btnAbClear = null
+        btnToolsAutohide = null
+        btnToolsHaptics = null
 
         if (view != null) {
             runCatching {
@@ -1426,7 +2274,7 @@ class MediaAccessibilityService : AccessibilityService() {
                 DevConsoleManager.log(
                     LogLevel.WARNING,
                     TAG,
-                    "Error detaching Studio Floater cleanly: ${err.message}",
+                    "Error detaching Booster Floater cleanly: ${err.message}",
                     err,
                 )
             }
@@ -1459,12 +2307,12 @@ class MediaAccessibilityService : AccessibilityService() {
         params.height = if (expanded) getSavedExpandedHeightPx(orientation) else WindowManager.LayoutParams.WRAP_CONTENT
 
         val metrics = resources.displayMetrics
-        val estHeight = if (params.height > 0) params.height else dpToPx(196)
+        val estHeight = if (params.height > 0) params.height else dpToPx(236)
         val defaultX = ((metrics.widthPixels - params.width) / 2).coerceAtLeast(dpToPx(8))
         val defaultY = if (isLandscape) {
-            dpToPx(24)
+            dpToPx(20)
         } else {
-            (metrics.heightPixels - estHeight - dpToPx(96)).coerceAtLeast(dpToPx(24))
+            (metrics.heightPixels - estHeight - dpToPx(88)).coerceAtLeast(dpToPx(20))
         }
 
         val hasSaved = prefs.getBoolean("${prefix}_saved", false)
@@ -1502,9 +2350,9 @@ class MediaAccessibilityService : AccessibilityService() {
         val isLandscape = orientation == Configuration.ORIENTATION_LANDSCAPE
         val prefix = if (isLandscape) KEY_LANDSCAPE_PREFIX else KEY_PORTRAIT_PREFIX
         val metrics = resources.displayMetrics
-        val maxW = (metrics.widthPixels - dpToPx(12)).coerceAtMost(dpToPx(560))
-        val minW = dpToPx(276)
-        val defW = dpToPx(if (isLandscape) 372 else 336).coerceIn(minW, maxW)
+        val maxW = (metrics.widthPixels - dpToPx(12)).coerceAtMost(dpToPx(600))
+        val minW = dpToPx(292)
+        val defW = dpToPx(if (isLandscape) 396 else 356).coerceIn(minW, maxW)
         val keyW = if (expanded) "${prefix}_w_exp" else "${prefix}_w_comp"
         val fallback = if (expanded) prefs.getInt("${prefix}_w_comp", defW) else defW
         return prefs.getInt(keyW, fallback).coerceIn(minW, maxW)
@@ -1514,9 +2362,9 @@ class MediaAccessibilityService : AccessibilityService() {
         val isLandscape = orientation == Configuration.ORIENTATION_LANDSCAPE
         val prefix = if (isLandscape) KEY_LANDSCAPE_PREFIX else KEY_PORTRAIT_PREFIX
         val metrics = resources.displayMetrics
-        val maxH = (metrics.heightPixels - dpToPx(32)).coerceAtLeast(dpToPx(240))
-        val minH = dpToPx(260)
-        val defH = dpToPx(if (isLandscape) 290 else 430).coerceIn(minH, maxH)
+        val maxH = (metrics.heightPixels - dpToPx(32)).coerceAtLeast(dpToPx(280))
+        val minH = dpToPx(280)
+        val defH = dpToPx(if (isLandscape) 310 else 470).coerceIn(minH, maxH)
         return prefs.getInt("${prefix}_h_exp", defH).coerceIn(minH, maxH)
     }
 
@@ -1538,7 +2386,7 @@ class MediaAccessibilityService : AccessibilityService() {
     private fun ensureMediaControllerConnected() {
         val existing = mediaController
         if (existing != null && existing.isConnected) {
-            syncUiFromController(existing)
+            syncPlaybackSnapshotToUi()
             return
         }
         if (controllerFuture != null) return
@@ -1560,7 +2408,7 @@ class MediaAccessibilityService : AccessibilityService() {
                 mediaController?.removeListener(playerListener)
                 mediaController = controller
                 controller.addListener(playerListener)
-                syncUiFromController(controller)
+                syncPlaybackSnapshotToUi()
             },
             ContextCompat.getMainExecutor(this),
         )
@@ -1576,80 +2424,11 @@ class MediaAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun syncUiFromController(controller: MediaController) {
-        updatePlayPauseIcon(controller.isPlaying)
-        val metadata = controller.mediaMetadata.takeIf { !it.title.isNullOrBlank() }
-            ?: controller.currentMediaItem?.mediaMetadata
-        updateTrackMetadataUi(metadata)
-    }
-
-    private fun updatePlayPauseIcon(isPlaying: Boolean) {
-        val button = playPauseButton ?: return
-        button.setImageResource(
-            if (isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play,
-        )
-        button.contentDescription = if (isPlaying) "Pause" else "Play"
-    }
-
-    private fun updateTrackMetadataUi(metadata: MediaMetadata?) {
-        val titleView = titleTextView ?: return
-        val artistView = artistTextView ?: return
-        val title = metadata?.title?.toString()?.takeIf { it.isNotBlank() }
-            ?: getString(R.string.mini_player_idle_title)
-        val artist = metadata?.artist?.toString()?.takeIf { it.isNotBlank() }
-            ?: metadata?.albumArtist?.toString()?.takeIf { it.isNotBlank() }
-            ?: getString(R.string.mini_player_idle_artist)
-
-        if (titleView.text?.toString() != title) {
-            titleView.text = title
-        }
-        titleView.isSelected = true
-        if (artistView.text?.toString() != artist) {
-            artistView.text = artist
-        }
-    }
-
-    private fun handlePlayPauseClick() {
-        val ctrl = mediaController
-        if (ctrl != null && ctrl.isConnected) {
-            if (ctrl.isPlaying) {
-                ctrl.pause()
-            } else {
-                ctrl.play()
-            }
-        } else {
-            dispatchMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
-            ensureMediaControllerConnected()
-        }
-    }
-
-    private fun handleNextClick() {
-        val ctrl = mediaController
-        if (ctrl != null && ctrl.isConnected) {
-            ctrl.seekToNext()
-        } else {
-            dispatchMediaKey(KeyEvent.KEYCODE_MEDIA_NEXT)
-            ensureMediaControllerConnected()
-        }
-    }
-
-    private fun handlePreviousClick() {
-        val ctrl = mediaController
-        if (ctrl != null && ctrl.isConnected) {
-            ctrl.seekToPrevious()
-        } else {
-            dispatchMediaKey(KeyEvent.KEYCODE_MEDIA_PREVIOUS)
-            ensureMediaControllerConnected()
-        }
-    }
-
-    private fun dispatchMediaKey(keyCode: Int) {
-        val am = runCatching { getSystemService(Context.AUDIO_SERVICE) as? AudioManager }.getOrNull() ?: return
-        val now = SystemClock.uptimeMillis()
-        runCatching {
-            am.dispatchMediaKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0))
-            am.dispatchMediaKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0))
-        }
+    private fun formatDurationMs(ms: Long): String {
+        val totalSec = (ms.coerceAtLeast(0L) / 1000L)
+        val min = totalSec / 60L
+        val sec = totalSec % 60L
+        return String.format(Locale.US, "%d:%02d", min, sec)
     }
 
     private fun dpToPx(dp: Int): Int =
@@ -1659,5 +2438,7 @@ class MediaAccessibilityService : AccessibilityService() {
         private const val TAG = "MediaAccessibility"
         private const val KEY_PORTRAIT_PREFIX = "portrait"
         private const val KEY_LANDSCAPE_PREFIX = "landscape"
+        private const val KEY_ACTIVE_TAB = "active_tab"
+        private const val KEY_SIDEBAR_COMPACT = "sidebar_compact"
     }
 }

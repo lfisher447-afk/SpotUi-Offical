@@ -53,16 +53,24 @@ private data class PatchNoteItem(
 
 private val v25IssuesFixed = listOf(
     PatchNoteItem(
+        title = "Samsung One UI Game Booster Floater & Now Playing Repair (v2.5.4)",
+        detail = "Fixed missing active/paused track info in the accessibility floater and repaired Play/Pause, Next, Previous, Shuffle, Loop, and Queue tap routing across cold-start, buffering, and background playback states.",
+    ),
+    PatchNoteItem(
+        title = "Spotify Login HTTP 400 / Storage Access Denial (v2.5.4)",
+        detail = "Stripped WebView `; wv` / legacy version tokens that caused accounts.spotify.com/login/code/send HTTP 400 errors and requestStorageAccess denials, added XOR TOTP v61 secret decoding, and added Auto-Recover cycling.",
+    ),
+    PatchNoteItem(
+        title = "InnerTube Stream Stalls & Client 403 Loops (v2.5.4)",
+        detail = "Added per-client 90s circuit-breaker cooldowns, HTTP 429/5xx exponential backoff retries, MWEB/ANDROID_MUSIC/2026 client presets, NewPipe fallback activation, and HTML VISITOR_DATA extraction fallback.",
+    ),
+    PatchNoteItem(
         title = "Accessibility Floater Play/Pause & Corner Resize (v2.5.3)",
-        detail = "Fixed Play/Pause taps not toggling when MediaController was buffering or idle-stopped while Next/Prev worked. All floater transport buttons now route straight through PlaybackService & SongPlayer with instant haptic feedback and true corner-edge resize tracking.",
+        detail = "All floater transport buttons now route straight through PlaybackService & SongPlayer with instant haptic feedback and smooth bottom-corner resize dragging.",
     ),
     PatchNoteItem(
         title = "3D Spatial Flatness & Audibility (v2.5.3)",
-        detail = "Overhauled SpatialWideningAudioProcessor with stereo Haas micro-taps, upper-band Mid/Side expansion, tapped Early Reflections into the 3-stage Schroeder tank, stronger HRTF pinna peaks (+4.2 dB @ 3.2 kHz), removed stereo-collapsing default crossfeed, and boosted 8D Binaural Orbit LFO modulation.",
-    ),
-    PatchNoteItem(
-        title = "Spotify WebView Login Anti-Bot / HTTP 400 Rejections (v2.5.3)",
-        detail = "Reworked Login with a clean, vanilla Android WebView (removed UA spoofing and DOM injection scripts that triggered Spotify risk/400 errors), paired with 1-tap Chrome Sign-In, Cookie Paste, and Guest mode.",
+        detail = "Overhauled SpatialWideningAudioProcessor with stereo Haas micro-taps, upper-band Mid/Side expansion, tapped Early Reflections into the 3-stage Schroeder tank, stronger HRTF pinna peaks, and boosted 8D Binaural Orbit modulation.",
     ),
     PatchNoteItem(
         title = "Sequential Downloads & Unpooled HTTP Bottlenecks (v2.5.2)",
@@ -72,16 +80,20 @@ private val v25IssuesFixed = listOf(
         title = "Bluetooth False-Positive SCO Call Mode & Route Probe Log Spam",
         detail = "Fixed dual-profile Bluetooth headsets (A2DP + HFP) flagging 'SCO Call' when media A2DP was active, added real SCO communication-device release, and eliminated duplicate BT probe log entries.",
     ),
-    PatchNoteItem(
-        title = "NovaAc Fast Export Speed & Local Downloaded Playback",
-        detail = "Streams audio single-pass with TeeDigest SHA-256 + 4 MiB buffers for multi-MB/s offline exports and reliable audio session attachment.",
-    ),
 )
 
 private val v25Improvements = listOf(
     PatchNoteItem(
+        title = "One UI Game Booster SpotUI Floater Studio (v2.5.4)",
+        detail = "Redesigned the floating overlay with a One UI Game Booster aesthetic featuring a collapsible docked sidebar rail (MEDIA, SOUND, PRO), 5 tabbed panels (Player, Queue, EQ, 3D, Tools), circular tile controls, shuffle/loop/like pills, 0-100% In-App Volume slider, corner-drag resize, and tactile vibration.",
+    ),
+    PatchNoteItem(
+        title = "Embedded APK-Native yt-dlp + FFmpeg Engine (v2.5.4)",
+        detail = "Integrated on-device youtubedl-android 0.18.1 + FFmpeg directly inside the APK (no PC or external server required) with primary extraction toggle, live binary updater, and automatic fallback when InnerTube clients fail.",
+    ),
+    PatchNoteItem(
         title = "Material 3 Expressive Overhaul & Side-Tab Settings (v2.5.3)",
-        detail = "Redesigned SpotUI with a luminous Material 3 Expressive palette, animated Navigation Rail side-tab switcher in Settings, expressive Mini-Player & Bottom Navigation dock, upgraded Home & Downloads hero cards, and sleeker Floater Studio UI.",
+        detail = "Redesigned SpotUI with a luminous Material 3 Expressive palette, animated Navigation Rail side-tab switcher in Settings, expressive Mini-Player & Bottom Navigation dock, and upgraded Home & Downloads hero cards.",
     ),
     PatchNoteItem(
         title = "Turbo 8x MrBean Download Engine (v2.5.3)",
@@ -89,25 +101,17 @@ private val v25Improvements = listOf(
     ),
     PatchNoteItem(
         title = "Dedicated 2000-Entry Categorized Live Logger (v2.5.3)",
-        detail = "Expanded Dev Console into an 8-channel categorized telemetry stream (Playback, Audio DSP, Network/DL, Auth, Floater UI, Bluetooth, Modules, System) with real-time counters, live download throughput badge, and DSP Probe diagnostics.",
+        detail = "Expanded Dev Console into an 8-channel categorized telemetry stream (Playback, Audio DSP, Network/DL, Auth, Floater UI, Bluetooth, Modules, System) with real-time counters and live throughput badges.",
     ),
     PatchNoteItem(
-        title = "16 Integrated SpotUI Modules + Health Probe (v2.5.3)",
-        detail = "Added MrBean Turbo Engine, Media3 DSP Studio, Floater Accessibility Service, NovaAc Offline Vault, Glance Home Widgets, and Android Auto Browser alongside all 10 lyric/discovery submodules with 1-tap health verification.",
-    ),
-    PatchNoteItem(
-        title = "M3 Expressive Accessibility Floater Studio (v2.5.3)",
-        detail = "Direct In-App Volume slider (0-100%, OS volume untouched), mute/-5%/+5% step pills, expandable 7-band EQ + 3D Spatial + 8D Orbit drawer, smooth corner-drag resizing, and configurable haptics.",
-    ),
-    PatchNoteItem(
-        title = "Tactile UI Sound Engine & Native PackageInstaller Updater",
-        detail = "Low-latency PCM chimes on switches/sliders/tabs plus multi-range verified APK self-updates.",
+        title = "17 Integrated SpotUI Modules + Health Probe (v2.5.4)",
+        detail = "Added Embedded yt-dlp + FFmpeg runtime alongside MrBean Turbo Engine, Media3 DSP Studio, Floater Accessibility Service, NovaAc Vault, Glance Widgets, Android Auto, and all 10 lyric/discovery submodules.",
     ),
 )
 
 /**
  * First-login / post-update "What's New & Patch Notes" UI modal displaying explicit root-cause
- * fixes and feature improvements for SpotUI v2.5.3.
+ * fixes and feature improvements for SpotUI v2.5.4.
  */
 @Composable
 fun PatchNotesDialog(

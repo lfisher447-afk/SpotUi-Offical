@@ -100,7 +100,7 @@ import kotlin.random.Random
 object YouTube {
     private val innerTube = InnerTube()
     private val playback = InnerTubePlayback(innerTube.http, AuthSessionStore)
-    private const val ENABLE_NEWPIPE_STREAM_INFO_EXTRACTOR = false
+    private const val ENABLE_NEWPIPE_STREAM_INFO_EXTRACTOR = true
 
     val authStateFlow: StateFlow<PlaybackAuthState>
         get() = AuthSessionStore.authStateFlow
@@ -3226,16 +3226,28 @@ object YouTube {
 
     suspend fun visitorData(): Result<String> =
         runCatching {
-            Json
-                .parseToJsonElement(innerTube.getSwJsData().bodyAsText().substring(5))
-                .jsonArray[0]
-                .jsonArray[2]
-                .jsonArray
-                .first {
-                    (it as? JsonPrimitive)?.contentOrNull?.let { candidate ->
-                        VISITOR_DATA_REGEX.containsMatchIn(candidate)
-                    } ?: false
-                }.jsonPrimitive.content
+            val fromSwJs = runCatching {
+                val raw = innerTube.getSwJsData().bodyAsText()
+                val jsonPayload = raw.dropWhile { it != '[' && it != '{' }
+                Json
+                    .parseToJsonElement(jsonPayload)
+                    .jsonArray[0]
+                    .jsonArray[2]
+                    .jsonArray
+                    .first {
+                        (it as? JsonPrimitive)?.contentOrNull?.let { candidate ->
+                            VISITOR_DATA_REGEX.containsMatchIn(candidate)
+                        } ?: false
+                    }.jsonPrimitive.content
+            }.getOrNull()
+            if (!fromSwJs.isNullOrBlank()) return@runCatching fromSwJs
+
+            val html = innerTube.getMusicHomeHtml().bodyAsText()
+            Regex(""""VISITOR_DATA"\s*:\s*"(Cg[A-Za-z0-9_-]{8,})"""")
+                .find(html)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?: throw IllegalStateException("Unable to extract VISITOR_DATA from InnerTube")
         }
 
     suspend fun accountInfo(): Result<AccountInfo> =
@@ -3382,7 +3394,7 @@ object YouTube {
 
     const val MAX_GET_QUEUE_SIZE = 1000
 
-    private val VISITOR_DATA_REGEX = Regex("^Cg[t|s]")
+    private val VISITOR_DATA_REGEX = Regex("^Cg[A-Za-z0-9_-]{8,}")
 
     fun getNewPipeStreamUrls(videoId: String): List<Pair<Int, String>> =
         if (ENABLE_NEWPIPE_STREAM_INFO_EXTRACTOR) {

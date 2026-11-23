@@ -354,6 +354,12 @@ object ModuleLibsBridge {
                 SpotuiModuleId.NOVAA_ARCHIVE -> "Single-Pass TeeDigest Vault Ready"
                 SpotuiModuleId.GLANCE_WIDGETS -> "Home Widget Debouncer Synchronized"
                 SpotuiModuleId.ANDROID_AUTO -> "MediaLibraryService Browse Tree Active"
+                SpotuiModuleId.YTDLP -> {
+                    val state = com.music.spotui.engine.YtDlpEngine.state.value.label
+                    val ver = com.music.spotui.engine.YtDlpEngine.binaryVersion.value ?: "bundled"
+                    val mode = if (ModuleLibsConfig.isYtDlpPrimaryEnabled(appContext)) "Primary" else "Fallback"
+                    "yt-dlp $state ($ver) · $mode"
+                }
             }
             ModuleRuntimeStatus(id = mod, enabled = enabled, summary = detail)
         }

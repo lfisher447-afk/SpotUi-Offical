@@ -80,6 +80,11 @@ fun ModuleLibsSettingsSection() {
     val lastFmThreshold = remember(revision) { ModuleLibsConfig.getLastFmScrobbleThresholdPercent(context) }
     val shazamCache = remember(revision) { ModuleLibsConfig.isShazamCacheEnabled(context) }
     val fastlaneChannel = remember(revision) { ModuleLibsConfig.getFastlaneChannel(context) }
+    val ytdlpPrimary = remember(revision) { ModuleLibsConfig.isYtDlpPrimaryEnabled(context) }
+    val ytdlpState by com.music.spotui.engine.YtDlpEngine.state.collectAsState()
+    val ytdlpVer by com.music.spotui.engine.YtDlpEngine.binaryVersion.collectAsState()
+    var ytdlpBusy by remember { mutableStateOf(false) }
+    var ytdlpNote by remember { mutableStateOf("") }
 
     var lastFmApiKey by remember { mutableStateOf(ModuleLibsConfig.getLastFmApiKey(context)) }
     var lastFmSecret by remember { mutableStateOf(ModuleLibsConfig.getLastFmSecret(context)) }
@@ -529,6 +534,62 @@ fun ModuleLibsSettingsSection() {
                     )
                 }
             }
+        }
+
+        HorizontalDivider(color = Color(0xFF282A36))
+
+        // ── Embedded yt-dlp + FFmpeg Runtime ──
+        Text("Embedded yt-dlp Engine (youtubedl-android)", color = AppPalette, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Text(
+            text = "State: ${ytdlpState.label} · Version: ${ytdlpVer ?: "bundled"} · In-APK native extractor (no external app/PC required)",
+            color = Color(0xFF9EA5B5),
+            fontSize = 11.sp,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Text("Prefer yt-dlp Primary Extraction", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text("Try embedded yt-dlp first instead of fallback-only after InnerTube clients", color = Color(0xFF9EA5B5), fontSize = 11.sp)
+            }
+            Switch(
+                checked = ytdlpPrimary,
+                onCheckedChange = {
+                    ModuleLibsConfig.setYtDlpPrimaryEnabled(context, it)
+                    UiSoundEngine.playToggleSound(context, it)
+                },
+                modifier = Modifier.testTag("ytdlp_primary_switch"),
+                colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = AppPalette),
+            )
+        }
+        Button(
+            enabled = !ytdlpBusy,
+            onClick = {
+                UiSoundEngine.playTapChime(context)
+                ytdlpBusy = true
+                scope.launch {
+                    val res = com.music.spotui.engine.YtDlpEngine.updateBinary(context)
+                    ytdlpBusy = false
+                    ytdlpNote = res.fold(
+                        onSuccess = { it },
+                        onFailure = { "yt-dlp update error: ${it.message ?: "failed"}" },
+                    )
+                }
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = AppPalette, contentColor = Color.Black),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .testTag("ytdlp_update_button"),
+        ) {
+            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(if (ytdlpBusy) "Updating yt-dlp Binary…" else "Update Embedded yt-dlp Extractor", fontWeight = FontWeight.Bold)
+        }
+        if (ytdlpNote.isNotBlank()) {
+            Text(ytdlpNote, color = Color(0xFF8BE9FD), fontSize = 11.sp)
         }
     }
 }

@@ -145,6 +145,13 @@ enum class SpotuiModuleId(
         gradlePath = "com.music.spotui.ui.notification",
         category = "Car & Cast",
         summary = "Browsable Android Auto catalog, One UI Now Bar & Media3 notification session",
+    ),
+    YTDLP(
+        id = "ytdlp",
+        displayName = "Embedded yt-dlp + FFmpeg Engine",
+        gradlePath = "io.github.junkfood02.youtubedl-android",
+        category = "Streaming",
+        summary = "On-device APK-native yt-dlp runtime with FFmpeg fallback & live extractor updates",
     );
 
     companion object {
@@ -281,6 +288,7 @@ object ModuleLibsConfig {
     private const val KEY_LASTFM_THRESHOLD = "lastfm_scrobble_threshold"
     private const val KEY_SHAZAM_CACHE_ENABLED = "shazam_cache_enabled"
     private const val KEY_FASTLANE_CHANNEL = "fastlane_release_channel"
+    private const val KEY_YTDLP_PRIMARY = "ytdlp_primary_extractor"
 
     val defaultLyricsOrder = listOf("lrclib", "betterlyrics", "simpmusic", "paxsenix", "kugou")
 
@@ -411,6 +419,14 @@ object ModuleLibsConfig {
 
     fun setFastlaneChannel(context: Context, channel: String) {
         prefs(context).edit().putString(KEY_FASTLANE_CHANNEL, channel).apply()
+        bump()
+    }
+
+    fun isYtDlpPrimaryEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_YTDLP_PRIMARY, false)
+
+    fun setYtDlpPrimaryEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_YTDLP_PRIMARY, enabled).apply()
         bump()
     }
 }

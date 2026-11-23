@@ -4,6 +4,9 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.webkit.CookieManager
+import android.webkit.WebSettings
+import android.webkit.WebStorage
+import android.webkit.WebView
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -39,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.metrolist.spotify.SpotifyAuth
+import com.metrolist.spotify.models.SpotifyInternalToken
 import com.music.spotui.audio.UiSoundEngine
 import com.music.spotui.data.api.SpotifySession
 import com.music.spotui.data.api.SpotifyTokenProvider
@@ -64,14 +68,51 @@ internal enum class LoginTab {
     COOKIE,
 }
 
+internal enum class LoginUaProfile(val label: String) {
+    CLEAN_MOBILE("Chrome Mobile"),
+    DESKTOP_CHROME("Desktop Chrome"),
+    SYSTEM_DEFAULT("System Default"),
+}
+
+private const val DESKTOP_CHROME_UA_STRING =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+
 private val looseCookieJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
 /**
- * Simple cookie extractor accepting:
+ * Resolves a User-Agent string for the login WebView.
+ *
+ * By default ([LoginUaProfile.CLEAN_MOBILE]), strips `; wv` and `Version/x.x` tokens from
+ * Android WebView's default UA so `accounts.spotify.com` does not classify the session as a
+ * restricted embedded WebView (`HTTP 400` on `/login/code/send` or `"Oops! Something went wrong"`).
+ */
+internal fun resolveLoginUserAgent(context: Context, profile: LoginUaProfile): String {
+    val defaultUa = runCatching { WebSettings.getDefaultUserAgent(context) }.getOrNull().orEmpty()
+    return when (profile) {
+        LoginUaProfile.SYSTEM_DEFAULT -> defaultUa
+        LoginUaProfile.DESKTOP_CHROME -> DESKTOP_CHROME_UA_STRING
+        LoginUaProfile.CLEAN_MOBILE -> {
+            if (defaultUa.isBlank()) {
+                "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36"
+            } else {
+                defaultUa
+                    .replace(Regex(";\\s*wv\\b", RegexOption.IGNORE_CASE), "")
+                    .replace(Regex("\\bwv;\\s*", RegexOption.IGNORE_CASE), "")
+                    .replace(Regex("\\bVersion/\\d+(?:\\.\\d+)*\\s*", RegexOption.IGNORE_CASE), "")
+                    .replace(Regex("\\s{2,}"), " ")
+                    .trim()
+            }
+        }
+    }
+}
+
+/**
+ * Accepts:
  * - Raw `sp_dc` string
  * - HTTP Cookie header (`sp_dc=...; sp_key=...`)
+ * - cURL commands (`-H 'cookie: ...'` or `-b '...'`)
  * - Cookie-Editor JSON array or object
- * - Netscape cookies.txt line
+ * - Netscape `cookies.txt` tab-separated lines
  */
 internal fun parseSpotifyCookiesFromText(raw: String): Pair<String, String> {
     val trimmed = raw.trim()
@@ -99,8 +140,8 @@ internal fun parseSpotifyCookiesFromText(raw: String): Pair<String, String> {
         }
     }
 
-    val spDcRegex = Regex("(?:^|[;\\s,])sp_dc\\s*=\\s*\"?([^;\"\\r\\n]+)\"?", RegexOption.IGNORE_CASE)
-    val spKeyRegex = Regex("(?:^|[;\\s,])sp_key\\s*=\\s*\"?([^;\"\\r\\n]+)\"?", RegexOption.IGNORE_CASE)
+    val spDcRegex = Regex("(?:^|[;\\s,'\"])sp_dc\\s*=\\s*\"?([^;\"'\\r\\n\\s]+)\"?", RegexOption.IGNORE_CASE)
+    val spKeyRegex = Regex("(?:^|[;\\s,'\"])sp_key\\s*=\\s*\"?([^;\"'\\r\\n\\s]+)\"?", RegexOption.IGNORE_CASE)
     val dcMatch = spDcRegex.find(trimmed)?.groupValues?.getOrNull(1)?.trim()
     if (!dcMatch.isNullOrBlank()) {
         val keyMatch = spKeyRegex.find(trimmed)?.groupValues?.getOrNull(1)?.trim().orEmpty()
@@ -115,7 +156,7 @@ internal fun parseSpotifyCookiesFromText(raw: String): Pair<String, String> {
         }
     }
 
-    val cleaned = trimmed.removePrefix("sp_dc=").split(";").first().trim().trim('"')
+    val cleaned = trimmed.removePrefix("sp_dc=").split(";").first().trim().trim('"', '\'')
     return cleaned to ""
 }
 
@@ -160,12 +201,18 @@ internal fun sweepSpotifyCookies(currentUrl: String? = null): CookieSweepResult 
     return CookieSweepResult(foundDc, foundKey, seenNames.size)
 }
 
-internal fun resetSpotifyWebCookies(onDone: () -> Unit) {
+internal fun resetSpotifyWebSession(webView: WebView?, onDone: () -> Unit) {
     runCatching {
+        runCatching { WebStorage.getInstance().deleteAllData() }
+        runCatching {
+            webView?.clearCache(true)
+            webView?.clearFormData()
+            webView?.clearHistory()
+        }
         val cm = CookieManager.getInstance()
         cm.removeAllCookies {
             runCatching { cm.flush() }
-            DevConsoleManager.logAuth("Cleared WebView cookies")
+            DevConsoleManager.logAuth("Cleared WebView cookies, storage & cache")
             onDone()
         }
     }.onFailure {
@@ -178,21 +225,27 @@ internal fun processLoginSession(
     spDc: String,
     spKey: String = "",
     source: String = "Session",
+    preCapturedToken: SpotifyInternalToken? = null,
+    autoSyncLibrary: Boolean = true,
     scope: CoroutineScope,
     setProcessing: (Boolean) -> Unit,
     setStatus: (String) -> Unit,
     setError: (Boolean) -> Unit,
     onComplete: (Boolean) -> Unit,
-    onSuccess: () -> Unit,
+    onSuccess: (String?) -> Unit,
 ) {
     setProcessing(true)
     setError(false)
     setStatus("Verifying Spotify session…")
-    DevConsoleManager.logAuth("Verifying session via $source (sp_dc len=${spDc.length})")
+    DevConsoleManager.logAuth("Verifying session via $source (sp_dc len=${spDc.length}, preToken=${preCapturedToken != null})")
 
     scope.launch(Dispatchers.IO) {
         var lastError: Throwable? = null
-        repeat(3) { attempt ->
+        var verified = false
+        var verifiedLabel = "Signed in!"
+
+        repeat(2) { attempt ->
+            if (verified) return@repeat
             val result = SpotifyAuth.fetchAccessToken(spDc, spKey)
             result.onSuccess { token ->
                 SpotifySession.setSpDc(context, spDc, spKey)
@@ -201,22 +254,46 @@ internal fun processLoginSession(
                     token.accessTokenExpirationTimestampMs,
                 )
                 DevConsoleManager.logAuth("Login verified via $source on attempt ${attempt + 1} (anon=${token.isAnonymous})")
-                withContext(Dispatchers.Main) {
-                    UiSoundEngine.playToggleSound(context, true)
-                    setStatus("Signed in!")
-                    setProcessing(false)
-                    setError(false)
-                    onComplete(true)
-                }
-                delay(220)
-                withContext(Dispatchers.Main) { onSuccess() }
-                return@launch
+                verified = true
             }.onFailure { e ->
                 lastError = e
                 Timber.e(e, "Spotify token exchange failed (attempt ${attempt + 1})")
-                DevConsoleManager.logWarning("SpotifyLogin", "Attempt ${attempt + 1}/3 failed: ${e.message}")
-                if (attempt < 2) delay(600)
+                DevConsoleManager.logWarning("SpotifyLogin", "Attempt ${attempt + 1}/2 failed: ${e.message}")
+                if (attempt == 0) delay(500)
             }
+        }
+
+        // Fallback: WebView captured a live non-anonymous open.spotify.com #session token alongside sp_dc.
+        if (!verified && preCapturedToken != null && !preCapturedToken.isAnonymous && preCapturedToken.accessToken.isNotBlank()) {
+            SpotifySession.setSpDc(context, spDc, spKey)
+            SpotifyTokenProvider.seedVerifiedToken(
+                preCapturedToken.accessToken,
+                preCapturedToken.accessTokenExpirationTimestampMs,
+            )
+            DevConsoleManager.logAuth("Accepted verified WebView #session token ($source) as fallback")
+            verified = true
+            verifiedLabel = "Signed in via Web session!"
+        }
+
+        if (verified) {
+            var syncDetail: String? = null
+            if (autoSyncLibrary) {
+                withContext(Dispatchers.Main) {
+                    setStatus("Signed in! Importing Spotify playlists & liked songs natively…")
+                }
+                val syncResult = com.music.spotui.data.api.SpotifySync.syncAllFromSession(context)
+                syncDetail = syncResult.getOrNull()?.detail
+            }
+            withContext(Dispatchers.Main) {
+                UiSoundEngine.playToggleSound(context, true)
+                setStatus(syncDetail ?: verifiedLabel)
+                setProcessing(false)
+                setError(false)
+                onComplete(true)
+            }
+            delay(200)
+            withContext(Dispatchers.Main) { onSuccess(syncDetail) }
+            return@launch
         }
 
         val errMsg = lastError?.message ?: "Unable to verify sp_dc session"
@@ -300,7 +377,19 @@ internal fun LoginDiagnosticsDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    val text = authLogs.joinToString("\n") { "${it.timestamp} [${it.level}] ${it.tag}: ${it.message}" }
+                    val text = buildString {
+                        if (faults.isNotEmpty()) {
+                            appendLine("=== FAULTS ===")
+                            faults.takeLast(8).forEach { f ->
+                                appendLine("[${f.component}] ${f.reason} | ${f.autoFixHint}")
+                            }
+                            appendLine()
+                        }
+                        appendLine("=== AUTH EVENTS ===")
+                        authLogs.forEach { entry ->
+                            appendLine("${entry.timestamp} [${entry.level}] ${entry.tag}: ${entry.message}")
+                        }
+                    }
                     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     cm.setPrimaryClip(ClipData.newPlainText("SpotUIAuthLogs", text))
                     Toast.makeText(context, "Copied auth logs", Toast.LENGTH_SHORT).show()

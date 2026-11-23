@@ -3493,4 +3493,256 @@ object SongPlayer {
             }
         }
     }
+
+    // ── Floating Accessibility Studio Console Bridge ────────────────────────
+
+    data class FloaterPlaybackSnapshot(
+        val songId: Int,
+        val title: String,
+        val artist: String,
+        val album: String,
+        val sourceLabel: String,
+        val qualityLabel: String,
+        val isPlaying: Boolean,
+        val isResolving: Boolean,
+        val isShuffled: Boolean,
+        val repeatMode: RepeatMode,
+        val isLiked: Boolean,
+        val positionMs: Long,
+        val durationMs: Long,
+        val activeQueueIndex: Int,
+        val queue: List<com.music.spotui.data.entity.SongsModel>,
+        val sleepTimerRemainingMs: Long,
+        val abLoopStartMs: Long,
+        val abLoopEndMs: Long,
+        val speed: Float,
+        val pitch: Float,
+        val skipSilence: Boolean,
+    )
+
+    fun isPlaybackActiveNow(): Boolean {
+        if (webPlaybackActive()) return SpotifyWebPlayer.isPlaying
+        if (isResolvingTrack && playWhenResolved) return true
+        val p = player
+        if (p != null && android.os.Looper.myLooper() == p.applicationLooper) {
+            val active = p.isPlaying ||
+                (p.playWhenReady && p.playbackState != Player.STATE_ENDED && p.playbackState != Player.STATE_IDLE)
+            lastKnownIsPlaying = p.isPlaying
+            lastKnownPlayWhenReady = p.playWhenReady
+            lastKnownPlaybackState = p.playbackState
+            if (active) return true
+        }
+        if (lastKnownIsPlaying || (lastKnownPlayWhenReady && lastKnownPlaybackState != Player.STATE_ENDED && lastKnownPlaybackState != Player.STATE_IDLE)) {
+            return true
+        }
+        return boundState?.playingState?.value == true && !isResolvingTrack && lastKnownPlaybackState != Player.STATE_IDLE
+    }
+
+    fun togglePlayOrResume(context: Context) {
+        val appContext = context.applicationContext
+        if (appCtx == null) appCtx = appContext
+        runOnMain {
+            if (webPlaybackActive()) {
+                if (SpotifyWebPlayer.isPlaying) pause() else play()
+                return@runOnMain
+            }
+            val p = player
+            val active = isPlaybackActiveNow()
+            if (active) {
+                pause()
+            } else if (p == null || p.mediaItemCount == 0 || p.playbackState == Player.STATE_IDLE) {
+                if (boundState?.queue?.value?.isNotEmpty() == true && loadedQuery != null) {
+                    play()
+                } else {
+                    com.music.spotui.ui.notification.PlaybackService.triggerBackgroundCommand(
+                        appContext,
+                        com.music.spotui.ui.notification.PlaybackService.ACTION_BACKGROUND_PLAY_PAUSE,
+                    )
+                }
+            } else {
+                play()
+            }
+        }
+    }
+
+    fun triggerNext(context: Context) {
+        val appContext = context.applicationContext
+        if (appCtx == null) appCtx = appContext
+        val state = boundState
+        if (state != null && state.queue.value.isNotEmpty()) {
+            next(appContext)
+        } else {
+            com.music.spotui.ui.notification.PlaybackService.triggerBackgroundCommand(
+                appContext,
+                com.music.spotui.ui.notification.PlaybackService.ACTION_BACKGROUND_NEXT,
+            )
+        }
+    }
+
+    fun triggerPrevious(context: Context) {
+        val appContext = context.applicationContext
+        if (appCtx == null) appCtx = appContext
+        val state = boundState
+        if (state != null && state.queue.value.isNotEmpty()) {
+            if (getCurrentPosition() > 3_500L) {
+                seekTo(0L)
+            } else {
+                previous(appContext)
+            }
+        } else {
+            com.music.spotui.ui.notification.PlaybackService.triggerBackgroundCommand(
+                appContext,
+                com.music.spotui.ui.notification.PlaybackService.ACTION_BACKGROUND_PREV,
+            )
+        }
+    }
+
+    fun isShuffled(): Boolean = boundState?.shuffle?.value == true
+
+    fun toggleShuffle(context: Context): Boolean {
+        val state = boundState ?: return false
+        val next = !state.shuffle.value
+        state.updateShuffleState(next)
+        com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(context.applicationContext)
+        return next
+    }
+
+    fun currentRepeatMode(context: Context): RepeatMode =
+        boundState?.repeat?.value ?: com.music.spotui.data.preferences.loadRepeatMode(context.applicationContext)
+
+    fun cycleRepeatMode(context: Context): RepeatMode {
+        val appContext = context.applicationContext
+        val state = boundState
+        val current = state?.repeat?.value ?: com.music.spotui.data.preferences.loadRepeatMode(appContext)
+        val next = when (current) {
+            RepeatMode.OFF -> RepeatMode.ALL
+            RepeatMode.ALL -> RepeatMode.ONE
+            RepeatMode.ONE -> RepeatMode.OFF
+        }
+        if (state != null) {
+            state.updateRepeatState(next)
+        } else {
+            com.music.spotui.data.preferences.saveRepeatMode(appContext, next)
+        }
+        runOnMain {
+            player?.repeatMode = if (next == RepeatMode.ONE) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        }
+        com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(appContext)
+        return next
+    }
+
+    fun isCurrentTrackLiked(context: Context): Boolean {
+        val appContext = context.applicationContext
+        val id = boundState?.songId?.value ?: com.music.spotui.data.preferences.loadLastPlayback(appContext)?.first?.id ?: 0
+        if (id <= 0) return false
+        return com.music.spotui.data.preferences.isSongLiked(appContext, id.toString())
+    }
+
+    fun toggleCurrentTrackLike(context: Context): Boolean {
+        val appContext = context.applicationContext
+        val id = boundState?.songId?.value ?: com.music.spotui.data.preferences.loadLastPlayback(appContext)?.first?.id ?: 0
+        if (id <= 0) return false
+        val key = id.toString()
+        val wasLiked = com.music.spotui.data.preferences.isSongLiked(appContext, key)
+        if (wasLiked) {
+            com.music.spotui.data.preferences.removeLikedSongId(appContext, key)
+        } else {
+            com.music.spotui.data.preferences.addLikedSongId(appContext, key)
+        }
+        val nowLiked = !wasLiked
+        boundState?.updateLikeState(nowLiked)
+        com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(appContext)
+        return nowLiked
+    }
+
+    fun playQueueItemAt(context: Context, index: Int): Boolean {
+        val appContext = context.applicationContext
+        if (appCtx == null) appCtx = appContext
+        val state = boundState ?: return false
+        val q = state.queue.value
+        val target = q.getOrNull(index) ?: return false
+        state.updateSongState(
+            target.coverUri,
+            target.title,
+            target.singer,
+            true,
+            target.id,
+            index,
+            target.album,
+        )
+        playSong(target.url, appContext, "song/${target.id}")
+        com.music.spotui.ui.notification.PlaybackService.ensureStarted(appContext)
+        return true
+    }
+
+    fun getNowPlayingSnapshot(context: Context): FloaterPlaybackSnapshot {
+        val appContext = context.applicationContext
+        val state = boundState
+        val stateQueue = state?.queue?.value.orEmpty()
+        val queue = if (stateQueue.isNotEmpty()) {
+            stateQueue
+        } else {
+            com.music.spotui.data.preferences.loadLastQueue(appContext)
+        }
+        val persistedLast = if (state == null || state.title.value.isBlank()) {
+            com.music.spotui.data.preferences.loadLastPlayback(appContext)
+        } else {
+            null
+        }
+        val songId = state?.songId?.value?.takeIf { it > 0 } ?: persistedLast?.first?.id ?: 0
+        val activeIdx = queue.indexOfFirst { it.id == songId }.let { idx ->
+            when {
+                idx >= 0 -> idx
+                state != null && queue.isNotEmpty() -> state.songIndex.value.coerceIn(0, queue.lastIndex)
+                else -> -1
+            }
+        }
+        val activeTrack = queue.getOrNull(activeIdx) ?: persistedLast?.first
+        val title = state?.title?.value?.takeIf { it.isNotBlank() }
+            ?: activeTrack?.title?.takeIf { it.isNotBlank() }
+            ?: ""
+        val artist = state?.singer?.value?.takeIf { it.isNotBlank() }
+            ?: activeTrack?.singer?.takeIf { it.isNotBlank() }
+            ?: ""
+        val album = state?.album?.value?.takeIf { it.isNotBlank() }
+            ?: activeTrack?.album?.takeIf { it.isNotBlank() }
+            ?: ""
+
+        val durMs = getDuration().takeIf { it > 0L }
+            ?: (activeTrack?.durationMs ?: 0).toLong().coerceAtLeast(0L)
+        val posMs = getCurrentPosition().takeIf { it >= 0L && (isPrepared() || webPlaybackActive()) }
+            ?: persistedLast?.second?.coerceAtLeast(0L)
+            ?: 0L
+
+        val sleepRem = if (sleepTimerEndAt > 0L) {
+            (sleepTimerEndAt - System.currentTimeMillis()).coerceAtLeast(0L)
+        } else {
+            0L
+        }
+
+        return FloaterPlaybackSnapshot(
+            songId = songId,
+            title = title,
+            artist = artist,
+            album = album,
+            sourceLabel = currentSource,
+            qualityLabel = currentQuality,
+            isPlaying = isPlaybackActiveNow(),
+            isResolving = isResolvingTrack,
+            isShuffled = state?.shuffle?.value == true,
+            repeatMode = state?.repeat?.value ?: com.music.spotui.data.preferences.loadRepeatMode(appContext),
+            isLiked = songId > 0 && com.music.spotui.data.preferences.isSongLiked(appContext, songId.toString()),
+            positionMs = posMs,
+            durationMs = durMs,
+            activeQueueIndex = activeIdx,
+            queue = queue,
+            sleepTimerRemainingMs = sleepRem,
+            abLoopStartMs = abLoopStartMs,
+            abLoopEndMs = abLoopEndMs,
+            speed = com.music.spotui.data.preferences.getPlaybackSpeedPref(appContext),
+            pitch = com.music.spotui.data.preferences.getPlaybackPitchPref(appContext),
+            skipSilence = com.music.spotui.data.preferences.isSkipSilenceEnabled(appContext),
+        )
+    }
 }
+

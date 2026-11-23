@@ -3,22 +3,115 @@ package com.music.spotui.data.api
 import android.content.Context
 import android.util.Log
 import com.metrolist.spotify.Spotify
+import com.music.spotui.util.DevConsoleManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Fire-and-forget mirroring of local library actions to the user's REAL Spotify
- * account (web-player token): liking a song, saving an album or following an
- * artist here shows up in Spotify itself. Failures are logged, never surfaced —
- * the local action already succeeded.
+ * Mirrors local library actions to the user's real Spotify account and performs
+ * full native account library synchronization (`Sync All`) into SpotUI's Home,
+ * Library, Liked Songs, and Followed Artists caches.
  */
 object SpotifySync {
 
     private const val TAG = "SpotifySync"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    data class SpotifySyncSummary(
+        val playlistsCount: Int,
+        val albumsCount: Int,
+        val likedSongsCount: Int,
+        val artistsCount: Int,
+        val detail: String,
+    )
+
+    private val _syncRevision = MutableStateFlow(0)
+    val syncRevision: StateFlow<Int> = _syncRevision.asStateFlow()
+
+    @Volatile
+    var lastSyncDetail: String = ""
+        private set
+
+    fun isSessionReady(context: Context): Boolean =
+        SpotifySession.spDc(context.applicationContext).isNotBlank()
+
+    suspend fun syncAllFromSession(context: Context): Result<SpotifySyncSummary> = runCatching {
+        val app = context.applicationContext
+        val okToken = SpotifyTokenProvider.ensureToken(app)
+        require(okToken) { "Sign in to Spotify first so a valid session token is active." }
+
+        Api.HomeCache.clear()
+        val api = Api(app)
+
+        var playlistsCount = 0
+        var albumsCount = 0
+        var likedCount = 0
+        var artistsCount = 0
+
+        coroutineScope {
+            val libJob = async(Dispatchers.IO) {
+                var finalEntries = emptyList<com.music.spotui.data.entity.LibraryEntry>()
+                api.getLibrary().collect { res ->
+                    if (res is Response.Success) {
+                        finalEntries = res.data.orEmpty()
+                    }
+                }
+                playlistsCount = finalEntries.count {
+                    it.isPlaylist && it.spotifyId != Api.LIKED_SONGS_ID && it.spotifyId != Api.DOWNLOADS_ID
+                }
+                albumsCount = finalEntries.count { !it.isPlaylist }
+            }
+            val likedJob = async(Dispatchers.IO) {
+                api.getLikedSongs().collect { res ->
+                    if (res is Response.Success) {
+                        likedCount = res.data.orEmpty().size
+                    }
+                }
+            }
+            val artistsJob = async(Dispatchers.IO) {
+                artistsCount = runCatching { api.getFollowedArtists().size }.getOrDefault(0)
+            }
+            val homeJob = async(Dispatchers.IO) {
+                runCatching { api.getHomeFeed().collect {} }
+            }
+            val newAlbumsJob = async(Dispatchers.IO) {
+                runCatching { api.getAlbums().collect {} }
+            }
+            val topArtistsJob = async(Dispatchers.IO) {
+                runCatching { api.getArtists().collect {} }
+            }
+            libJob.await()
+            likedJob.await()
+            artistsJob.await()
+            homeJob.await()
+            newAlbumsJob.await()
+            topArtistsJob.await()
+        }
+
+        val summaryText =
+            "Synced $playlistsCount playlists · $albumsCount albums · $likedCount liked · $artistsCount artists"
+        lastSyncDetail = summaryText
+        _syncRevision.value = _syncRevision.value + 1
+        DevConsoleManager.logAuth(summaryText)
+        SpotifySyncSummary(
+            playlistsCount = playlistsCount,
+            albumsCount = albumsCount,
+            likedSongsCount = likedCount,
+            artistsCount = artistsCount,
+            detail = summaryText,
+        )
+    }.onFailure { err ->
+        DevConsoleManager.logWarning("SpotifySync", "Full Spotify sync failed: ${err.message}")
+    }
 
     fun setTrackSaved(context: Context, trackId: String, saved: Boolean) =
         setSaved(context, trackId, "spotify:track:$trackId", saved)

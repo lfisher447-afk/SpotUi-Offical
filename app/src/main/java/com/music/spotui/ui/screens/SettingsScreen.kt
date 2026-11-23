@@ -205,10 +205,10 @@ private enum class SettingsSideTab(
     STYLE("Style", "Expressive Style & UI", "Themes, SongPlay shapes, tactile chimes & AI", "M3E", Icons.Rounded.Palette),
     AUDIO("Audio", "3D Studio & Quality", "7-Band EQ, 3D Spatial Orbit, Lossless & Crossfade", "3D", Icons.Rounded.GraphicEq),
     FLOATER("Floater", "Accessibility Floater", "In-app volume, corner resize, haptics & EQ/3D hook", "A11Y", Icons.Rounded.PictureInPictureAlt),
-    MODULES("Modules", "16 Library Modules", "Toggle & verify Spotify, InnerTube, Lyrics & Shazam", "16", Icons.Rounded.Extension),
+    MODULES("Modules", "17 Library Modules", "Toggle & verify Spotify, InnerTube, yt-dlp, Lyrics & Shazam", "17", Icons.Rounded.Extension),
     TURBO("Turbo", "MrBean & Storage", "8x HTTP/2 slices, connection pool & NovaAc cache", "8x", Icons.Rounded.Bolt),
     NETWORK("Network", "DNS, Auth & Sync", "DoH resolver, PoToken, proxy pool & YTM sync", "DoH", Icons.Rounded.Public),
-    SYSTEM("System", "System, Updates & Account", "Permissions, battery guard, v2.5.3 updater & backup", "OS", Icons.Rounded.Tune),
+    SYSTEM("System", "System, Updates & Account", "Permissions, battery guard, v2.5.4 updater & backup", "OS", Icons.Rounded.Tune),
     LOGS("Logs", "Logger & Telemetry", "2000-entry 8-channel developer diagnostics console", "LOG", Icons.Rounded.Terminal),
     ALL("All", "All SpotUI Settings", "Full scrollable configuration dashboard", "ALL", Icons.Rounded.Apps),
 }
@@ -607,7 +607,7 @@ fun SettingsScreen(navController: NavController) {
                 title = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("SpotUI Studio Settings", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
-                        Text("v2.5.3 · ${activeSideTab.title}", color = AppPalette, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Text("v2.5.4 · ${activeSideTab.title}", color = AppPalette, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     }
                 },
                 navigationIcon = {
@@ -939,9 +939,9 @@ fun SettingsScreen(navController: NavController) {
                     Spacer(Modifier.height(2.dp))
                     Text(
                         text = if (advancedSettingsEnabled) {
-                            "Showing SpotUI v2.5.3 Style, UI Sounds, All 16 Library Modules, 3D DSP, Lossless, Network/DoH & NovaAc"
+                            "Showing SpotUI v2.5.4 Style, UI Sounds, All 17 Library Modules, 3D DSP, Lossless, Network/DoH & NovaAc"
                         } else {
-                            "Tap to unlock SongPlay UI Toggle, Tactile Sounds, 16 Library Modules, 7-Band EQ & 3D Studio"
+                            "Tap to unlock SongPlay UI Toggle, Tactile Sounds, 17 Library Modules, 7-Band EQ & 3D Studio"
                         },
                         color = Color(0xFFB3B3B3),
                         fontSize = 12.sp,
@@ -3522,7 +3522,7 @@ fun SettingsScreen(navController: NavController) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Roadmap & Update Master Plan", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
-                    Text("View complete release history and version changelogs (including v2.5.3)", color = Color(0xFFB3B3B3), fontSize = 12.sp)
+                    Text("View complete release history and version changelogs (including v2.5.4)", color = Color(0xFFB3B3B3), fontSize = 12.sp)
                 }
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.OpenInNew,

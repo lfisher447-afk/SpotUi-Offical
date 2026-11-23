@@ -58,12 +58,24 @@ class LibraryViewModel @Inject constructor(private val repository: AppRepository
         loadAccount()
         loadFollowedArtists()
         viewModelScope.launch {
-            var first = true
+            var firstYt = true
             com.music.spotui.data.youtube.YouTubeMusicSync.syncRevision.collect { rev ->
-                if (first) {
-                    first = false
+                if (firstYt) {
+                    firstYt = false
                 } else if (rev > 0) {
                     load()
+                }
+            }
+        }
+        viewModelScope.launch {
+            var firstSp = true
+            com.music.spotui.data.api.SpotifySync.syncRevision.collect { rev ->
+                if (firstSp) {
+                    firstSp = false
+                } else if (rev > 0) {
+                    load()
+                    loadAccount()
+                    loadFollowedArtists()
                 }
             }
         }

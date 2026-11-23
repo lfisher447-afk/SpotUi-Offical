@@ -32,6 +32,18 @@ class HomeViewModel @Inject constructor(private val repository: AppRepository)  
         fetchHome()
         fetchArtists()
         fetchAlbums()
+        viewModelScope.launch {
+            var first = true
+            com.music.spotui.data.api.SpotifySync.syncRevision.collect { rev ->
+                if (first) {
+                    first = false
+                } else if (rev > 0) {
+                    fetchHome()
+                    fetchArtists()
+                    fetchAlbums()
+                }
+            }
+        }
     }
 
     private fun fetchHome() = viewModelScope.launch(Dispatchers.IO) {

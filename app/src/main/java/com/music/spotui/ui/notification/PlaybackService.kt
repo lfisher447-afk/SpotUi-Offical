@@ -1009,11 +1009,28 @@ class PlaybackService : MediaLibraryService() {
             playerCommand: Int,
         ): Int {
             when (playerCommand) {
+                Player.COMMAND_PLAY -> {
+                    val p = SongPlayer.exoPlayer
+                    if (currentSongState.queue.value.isEmpty() || (p?.mediaItemCount ?: 0) == 0) {
+                        resumeFromPersistence(skipFirst = false)
+                    } else {
+                        SongPlayer.play()
+                    }
+                    syncSessionStateFromApp()
+                    scheduleIdleStopCheck()
+                    return SessionResult.RESULT_INFO_SKIPPED
+                }
+                Player.COMMAND_PAUSE, Player.COMMAND_STOP -> {
+                    SongPlayer.pause()
+                    syncSessionStateFromApp()
+                    scheduleIdleStopCheck()
+                    return SessionResult.RESULT_INFO_SKIPPED
+                }
                 Player.COMMAND_PLAY_PAUSE -> {
                     val p = SongPlayer.exoPlayer
                     val isCurrentlyActive = SongPlayer.isPlaying() ||
                         (p?.playWhenReady == true && p.playbackState != Player.STATE_ENDED) ||
-                        currentSongState.playingState.value
+                        (SongPlayer.isResolvingTrack && currentSongState.playingState.value)
                     if (isCurrentlyActive) {
                         SongPlayer.pause()
                     } else if (currentSongState.queue.value.isEmpty() || (p?.mediaItemCount ?: 0) == 0) {

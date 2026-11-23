@@ -11,35 +11,50 @@
         android:layout_height="match_parent"
         android:background="@drawable/bg_mini_player"
         android:clickable="true"
-        android:elevation="14dp"
+        android:elevation="16dp"
         android:focusable="false"
         android:orientation="vertical"
-        android:paddingStart="12dp"
+        android:paddingStart="11dp"
         android:paddingTop="6dp"
-        android:paddingEnd="12dp"
+        android:paddingEnd="11dp"
         android:paddingBottom="6dp">
 
-        <!-- Top Studio Bar: Live Geometry/Mode Badge, Drag Pill, Quick Actions -->
+        <!-- Samsung One UI Game Booster Top Telemetry Bar -->
         <LinearLayout
             android:id="@+id/layout_top_bar"
             android:layout_width="match_parent"
-            android:layout_height="34dp"
+            android:layout_height="38dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
-            <TextView
-                android:id="@+id/tv_mini_status_badge"
+            <LinearLayout
+                android:id="@+id/layout_gb_brand_pill"
                 android:layout_width="wrap_content"
-                android:layout_height="22dp"
-                android:background="@drawable/bg_mini_badge"
-                android:gravity="center"
-                android:maxLines="1"
+                android:layout_height="26dp"
+                android:background="@drawable/bg_gb_header_pill"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
                 android:paddingStart="8dp"
-                android:paddingEnd="8dp"
-                android:text="STUDIO"
-                android:textColor="#FF1ED760"
-                android:textSize="10.5sp"
-                android:textStyle="bold" />
+                android:paddingEnd="8dp">
+
+                <ImageView
+                    android:layout_width="13dp"
+                    android:layout_height="13dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_mini_disc"
+                    android:tint="#FF1ED760" />
+
+                <TextView
+                    android:id="@+id/tv_mini_status_badge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="5dp"
+                    android:maxLines="1"
+                    android:text="BOOSTER"
+                    android:textColor="#FF1ED760"
+                    android:textSize="9.5sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
 
             <FrameLayout
                 android:id="@+id/layout_drag_pill_area"
@@ -51,28 +66,42 @@
 
                 <View
                     android:id="@+id/view_drag_handle"
-                    android:layout_width="38dp"
+                    android:layout_width="40dp"
                     android:layout_height="4dp"
                     android:layout_gravity="center"
                     android:background="@drawable/bg_mini_player_handle" />
             </FrameLayout>
 
             <ImageButton
+                android:id="@+id/btn_mini_like"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_gb_circle_tile"
+                android:contentDescription="@string/mini_player_cd_like"
+                android:padding="7dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_favorite_border"
+                android:tint="#E6FFFFFF" />
+
+            <ImageButton
                 android:id="@+id/btn_mini_open_app"
-                android:layout_width="36dp"
-                android:layout_height="34dp"
-                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_gb_circle_tile"
                 android:contentDescription="@string/mini_player_cd_open_app"
                 android:padding="7dp"
                 android:scaleType="fitCenter"
                 android:src="@drawable/ic_mini_open_app"
-                android:tint="#CCFFFFFF" />
+                android:tint="#E6FFFFFF" />
 
             <ImageButton
                 android:id="@+id/btn_mini_fx_toggle"
-                android:layout_width="36dp"
-                android:layout_height="34dp"
-                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_gb_circle_tile"
                 android:contentDescription="@string/mini_player_cd_fx_toggle"
                 android:padding="7dp"
                 android:scaleType="fitCenter"
@@ -81,106 +110,27 @@
 
             <ImageButton
                 android:id="@+id/btn_mini_close"
-                android:layout_width="34dp"
-                android:layout_height="34dp"
-                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="@drawable/bg_gb_circle_tile"
                 android:contentDescription="@string/mini_player_cd_close"
                 android:padding="7dp"
                 android:scaleType="fitCenter"
                 android:src="@drawable/ic_close"
-                android:tint="#AAFFFFFF" />
+                android:tint="#CCFFFFFF" />
         </LinearLayout>
 
-        <!-- Track Info + Transport Row -->
+        <!-- One UI Game Booster Prominent Now Playing Track Tile -->
         <LinearLayout
-            android:id="@+id/layout_transport_row"
+            android:id="@+id/layout_track_info"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
+            android:layout_marginTop="4dp"
+            android:background="@drawable/bg_gb_now_playing_card"
             android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <LinearLayout
-                android:id="@+id/layout_track_info"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:paddingEnd="8dp">
-
-                <TextView
-                    android:id="@+id/tv_mini_title"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:ellipsize="marquee"
-                    android:focusable="true"
-                    android:focusableInTouchMode="true"
-                    android:marqueeRepeatLimit="marquee_forever"
-                    android:scrollHorizontally="true"
-                    android:singleLine="true"
-                    android:text="@string/mini_player_idle_title"
-                    android:textColor="#FFFFFFFF"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tv_mini_artist"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:ellipsize="end"
-                    android:maxLines="1"
-                    android:text="@string/mini_player_idle_artist"
-                    android:textColor="#FFB8C0CE"
-                    android:textSize="11.5sp" />
-            </LinearLayout>
-
-            <ImageButton
-                android:id="@+id/btn_mini_prev"
-                android:layout_width="46dp"
-                android:layout_height="48dp"
-                android:background="?android:attr/selectableItemBackgroundBorderless"
-                android:contentDescription="@string/mini_player_cd_prev"
-                android:padding="11dp"
-                android:scaleType="fitCenter"
-                android:src="@drawable/ic_widget_prev"
-                android:tint="#FFFFFFFF" />
-
-            <ImageButton
-                android:id="@+id/btn_mini_play_pause"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_marginStart="4dp"
-                android:layout_marginEnd="4dp"
-                android:background="@drawable/bg_mini_play_circle"
-                android:contentDescription="@string/mini_player_cd_play_pause"
-                android:elevation="6dp"
-                android:padding="12dp"
-                android:scaleType="fitCenter"
-                android:src="@drawable/ic_widget_play"
-                android:tint="#FF06130B" />
-
-            <ImageButton
-                android:id="@+id/btn_mini_next"
-                android:layout_width="46dp"
-                android:layout_height="48dp"
-                android:background="?android:attr/selectableItemBackgroundBorderless"
-                android:contentDescription="@string/mini_player_cd_next"
-                android:padding="11dp"
-                android:scaleType="fitCenter"
-                android:src="@drawable/ic_widget_next"
-                android:tint="#FFFFFFFF" />
-        </LinearLayout>
-
-        <!-- Dedicated In-App Volume Studio Card (Never changes Android OS volume) -->
-        <LinearLayout
-            android:id="@+id/card_in_app_volume"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:background="@drawable/bg_mini_card_inner"
             android:orientation="vertical"
             android:paddingStart="10dp"
-            android:paddingTop="7dp"
+            android:paddingTop="8dp"
             android:paddingEnd="10dp"
             android:paddingBottom="7dp">
 
@@ -190,10 +140,179 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
+                <ImageView
+                    android:id="@+id/iv_mini_cover_disc"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:layout_marginEnd="9dp"
+                    android:background="@drawable/bg_gb_circle_tile"
+                    android:contentDescription="@null"
+                    android:padding="7dp"
+                    android:src="@drawable/ic_mini_disc"
+                    android:tint="#FF1ED760" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:paddingEnd="6dp">
+
+                    <TextView
+                        android:id="@+id/tv_mini_title"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="marquee"
+                        android:focusable="true"
+                        android:focusableInTouchMode="true"
+                        android:marqueeRepeatLimit="marquee_forever"
+                        android:scrollHorizontally="true"
+                        android:singleLine="true"
+                        android:text="@string/mini_player_idle_title"
+                        android:textColor="#FFFFFFFF"
+                        android:textSize="13.5sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tv_mini_artist"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="@string/mini_player_idle_artist"
+                        android:textColor="#FFB8C2D4"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tv_mini_source_badge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="20dp"
+                    android:background="@drawable/bg_mini_chip_inactive"
+                    android:gravity="center"
+                    android:maxLines="1"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:text="READY"
+                    android:textColor="#FF8BE9FD"
+                    android:textSize="9sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <!-- Live Track Progress Micro-Bar -->
+            <ProgressBar
+                android:id="@+id/progress_mini_compact"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="3dp"
+                android:layout_marginTop="6dp"
+                android:max="1000"
+                android:progress="0"
+                android:progressBackgroundTint="#2BFFFFFF"
+                android:progressTint="#FF1ED760" />
+        </LinearLayout>
+
+        <!-- One UI Game Booster 5-Tile Transport Row: Shuffle | Prev | Play/Pause | Next | Loop -->
+        <LinearLayout
+            android:id="@+id/layout_transport_row"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/btn_mini_shuffle"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:background="@drawable/bg_gb_circle_tile"
+                android:contentDescription="@string/mini_player_cd_shuffle"
+                android:padding="9dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_shuffle_off"
+                android:tint="#CCFFFFFF" />
+
+            <Space
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <ImageButton
+                android:id="@+id/btn_mini_prev"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_gb_circle_tile"
+                android:contentDescription="@string/mini_player_cd_prev"
+                android:padding="9dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_widget_prev"
+                android:tint="#FFFFFFFF" />
+
+            <ImageButton
+                android:id="@+id/btn_mini_play_pause"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/bg_mini_play_circle"
+                android:contentDescription="@string/mini_player_cd_play_pause"
+                android:elevation="8dp"
+                android:padding="12dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_widget_play"
+                android:tint="#FF06130B" />
+
+            <ImageButton
+                android:id="@+id/btn_mini_next"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_gb_circle_tile"
+                android:contentDescription="@string/mini_player_cd_next"
+                android:padding="9dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_widget_next"
+                android:tint="#FFFFFFFF" />
+
+            <Space
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <ImageButton
+                android:id="@+id/btn_mini_repeat"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:background="@drawable/bg_gb_circle_tile"
+                android:contentDescription="@string/mini_player_cd_repeat"
+                android:padding="9dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_repeat_off"
+                android:tint="#CCFFFFFF" />
+        </LinearLayout>
+
+        <!-- Dedicated In-App Volume Studio Card (Never modifies Android OS volume) -->
+        <LinearLayout
+            android:id="@+id/card_in_app_volume"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/bg_mini_card_inner"
+            android:orientation="vertical"
+            android:paddingStart="10dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="6dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
                 <ImageButton
                     android:id="@+id/btn_mini_vol_mute"
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
                     android:background="@drawable/bg_mini_mute_pill"
                     android:contentDescription="@string/mini_player_cd_volume"
                     android:padding="5dp"
@@ -207,7 +326,7 @@
                     android:layout_marginStart="8dp"
                     android:text="@string/mini_player_in_app_volume_label"
                     android:textColor="#FFFFFFFF"
-                    android:textSize="11.5sp"
+                    android:textSize="11sp"
                     android:textStyle="bold" />
 
                 <TextView
@@ -219,42 +338,42 @@
                     android:maxLines="1"
                     android:text="@string/mini_player_os_untouched_label"
                     android:textColor="#FF96A1B4"
-                    android:textSize="10sp" />
+                    android:textSize="9.5sp" />
 
                 <TextView
                     android:id="@+id/tv_mini_volume_pct"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:minWidth="38dp"
                     android:gravity="end"
+                    android:minWidth="36dp"
                     android:text="100%"
                     android:textColor="#FF1ED760"
-                    android:textSize="12sp"
+                    android:textSize="11.5sp"
                     android:textStyle="bold" />
             </LinearLayout>
 
             <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="30dp"
-                android:layout_marginTop="4dp"
+                android:layout_height="28dp"
+                android:layout_marginTop="2dp"
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
                 <TextView
                     android:id="@+id/btn_mini_vol_down"
-                    android:layout_width="36dp"
-                    android:layout_height="24dp"
+                    android:layout_width="34dp"
+                    android:layout_height="22dp"
                     android:background="@drawable/bg_mini_mute_pill"
                     android:gravity="center"
                     android:text="@string/mini_player_vol_step_down"
                     android:textColor="#FFFFFFFF"
-                    android:textSize="10.5sp"
+                    android:textSize="10sp"
                     android:textStyle="bold" />
 
                 <SeekBar
                     android:id="@+id/seek_mini_volume"
                     android:layout_width="0dp"
-                    android:layout_height="28dp"
+                    android:layout_height="26dp"
                     android:layout_weight="1"
                     android:max="100"
                     android:paddingStart="8dp"
@@ -264,67 +383,255 @@
 
                 <TextView
                     android:id="@+id/btn_mini_vol_up"
-                    android:layout_width="36dp"
-                    android:layout_height="24dp"
+                    android:layout_width="34dp"
+                    android:layout_height="22dp"
                     android:background="@drawable/bg_mini_mute_pill"
                     android:gravity="center"
                     android:text="@string/mini_player_vol_step_up"
                     android:textColor="#FFFFFFFF"
-                    android:textSize="10.5sp"
+                    android:textSize="10sp"
                     android:textStyle="bold" />
             </LinearLayout>
         </LinearLayout>
 
-        <!-- Expandable Studio FX Drawer: Parametric EQ & 3D Spatial Audio -->
+        <!-- EXPANDED STUDIO CONSOLE: Left Sidebar Rail with Sections + Right Tabbed Content -->
         <LinearLayout
             android:id="@+id/layout_studio_drawer"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="7dp"
             android:layout_weight="1"
-            android:orientation="vertical"
+            android:orientation="horizontal"
             android:visibility="gone">
 
-            <!-- Studio Tab Selector -->
-            <LinearLayout
-                android:id="@+id/layout_studio_tabs"
-                android:layout_width="match_parent"
-                android:layout_height="32dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
+            <!-- Left Navigation Rail with Organized Sections -->
+            <ScrollView
+                android:id="@+id/scroll_floater_sidebar"
+                android:layout_width="70dp"
+                android:layout_height="match_parent"
+                android:layout_marginEnd="7dp"
+                android:background="@drawable/bg_mini_sidebar"
+                android:paddingStart="4dp"
+                android:paddingTop="5dp"
+                android:paddingEnd="4dp"
+                android:paddingBottom="5dp"
+                android:scrollbars="none">
 
-                <TextView
-                    android:id="@+id/tab_floater_eq"
-                    android:layout_width="0dp"
-                    android:layout_height="30dp"
-                    android:layout_marginEnd="4dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_mini_chip_active"
-                    android:gravity="center"
-                    android:text="@string/mini_player_tab_eq"
-                    android:textColor="#FF0B0E11"
-                    android:textSize="11.5sp"
-                    android:textStyle="bold" />
+                <LinearLayout
+                    android:id="@+id/layout_floater_sidebar"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_horizontal"
+                    android:orientation="vertical">
 
-                <TextView
-                    android:id="@+id/tab_floater_3d"
-                    android:layout_width="0dp"
-                    android:layout_height="30dp"
-                    android:layout_marginStart="4dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_mini_chip_inactive"
-                    android:gravity="center"
-                    android:text="@string/mini_player_tab_3d"
-                    android:textColor="#FFFFFFFF"
-                    android:textSize="11.5sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
+                    <!-- Compact Rail Width Toggle -->
+                    <ImageButton
+                        android:id="@+id/btn_sidebar_compact_toggle"
+                        android:layout_width="match_parent"
+                        android:layout_height="26dp"
+                        android:layout_marginBottom="4dp"
+                        android:background="?android:attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/mini_player_cd_sidebar_toggle"
+                        android:padding="5dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_mini_sidebar"
+                        android:tint="#FF9CA6B8" />
 
+                    <!-- SECTION: MEDIA -->
+                    <TextView
+                        android:id="@+id/tv_sidebar_section_media"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:paddingBottom="3dp"
+                        android:text="@string/mini_player_section_media"
+                        android:textColor="#FF6B7487"
+                        android:textSize="8.5sp"
+                        android:textStyle="bold" />
+
+                    <LinearLayout
+                        android:id="@+id/nav_tab_player"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="4dp"
+                        android:background="@drawable/bg_mini_nav_item_active"
+                        android:gravity="center"
+                        android:orientation="vertical"
+                        android:paddingTop="6dp"
+                        android:paddingBottom="6dp">
+
+                        <ImageView
+                            android:id="@+id/iv_nav_player"
+                            android:layout_width="17dp"
+                            android:layout_height="17dp"
+                            android:contentDescription="@string/mini_player_tab_player"
+                            android:src="@drawable/ic_mini_disc"
+                            android:tint="#FF1ED760" />
+
+                        <TextView
+                            android:id="@+id/tv_nav_player"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:maxLines="1"
+                            android:text="@string/mini_player_tab_player"
+                            android:textColor="#FF1ED760"
+                            android:textSize="9.5sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/nav_tab_queue"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="6dp"
+                        android:gravity="center"
+                        android:orientation="vertical"
+                        android:paddingTop="6dp"
+                        android:paddingBottom="6dp">
+
+                        <ImageView
+                            android:id="@+id/iv_nav_queue"
+                            android:layout_width="17dp"
+                            android:layout_height="17dp"
+                            android:contentDescription="@string/mini_player_tab_queue"
+                            android:src="@drawable/ic_mini_queue"
+                            android:tint="#FFB8C0CE" />
+
+                        <TextView
+                            android:id="@+id/tv_nav_queue"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:maxLines="1"
+                            android:text="@string/mini_player_tab_queue"
+                            android:textColor="#FFB8C0CE"
+                            android:textSize="9.5sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <!-- SECTION: SOUND -->
+                    <TextView
+                        android:id="@+id/tv_sidebar_section_sound"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:paddingTop="2dp"
+                        android:paddingBottom="3dp"
+                        android:text="@string/mini_player_section_sound"
+                        android:textColor="#FF6B7487"
+                        android:textSize="8.5sp"
+                        android:textStyle="bold" />
+
+                    <LinearLayout
+                        android:id="@+id/nav_tab_eq"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="4dp"
+                        android:gravity="center"
+                        android:orientation="vertical"
+                        android:paddingTop="6dp"
+                        android:paddingBottom="6dp">
+
+                        <ImageView
+                            android:id="@+id/iv_nav_eq"
+                            android:layout_width="17dp"
+                            android:layout_height="17dp"
+                            android:contentDescription="@string/mini_player_tab_eq"
+                            android:src="@drawable/ic_mini_tune"
+                            android:tint="#FFB8C0CE" />
+
+                        <TextView
+                            android:id="@+id/tv_nav_eq"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:maxLines="1"
+                            android:text="@string/mini_player_tab_eq"
+                            android:textColor="#FFB8C0CE"
+                            android:textSize="9.5sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/nav_tab_3d"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="6dp"
+                        android:gravity="center"
+                        android:orientation="vertical"
+                        android:paddingTop="6dp"
+                        android:paddingBottom="6dp">
+
+                        <ImageView
+                            android:id="@+id/iv_nav_3d"
+                            android:layout_width="17dp"
+                            android:layout_height="17dp"
+                            android:contentDescription="@string/mini_player_tab_3d"
+                            android:src="@drawable/ic_mini_spatial"
+                            android:tint="#FFB8C0CE" />
+
+                        <TextView
+                            android:id="@+id/tv_nav_3d"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:maxLines="1"
+                            android:text="@string/mini_player_tab_3d"
+                            android:textColor="#FFB8C0CE"
+                            android:textSize="9.5sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <!-- SECTION: PRO TOOLS -->
+                    <TextView
+                        android:id="@+id/tv_sidebar_section_tools"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:paddingTop="2dp"
+                        android:paddingBottom="3dp"
+                        android:text="@string/mini_player_section_tools"
+                        android:textColor="#FF6B7487"
+                        android:textSize="8.5sp"
+                        android:textStyle="bold" />
+
+                    <LinearLayout
+                        android:id="@+id/nav_tab_tools"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:orientation="vertical"
+                        android:paddingTop="6dp"
+                        android:paddingBottom="6dp">
+
+                        <ImageView
+                            android:id="@+id/iv_nav_tools"
+                            android:layout_width="17dp"
+                            android:layout_height="17dp"
+                            android:contentDescription="@string/mini_player_tab_tools"
+                            android:src="@drawable/ic_mini_tools"
+                            android:tint="#FFB8C0CE" />
+
+                        <TextView
+                            android:id="@+id/tv_nav_tools"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:maxLines="1"
+                            android:text="@string/mini_player_tab_tools"
+                            android:textColor="#FFB8C0CE"
+                            android:textSize="9.5sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+                </LinearLayout>
+            </ScrollView>
+
+            <!-- Right Tab Content Area -->
             <ScrollView
                 android:id="@+id/scroll_studio_drawer"
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_marginTop="6dp"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
                 android:layout_weight="1"
                 android:fadeScrollbars="false"
                 android:overScrollMode="ifContentScrolls">
@@ -335,12 +642,238 @@
                     android:orientation="vertical"
                     android:paddingBottom="4dp">
 
-                    <!-- EQ STUDIO PANEL -->
+                    <!-- TAB 1: PLAYER (Interactive SeekBar, Timestamps, +/-10s, Modes, Output Route) -->
+                    <LinearLayout
+                        android:id="@+id/panel_floater_player"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="@drawable/bg_mini_card_inner"
+                            android:orientation="vertical"
+                            android:padding="10dp">
+
+                            <TextView
+                                android:id="@+id/tv_player_tab_title"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:text="Spotui"
+                                android:textColor="#FFFFFFFF"
+                                android:textSize="12.5sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tv_player_tab_artist"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:text="Tap Play to resume"
+                                android:textColor="#FFB8C0CE"
+                                android:textSize="10.5sp" />
+
+                            <TextView
+                                android:id="@+id/tv_player_tab_source"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:text="Source: Ready"
+                                android:textColor="#FF1ED760"
+                                android:textSize="10sp"
+                                android:textStyle="bold" />
+
+                            <!-- SeekBar + Elapsed / Duration -->
+                            <SeekBar
+                                android:id="@+id/seek_floater_track"
+                                android:layout_width="match_parent"
+                                android:layout_height="28dp"
+                                android:layout_marginTop="6dp"
+                                android:max="1000"
+                                android:progressTint="#FF1ED760"
+                                android:thumbTint="#FFFFFFFF" />
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:orientation="horizontal">
+
+                                <TextView
+                                    android:id="@+id/tv_player_pos_time"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="0:00"
+                                    android:textColor="#FFB8C0CE"
+                                    android:textSize="10sp" />
+
+                                <TextView
+                                    android:id="@+id/tv_player_dur_time"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="0:00"
+                                    android:textColor="#FFB8C0CE"
+                                    android:textSize="10sp" />
+                            </LinearLayout>
+
+                            <!-- Quick -10s / +10s Seek Nudge Row -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="6dp"
+                                android:orientation="horizontal">
+
+                                <TextView
+                                    android:id="@+id/btn_player_rew10"
+                                    android:layout_width="0dp"
+                                    android:layout_height="28dp"
+                                    android:layout_marginEnd="4dp"
+                                    android:layout_weight="1"
+                                    android:background="@drawable/bg_mini_mute_pill"
+                                    android:gravity="center"
+                                    android:text="-10s"
+                                    android:textColor="#FFFFFFFF"
+                                    android:textSize="10.5sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/btn_player_fwd10"
+                                    android:layout_width="0dp"
+                                    android:layout_height="28dp"
+                                    android:layout_marginStart="4dp"
+                                    android:layout_weight="1"
+                                    android:background="@drawable/bg_mini_mute_pill"
+                                    android:gravity="center"
+                                    android:text="+10s"
+                                    android:textColor="#FFFFFFFF"
+                                    android:textSize="10.5sp"
+                                    android:textStyle="bold" />
+                            </LinearLayout>
+                        </LinearLayout>
+
+                        <!-- Quick Status Chips: Shuffle, Repeat, Favorite -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:orientation="horizontal">
+
+                            <TextView
+                                android:id="@+id/chip_player_shuffle"
+                                android:layout_width="0dp"
+                                android:layout_height="28dp"
+                                android:layout_marginEnd="4dp"
+                                android:layout_weight="1"
+                                android:background="@drawable/bg_mini_chip_inactive"
+                                android:gravity="center"
+                                android:text="Shuffle OFF"
+                                android:textColor="#FFFFFFFF"
+                                android:textSize="10sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/chip_player_repeat"
+                                android:layout_width="0dp"
+                                android:layout_height="28dp"
+                                android:layout_marginStart="4dp"
+                                android:layout_weight="1"
+                                android:background="@drawable/bg_mini_chip_inactive"
+                                android:gravity="center"
+                                android:text="Loop OFF"
+                                android:textColor="#FFFFFFFF"
+                                android:textSize="10sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/tv_player_route_chip"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:background="@drawable/bg_mini_card_inner"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:paddingStart="10dp"
+                            android:paddingTop="7dp"
+                            android:paddingEnd="10dp"
+                            android:paddingBottom="7dp"
+                            android:text="Output: Device Speaker"
+                            android:textColor="#FFB8C0CE"
+                            android:textSize="10sp" />
+                    </LinearLayout>
+
+                    <!-- TAB 2: QUEUE (Interactive Queue List + Shuffle Upcoming + Dedupe) -->
+                    <LinearLayout
+                        android:id="@+id/panel_floater_queue"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal"
+                            android:paddingBottom="6dp">
+
+                            <TextView
+                                android:id="@+id/tv_queue_count"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="Up Next (0)"
+                                android:textColor="#FFFFFFFF"
+                                android:textSize="11.5sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/btn_queue_shuffle_upcoming"
+                                android:layout_width="wrap_content"
+                                android:layout_height="24dp"
+                                android:layout_marginEnd="4dp"
+                                android:background="@drawable/bg_mini_mute_pill"
+                                android:gravity="center"
+                                android:paddingStart="8dp"
+                                android:paddingEnd="8dp"
+                                android:text="Shuffle Next"
+                                android:textColor="#FF1ED760"
+                                android:textSize="9.5sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/btn_queue_dedupe"
+                                android:layout_width="wrap_content"
+                                android:layout_height="24dp"
+                                android:background="@drawable/bg_mini_mute_pill"
+                                android:gravity="center"
+                                android:paddingStart="8dp"
+                                android:paddingEnd="8dp"
+                                android:text="Dedupe"
+                                android:textColor="#FFFFFFFF"
+                                android:textSize="9.5sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:id="@+id/container_queue_items"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical" />
+                    </LinearLayout>
+
+                    <!-- TAB 3: EQ STUDIO PANEL -->
                     <LinearLayout
                         android:id="@+id/panel_floater_eq"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="vertical">
+                        android:orientation="vertical"
+                        android:visibility="gone">
 
                         <LinearLayout
                             android:layout_width="match_parent"
@@ -369,7 +902,7 @@
                                 android:paddingEnd="10dp"
                                 android:text="EQ ON"
                                 android:textColor="#FF0B0E11"
-                                android:textSize="10.5sp"
+                                android:textSize="10sp"
                                 android:textStyle="bold" />
                         </LinearLayout>
 
@@ -404,16 +937,16 @@
                                 android:orientation="horizontal">
 
                                 <TextView
-                                    android:layout_width="76dp"
+                                    android:layout_width="68dp"
                                     android:layout_height="wrap_content"
                                     android:text="Bass Boost"
                                     android:textColor="#FFD5DCE6"
-                                    android:textSize="10.5sp" />
+                                    android:textSize="10sp" />
 
                                 <SeekBar
                                     android:id="@+id/seek_floater_bass_boost"
                                     android:layout_width="0dp"
-                                    android:layout_height="26dp"
+                                    android:layout_height="24dp"
                                     android:layout_weight="1"
                                     android:max="1000"
                                     android:progressTint="#FF1DB954"
@@ -421,12 +954,12 @@
 
                                 <TextView
                                     android:id="@+id/tv_floater_bass_boost_val"
-                                    android:layout_width="42dp"
+                                    android:layout_width="40dp"
                                     android:layout_height="wrap_content"
                                     android:gravity="end"
                                     android:text="0%"
                                     android:textColor="#FF1DB954"
-                                    android:textSize="10.5sp"
+                                    android:textSize="10sp"
                                     android:textStyle="bold" />
                             </LinearLayout>
 
@@ -439,16 +972,16 @@
                                 android:orientation="horizontal">
 
                                 <TextView
-                                    android:layout_width="76dp"
+                                    android:layout_width="68dp"
                                     android:layout_height="wrap_content"
                                     android:text="Bass 64Hz"
                                     android:textColor="#FFD5DCE6"
-                                    android:textSize="10.5sp" />
+                                    android:textSize="10sp" />
 
                                 <SeekBar
                                     android:id="@+id/seek_floater_eq_bass"
                                     android:layout_width="0dp"
-                                    android:layout_height="26dp"
+                                    android:layout_height="24dp"
                                     android:layout_weight="1"
                                     android:max="100"
                                     android:progressTint="#FF1DB954"
@@ -456,12 +989,12 @@
 
                                 <TextView
                                     android:id="@+id/tv_floater_eq_bass_val"
-                                    android:layout_width="42dp"
+                                    android:layout_width="40dp"
                                     android:layout_height="wrap_content"
                                     android:gravity="end"
                                     android:text="0 dB"
                                     android:textColor="#FFB8C0CE"
-                                    android:textSize="10.5sp"
+                                    android:textSize="10sp"
                                     android:textStyle="bold" />
                             </LinearLayout>
 
@@ -474,16 +1007,16 @@
                                 android:orientation="horizontal">
 
                                 <TextView
-                                    android:layout_width="76dp"
+                                    android:layout_width="68dp"
                                     android:layout_height="wrap_content"
                                     android:text="Vocal 1kHz"
                                     android:textColor="#FFD5DCE6"
-                                    android:textSize="10.5sp" />
+                                    android:textSize="10sp" />
 
                                 <SeekBar
                                     android:id="@+id/seek_floater_eq_vocal"
                                     android:layout_width="0dp"
-                                    android:layout_height="26dp"
+                                    android:layout_height="24dp"
                                     android:layout_weight="1"
                                     android:max="100"
                                     android:progressTint="#FF1DB954"
@@ -491,12 +1024,12 @@
 
                                 <TextView
                                     android:id="@+id/tv_floater_eq_vocal_val"
-                                    android:layout_width="42dp"
+                                    android:layout_width="40dp"
                                     android:layout_height="wrap_content"
                                     android:gravity="end"
                                     android:text="0 dB"
                                     android:textColor="#FFB8C0CE"
-                                    android:textSize="10.5sp"
+                                    android:textSize="10sp"
                                     android:textStyle="bold" />
                             </LinearLayout>
 
@@ -509,16 +1042,16 @@
                                 android:orientation="horizontal">
 
                                 <TextView
-                                    android:layout_width="76dp"
+                                    android:layout_width="68dp"
                                     android:layout_height="wrap_content"
                                     android:text="Treble 10kHz"
                                     android:textColor="#FFD5DCE6"
-                                    android:textSize="10.5sp" />
+                                    android:textSize="10sp" />
 
                                 <SeekBar
                                     android:id="@+id/seek_floater_eq_treble"
                                     android:layout_width="0dp"
-                                    android:layout_height="26dp"
+                                    android:layout_height="24dp"
                                     android:layout_weight="1"
                                     android:max="100"
                                     android:progressTint="#FF1DB954"
@@ -526,16 +1059,16 @@
 
                                 <TextView
                                     android:id="@+id/tv_floater_eq_treble_val"
-                                    android:layout_width="42dp"
+                                    android:layout_width="40dp"
                                     android:layout_height="wrap_content"
                                     android:gravity="end"
                                     android:text="0 dB"
                                     android:textColor="#FFB8C0CE"
-                                    android:textSize="10.5sp"
+                                    android:textSize="10sp"
                                     android:textStyle="bold" />
                             </LinearLayout>
 
-                            <!-- Preamp (-12..+6 dB mapped to 0..180 steps of 0.1dB) -->
+                            <!-- Preamp -->
                             <LinearLayout
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
@@ -544,16 +1077,16 @@
                                 android:orientation="horizontal">
 
                                 <TextView
-                                    android:layout_width="76dp"
+                                    android:layout_width="68dp"
                                     android:layout_height="wrap_content"
-                                    android:text="Preamp Gain"
+                                    android:text="Preamp"
                                     android:textColor="#FFD5DCE6"
-                                    android:textSize="10.5sp" />
+                                    android:textSize="10sp" />
 
                                 <SeekBar
                                     android:id="@+id/seek_floater_eq_preamp"
                                     android:layout_width="0dp"
-                                    android:layout_height="26dp"
+                                    android:layout_height="24dp"
                                     android:layout_weight="1"
                                     android:max="180"
                                     android:progressTint="#FF1DB954"
@@ -561,17 +1094,16 @@
 
                                 <TextView
                                     android:id="@+id/tv_floater_eq_preamp_val"
-                                    android:layout_width="42dp"
+                                    android:layout_width="40dp"
                                     android:layout_height="wrap_content"
                                     android:gravity="end"
                                     android:text="0.0 dB"
                                     android:textColor="#FFB8C0CE"
-                                    android:textSize="10.5sp"
+                                    android:textSize="10sp"
                                     android:textStyle="bold" />
                             </LinearLayout>
                         </LinearLayout>
 
-                        <!-- Bottom Quick EQ Safeguard & Reset Row -->
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
@@ -589,7 +1121,7 @@
                                 android:gravity="center"
                                 android:text="Normalizer"
                                 android:textColor="#FFFFFFFF"
-                                android:textSize="10sp"
+                                android:textSize="9.5sp"
                                 android:textStyle="bold" />
 
                             <TextView
@@ -602,7 +1134,7 @@
                                 android:gravity="center"
                                 android:text="Limiter"
                                 android:textColor="#FFFFFFFF"
-                                android:textSize="10sp"
+                                android:textSize="9.5sp"
                                 android:textStyle="bold" />
 
                             <TextView
@@ -614,12 +1146,12 @@
                                 android:gravity="center"
                                 android:text="@string/mini_player_eq_reset_flat"
                                 android:textColor="#FFFFB74D"
-                                android:textSize="10sp"
+                                android:textSize="9.5sp"
                                 android:textStyle="bold" />
                         </LinearLayout>
                     </LinearLayout>
 
-                    <!-- 3D AUDIO STUDIO PANEL -->
+                    <!-- TAB 4: 3D AUDIO STUDIO PANEL -->
                     <LinearLayout
                         android:id="@+id/panel_floater_3d"
                         android:layout_width="match_parent"
@@ -633,14 +1165,6 @@
                             android:gravity="center_vertical"
                             android:orientation="horizontal"
                             android:paddingBottom="4dp">
-
-                            <ImageView
-                                android:layout_width="16dp"
-                                android:layout_height="16dp"
-                                android:layout_marginEnd="6dp"
-                                android:contentDescription="@null"
-                                android:src="@drawable/ic_mini_spatial"
-                                android:tint="#FF1DB954" />
 
                             <TextView
                                 android:layout_width="0dp"
@@ -662,7 +1186,7 @@
                                 android:paddingEnd="10dp"
                                 android:text="3D OFF"
                                 android:textColor="#FFFFFFFF"
-                                android:textSize="10.5sp"
+                                android:textSize="10sp"
                                 android:textStyle="bold" />
                         </LinearLayout>
 
@@ -700,7 +1224,6 @@
                             android:paddingEnd="10dp"
                             android:paddingBottom="8dp">
 
-                            <!-- Spatial Width / Depth -->
                             <LinearLayout
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
@@ -708,16 +1231,16 @@
                                 android:orientation="horizontal">
 
                                 <TextView
-                                    android:layout_width="76dp"
+                                    android:layout_width="68dp"
                                     android:layout_height="wrap_content"
                                     android:text="3D Depth"
                                     android:textColor="#FFD5DCE6"
-                                    android:textSize="10.5sp" />
+                                    android:textSize="10sp" />
 
                                 <SeekBar
                                     android:id="@+id/seek_floater_spatial_strength"
                                     android:layout_width="0dp"
-                                    android:layout_height="26dp"
+                                    android:layout_height="24dp"
                                     android:layout_weight="1"
                                     android:max="1000"
                                     android:progressTint="#FF1DB954"
@@ -725,16 +1248,15 @@
 
                                 <TextView
                                     android:id="@+id/tv_floater_spatial_strength_val"
-                                    android:layout_width="42dp"
+                                    android:layout_width="40dp"
                                     android:layout_height="wrap_content"
                                     android:gravity="end"
                                     android:text="90%"
                                     android:textColor="#FF1DB954"
-                                    android:textSize="10.5sp"
+                                    android:textSize="10sp"
                                     android:textStyle="bold" />
                             </LinearLayout>
 
-                            <!-- Room Reflections Delay (2..28ms mapped to 0..26) -->
                             <LinearLayout
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
@@ -743,16 +1265,16 @@
                                 android:orientation="horizontal">
 
                                 <TextView
-                                    android:layout_width="76dp"
+                                    android:layout_width="68dp"
                                     android:layout_height="wrap_content"
                                     android:text="Room Size"
                                     android:textColor="#FFD5DCE6"
-                                    android:textSize="10.5sp" />
+                                    android:textSize="10sp" />
 
                                 <SeekBar
                                     android:id="@+id/seek_floater_room_delay"
                                     android:layout_width="0dp"
-                                    android:layout_height="26dp"
+                                    android:layout_height="24dp"
                                     android:layout_weight="1"
                                     android:max="26"
                                     android:progressTint="#FF1DB954"
@@ -760,16 +1282,15 @@
 
                                 <TextView
                                     android:id="@+id/tv_floater_room_delay_val"
-                                    android:layout_width="42dp"
+                                    android:layout_width="40dp"
                                     android:layout_height="wrap_content"
                                     android:gravity="end"
                                     android:text="12 ms"
                                     android:textColor="#FFB8C0CE"
-                                    android:textSize="10.5sp"
+                                    android:textSize="10sp"
                                     android:textStyle="bold" />
                             </LinearLayout>
 
-                            <!-- Elevation Pinna Cue (0..100%) -->
                             <LinearLayout
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
@@ -778,16 +1299,16 @@
                                 android:orientation="horizontal">
 
                                 <TextView
-                                    android:layout_width="76dp"
+                                    android:layout_width="68dp"
                                     android:layout_height="wrap_content"
                                     android:text="Elevation"
                                     android:textColor="#FFD5DCE6"
-                                    android:textSize="10.5sp" />
+                                    android:textSize="10sp" />
 
                                 <SeekBar
                                     android:id="@+id/seek_floater_elevation"
                                     android:layout_width="0dp"
-                                    android:layout_height="26dp"
+                                    android:layout_height="24dp"
                                     android:layout_weight="1"
                                     android:max="100"
                                     android:progressTint="#FF1DB954"
@@ -795,16 +1316,15 @@
 
                                 <TextView
                                     android:id="@+id/tv_floater_elevation_val"
-                                    android:layout_width="42dp"
+                                    android:layout_width="40dp"
                                     android:layout_height="wrap_content"
                                     android:gravity="end"
                                     android:text="70%"
                                     android:textColor="#FFB8C0CE"
-                                    android:textSize="10.5sp"
+                                    android:textSize="10sp"
                                     android:textStyle="bold" />
                             </LinearLayout>
 
-                            <!-- 8D Orbit Speed (0.10..1.50 Hz mapped to 0..140) -->
                             <LinearLayout
                                 android:id="@+id/row_floater_8d_speed"
                                 android:layout_width="match_parent"
@@ -814,16 +1334,16 @@
                                 android:orientation="horizontal">
 
                                 <TextView
-                                    android:layout_width="76dp"
+                                    android:layout_width="68dp"
                                     android:layout_height="wrap_content"
                                     android:text="8D Speed"
                                     android:textColor="#FFD5DCE6"
-                                    android:textSize="10.5sp" />
+                                    android:textSize="10sp" />
 
                                 <SeekBar
                                     android:id="@+id/seek_floater_8d_speed"
                                     android:layout_width="0dp"
-                                    android:layout_height="26dp"
+                                    android:layout_height="24dp"
                                     android:layout_weight="1"
                                     android:max="140"
                                     android:progressTint="#FF1DB954"
@@ -831,17 +1351,16 @@
 
                                 <TextView
                                     android:id="@+id/tv_floater_8d_speed_val"
-                                    android:layout_width="42dp"
+                                    android:layout_width="40dp"
                                     android:layout_height="wrap_content"
                                     android:gravity="end"
                                     android:text="0.32Hz"
                                     android:textColor="#FFB8C0CE"
-                                    android:textSize="10.5sp"
+                                    android:textSize="10sp"
                                     android:textStyle="bold" />
                             </LinearLayout>
                         </LinearLayout>
 
-                        <!-- 3D Mode Toggles Row -->
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
@@ -859,7 +1378,7 @@
                                 android:gravity="center"
                                 android:text="8D Orbit"
                                 android:textColor="#FFFFFFFF"
-                                android:textSize="10sp"
+                                android:textSize="9.5sp"
                                 android:textStyle="bold" />
 
                             <TextView
@@ -872,7 +1391,7 @@
                                 android:gravity="center"
                                 android:text="Crossfeed"
                                 android:textColor="#FFFFFFFF"
-                                android:textSize="10sp"
+                                android:textSize="9.5sp"
                                 android:textStyle="bold" />
 
                             <TextView
@@ -884,7 +1403,322 @@
                                 android:gravity="center"
                                 android:text="Phase Safe"
                                 android:textColor="#FFFFFFFF"
+                                android:textSize="9.5sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- TAB 5: PRO TOOLS (Speed, Pitch, Skip Silence, Sleep Timer, A-B Loop, Floater AutoHide & Haptics) -->
+                    <LinearLayout
+                        android:id="@+id/panel_floater_tools"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+
+                        <!-- Speed & Pitch Card -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="@drawable/bg_mini_card_inner"
+                            android:orientation="vertical"
+                            android:padding="10dp">
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal">
+
+                                <TextView
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="Playback Speed &amp; Pitch"
+                                    android:textColor="#FFFFFFFF"
+                                    android:textSize="11sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/btn_tools_speed_reset"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="22dp"
+                                    android:background="@drawable/bg_mini_mute_pill"
+                                    android:gravity="center"
+                                    android:paddingStart="8dp"
+                                    android:paddingEnd="8dp"
+                                    android:text="1.0x Reset"
+                                    android:textColor="#FFFFB74D"
+                                    android:textSize="9.5sp"
+                                    android:textStyle="bold" />
+                            </LinearLayout>
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal">
+
+                                <TextView
+                                    android:layout_width="54dp"
+                                    android:layout_height="wrap_content"
+                                    android:text="Speed"
+                                    android:textColor="#FFD5DCE6"
+                                    android:textSize="10sp" />
+
+                                <SeekBar
+                                    android:id="@+id/seek_tools_speed"
+                                    android:layout_width="0dp"
+                                    android:layout_height="24dp"
+                                    android:layout_weight="1"
+                                    android:max="15"
+                                    android:progressTint="#FF1DB954"
+                                    android:thumbTint="#FFFFFFFF" />
+
+                                <TextView
+                                    android:id="@+id/tv_tools_speed_val"
+                                    android:layout_width="38dp"
+                                    android:layout_height="wrap_content"
+                                    android:gravity="end"
+                                    android:text="1.0x"
+                                    android:textColor="#FF1ED760"
+                                    android:textSize="10sp"
+                                    android:textStyle="bold" />
+                            </LinearLayout>
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal">
+
+                                <TextView
+                                    android:layout_width="54dp"
+                                    android:layout_height="wrap_content"
+                                    android:text="Pitch"
+                                    android:textColor="#FFD5DCE6"
+                                    android:textSize="10sp" />
+
+                                <SeekBar
+                                    android:id="@+id/seek_tools_pitch"
+                                    android:layout_width="0dp"
+                                    android:layout_height="24dp"
+                                    android:layout_weight="1"
+                                    android:max="10"
+                                    android:progressTint="#FF1DB954"
+                                    android:thumbTint="#FFFFFFFF" />
+
+                                <TextView
+                                    android:id="@+id/tv_tools_pitch_val"
+                                    android:layout_width="38dp"
+                                    android:layout_height="wrap_content"
+                                    android:gravity="end"
+                                    android:text="1.00x"
+                                    android:textColor="#FFB8C0CE"
+                                    android:textSize="10sp"
+                                    android:textStyle="bold" />
+                            </LinearLayout>
+
+                            <TextView
+                                android:id="@+id/toggle_tools_skip_silence"
+                                android:layout_width="match_parent"
+                                android:layout_height="26dp"
+                                android:layout_marginTop="4dp"
+                                android:background="@drawable/bg_mini_chip_inactive"
+                                android:gravity="center"
+                                android:text="Skip Silence: OFF"
+                                android:textColor="#FFFFFFFF"
                                 android:textSize="10sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <!-- Sleep Timer Card -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:background="@drawable/bg_mini_card_inner"
+                            android:orientation="vertical"
+                            android:padding="10dp">
+
+                            <TextView
+                                android:id="@+id/tv_tools_sleep_status"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="Sleep Timer: Off"
+                                android:textColor="#FFFFFFFF"
+                                android:textSize="11sp"
+                                android:textStyle="bold" />
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="6dp"
+                                android:orientation="horizontal">
+
+                                <TextView
+                                    android:id="@+id/btn_sleep_off"
+                                    android:layout_width="0dp"
+                                    android:layout_height="25dp"
+                                    android:layout_marginEnd="3dp"
+                                    android:layout_weight="1"
+                                    android:background="@drawable/bg_mini_chip_inactive"
+                                    android:gravity="center"
+                                    android:text="Off"
+                                    android:textColor="#FFFFFFFF"
+                                    android:textSize="9.5sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/btn_sleep_10m"
+                                    android:layout_width="0dp"
+                                    android:layout_height="25dp"
+                                    android:layout_marginEnd="3dp"
+                                    android:layout_weight="1"
+                                    android:background="@drawable/bg_mini_chip_inactive"
+                                    android:gravity="center"
+                                    android:text="10m"
+                                    android:textColor="#FFFFFFFF"
+                                    android:textSize="9.5sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/btn_sleep_15m"
+                                    android:layout_width="0dp"
+                                    android:layout_height="25dp"
+                                    android:layout_marginEnd="3dp"
+                                    android:layout_weight="1"
+                                    android:background="@drawable/bg_mini_chip_inactive"
+                                    android:gravity="center"
+                                    android:text="15m"
+                                    android:textColor="#FFFFFFFF"
+                                    android:textSize="9.5sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/btn_sleep_30m"
+                                    android:layout_width="0dp"
+                                    android:layout_height="25dp"
+                                    android:layout_marginEnd="3dp"
+                                    android:layout_weight="1"
+                                    android:background="@drawable/bg_mini_chip_inactive"
+                                    android:gravity="center"
+                                    android:text="30m"
+                                    android:textColor="#FFFFFFFF"
+                                    android:textSize="9.5sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/btn_sleep_60m"
+                                    android:layout_width="0dp"
+                                    android:layout_height="25dp"
+                                    android:layout_weight="1"
+                                    android:background="@drawable/bg_mini_chip_inactive"
+                                    android:gravity="center"
+                                    android:text="60m"
+                                    android:textColor="#FFFFFFFF"
+                                    android:textSize="9.5sp"
+                                    android:textStyle="bold" />
+                            </LinearLayout>
+                        </LinearLayout>
+
+                        <!-- A-B Loop Section Card -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:background="@drawable/bg_mini_card_inner"
+                            android:orientation="vertical"
+                            android:padding="10dp">
+
+                            <TextView
+                                android:id="@+id/tv_tools_ab_status"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="A-B Loop: Not set"
+                                android:textColor="#FFFFFFFF"
+                                android:textSize="11sp"
+                                android:textStyle="bold" />
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="6dp"
+                                android:orientation="horizontal">
+
+                                <TextView
+                                    android:id="@+id/btn_ab_set_a"
+                                    android:layout_width="0dp"
+                                    android:layout_height="25dp"
+                                    android:layout_marginEnd="4dp"
+                                    android:layout_weight="1"
+                                    android:background="@drawable/bg_mini_mute_pill"
+                                    android:gravity="center"
+                                    android:text="Set A"
+                                    android:textColor="#FF1ED760"
+                                    android:textSize="9.5sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/btn_ab_set_b"
+                                    android:layout_width="0dp"
+                                    android:layout_height="25dp"
+                                    android:layout_marginEnd="4dp"
+                                    android:layout_weight="1"
+                                    android:background="@drawable/bg_mini_mute_pill"
+                                    android:gravity="center"
+                                    android:text="Set B"
+                                    android:textColor="#FF1ED760"
+                                    android:textSize="9.5sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/btn_ab_clear"
+                                    android:layout_width="0dp"
+                                    android:layout_height="25dp"
+                                    android:layout_weight="1"
+                                    android:background="@drawable/bg_mini_chip_inactive"
+                                    android:gravity="center"
+                                    android:text="Clear"
+                                    android:textColor="#FFFF8A80"
+                                    android:textSize="9.5sp"
+                                    android:textStyle="bold" />
+                            </LinearLayout>
+                        </LinearLayout>
+
+                        <!-- Floater Quick Behavior Row -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:orientation="horizontal">
+
+                            <TextView
+                                android:id="@+id/btn_tools_autohide"
+                                android:layout_width="0dp"
+                                android:layout_height="28dp"
+                                android:layout_marginEnd="4dp"
+                                android:layout_weight="1"
+                                android:background="@drawable/bg_mini_chip_inactive"
+                                android:gravity="center"
+                                android:text="Auto-Hide: 12s"
+                                android:textColor="#FFFFFFFF"
+                                android:textSize="9.5sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/btn_tools_haptics"
+                                android:layout_width="0dp"
+                                android:layout_height="28dp"
+                                android:layout_marginStart="4dp"
+                                android:layout_weight="1"
+                                android:background="@drawable/bg_mini_chip_inactive"
+                                android:gravity="center"
+                                android:text="Haptics: Med"
+                                android:textColor="#FFFFFFFF"
+                                android:textSize="9.5sp"
                                 android:textStyle="bold" />
                         </LinearLayout>
                     </LinearLayout>
@@ -892,51 +1726,42 @@
             </ScrollView>
         </LinearLayout>
 
-        <!-- Bottom Corner Resize Handles Footer -->
+        <!-- Bottom Corner Resize Grip Bar (Bottom-Left + Hint + Bottom-Right) -->
         <LinearLayout
             android:id="@+id/layout_resize_footer"
             android:layout_width="match_parent"
-            android:layout_height="28dp"
+            android:layout_height="24dp"
             android:layout_marginTop="4dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
             <ImageView
                 android:id="@+id/resize_corner_bl"
-                android:layout_width="42dp"
-                android:layout_height="28dp"
+                android:layout_width="28dp"
+                android:layout_height="24dp"
                 android:contentDescription="@string/mini_player_cd_resize_bl"
-                android:paddingStart="2dp"
-                android:paddingTop="4dp"
-                android:paddingEnd="16dp"
-                android:paddingBottom="2dp"
+                android:padding="4dp"
                 android:scaleType="fitCenter"
-                android:src="@drawable/ic_resize_corner_bl"
-                android:tint="#CC1ED760" />
+                android:src="@drawable/ic_resize_corner_bl" />
 
             <TextView
-                android:id="@+id/tv_resize_hint"
+                android:id="@+id/tv_mini_resize_hint"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:gravity="center"
-                android:maxLines="1"
                 android:text="@string/mini_player_resize_hint"
-                android:textColor="#88C8D2E3"
+                android:textColor="#FF7C879C"
                 android:textSize="9.5sp" />
 
             <ImageView
                 android:id="@+id/resize_corner_br"
-                android:layout_width="42dp"
-                android:layout_height="28dp"
+                android:layout_width="28dp"
+                android:layout_height="24dp"
                 android:contentDescription="@string/mini_player_cd_resize_br"
-                android:paddingStart="16dp"
-                android:paddingTop="4dp"
-                android:paddingEnd="2dp"
-                android:paddingBottom="2dp"
+                android:padding="4dp"
                 android:scaleType="fitCenter"
-                android:src="@drawable/ic_resize_corner_br"
-                android:tint="#CC1ED760" />
+                android:src="@drawable/ic_resize_corner_br" />
         </LinearLayout>
     </LinearLayout>
 </FrameLayout>
