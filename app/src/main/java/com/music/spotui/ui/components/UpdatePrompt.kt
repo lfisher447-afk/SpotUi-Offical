@@ -81,6 +81,16 @@ fun UpdatePrompt() {
     var installPermissionNeeded by remember { mutableStateOf(false) }
     var installerErrorMessage by remember { mutableStateOf<String?>(null) }
     val downloadState by UpdateDownloader.state.collectAsStateWithLifecycle()
+    val pendingConfirmIntent by UpdateDownloader.pendingConfirmIntent.collectAsStateWithLifecycle()
+
+    LaunchedEffect(pendingConfirmIntent) {
+        val confirmIntent = UpdateDownloader.consumePendingConfirmIntent() ?: return@LaunchedEffect
+        runCatching {
+            context.startActivity(confirmIntent)
+        }.onFailure { err ->
+            installerErrorMessage = err.message ?: "Unable to open Android PackageInstaller dialog"
+        }
+    }
 
     val unknownSourcesLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -98,8 +108,11 @@ fun UpdatePrompt() {
         }
     }
 
-    fun triggerPackageInstaller(completed: UpdateDownloader.DownloadState.Completed) {
-        when (val res = UpdateDownloader.installApk(context, completed)) {
+    fun triggerPackageInstaller(
+        completed: UpdateDownloader.DownloadState.Completed,
+        ignoreCompatCheck: Boolean = false,
+    ) {
+        when (val res = UpdateDownloader.installApk(context, completed, ignoreCompatCheck = ignoreCompatCheck)) {
             is UpdateDownloader.InstallLaunchResult.Launched -> {
                 installPermissionNeeded = false
                 installerErrorMessage = null
@@ -134,6 +147,8 @@ fun UpdatePrompt() {
         val st = downloadState
         if (st is UpdateDownloader.DownloadState.Completed &&
             st.version == info.version &&
+            !st.signatureMismatch &&
+            !st.downgradeBlocked &&
             autoOpenedInstallerVersion != info.version
         ) {
             autoOpenedInstallerVersion = info.version
@@ -244,35 +259,59 @@ fun UpdatePrompt() {
         confirmButton = {
             when (val st = downloadState) {
                 is UpdateDownloader.DownloadState.Completed if st.version == info.version -> {
-                    Button(
-                        onClick = {
-                            com.music.spotui.audio.UiSoundEngine.playTapChime(context)
-                            if (!UpdateDownloader.canRequestPackageInstalls(context)) {
-                                unknownSourcesLauncher.launch(
-                                    UpdateDownloader.buildUnknownAppSourcesIntent(context, newTask = false),
-                                )
-                            } else {
-                                triggerPackageInstaller(st)
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF1DB954),
-                            contentColor = Color.Black,
-                        ),
-                        modifier = Modifier
-                            .heightIn(min = 48.dp)
-                            .testTag("update_install_apk_button"),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.InstallMobile,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = if (installPermissionNeeded) "Allow & Install" else "Install Update",
-                            fontWeight = FontWeight.Bold,
-                        )
+                    if (st.signatureMismatch || st.downgradeBlocked) {
+                        TextButton(
+                            onClick = { UpdateDownloader.openDownloadsFolder(context) },
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) {
+                            Text("Downloads", color = Color(0xFF9ED4FF), fontWeight = FontWeight.SemiBold)
+                        }
+                        Button(
+                            onClick = {
+                                com.music.spotui.audio.UiSoundEngine.playTapChime(context)
+                                UpdateDownloader.triggerUninstallCurrentApp(context)
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFFFB74D),
+                                contentColor = Color.Black,
+                            ),
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("update_uninstall_old_button"),
+                        ) {
+                            Text("Uninstall Old App", fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Button(
+                            onClick = {
+                                com.music.spotui.audio.UiSoundEngine.playTapChime(context)
+                                if (!UpdateDownloader.canRequestPackageInstalls(context)) {
+                                    unknownSourcesLauncher.launch(
+                                        UpdateDownloader.buildUnknownAppSourcesIntent(context, newTask = false),
+                                    )
+                                } else {
+                                    triggerPackageInstaller(st)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF1DB954),
+                                contentColor = Color.Black,
+                            ),
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("update_install_apk_button"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.InstallMobile,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = if (installPermissionNeeded) "Allow & Install" else "Install Update",
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                     }
                 }
                 is UpdateDownloader.DownloadState.Downloading if st.version == info.version -> {
@@ -312,42 +351,65 @@ fun UpdatePrompt() {
                 }
                 else -> {
                     val failedSt = downloadState as? UpdateDownloader.DownloadState.Failed
-                    if (failedSt?.fallbackCompleted != null) {
+                    val fallback = failedSt?.fallbackCompleted
+                    if (fallback != null && (fallback.signatureMismatch || fallback.downgradeBlocked)) {
                         TextButton(
-                            onClick = {
-                                UpdateDownloader.openFileProviderFallbackInstaller(context, failedSt.fallbackCompleted)
-                            },
+                            onClick = { UpdateDownloader.openDownloadsFolder(context) },
                             modifier = Modifier.heightIn(min = 48.dp),
                         ) {
-                            Text("System Fallback", color = Color(0xFF9ED4FF), fontWeight = FontWeight.SemiBold)
+                            Text("Downloads", color = Color(0xFF9ED4FF), fontWeight = FontWeight.SemiBold)
                         }
-                    }
-                    Button(
-                        onClick = {
-                            com.music.spotui.audio.UiSoundEngine.playTapChime(context)
-                            autoOpenedInstallerVersion = null
-                            if (failedSt?.fallbackCompleted != null) {
-                                triggerPackageInstaller(failedSt.fallbackCompleted)
-                            } else {
-                                UpdateDownloader.startDownload(context, info, force = true)
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF1DB954),
-                            contentColor = Color.Black,
-                        ),
-                        modifier = Modifier
-                            .heightIn(min = 48.dp)
-                            .testTag("update_download_in_app_button"),
-                    ) {
-                        Text(
-                            text = when {
-                                failedSt?.fallbackCompleted != null -> "Retry Installer"
-                                failedSt != null -> "Retry In-App"
-                                else -> "Download & Install"
+                        Button(
+                            onClick = {
+                                com.music.spotui.audio.UiSoundEngine.playTapChime(context)
+                                UpdateDownloader.triggerUninstallCurrentApp(context)
                             },
-                            fontWeight = FontWeight.Bold,
-                        )
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFFFB74D),
+                                contentColor = Color.Black,
+                            ),
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) {
+                            Text("Uninstall Old App", fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        if (fallback != null) {
+                            TextButton(
+                                onClick = {
+                                    UpdateDownloader.openFileProviderFallbackInstaller(context, fallback)
+                                },
+                                modifier = Modifier.heightIn(min = 48.dp),
+                            ) {
+                                Text("System Fallback", color = Color(0xFF9ED4FF), fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                        Button(
+                            onClick = {
+                                com.music.spotui.audio.UiSoundEngine.playTapChime(context)
+                                autoOpenedInstallerVersion = null
+                                if (fallback != null) {
+                                    triggerPackageInstaller(fallback, ignoreCompatCheck = true)
+                                } else {
+                                    UpdateDownloader.startDownload(context, info, force = true)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF1DB954),
+                                contentColor = Color.Black,
+                            ),
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("update_download_in_app_button"),
+                        ) {
+                            Text(
+                                text = when {
+                                    fallback != null -> "Retry Installer"
+                                    failedSt != null -> "Retry In-App"
+                                    else -> "Download & Install"
+                                },
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                     }
                 }
             }
@@ -432,20 +494,28 @@ private fun InAppUpdateStatusCard(
                         Icon(
                             imageVector = Icons.Default.CheckCircle,
                             contentDescription = null,
-                            tint = Color(0xFF1DB954),
+                            tint = if (state.signatureMismatch || state.downgradeBlocked) Color(0xFFFFB74D) else Color(0xFF1DB954),
                             modifier = Modifier.size(16.dp),
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            text = if (state.sha256Verified == true) "Ready to Install (SHA-256 Verified)" else "Ready to Install (APK Verified)",
-                            color = Color(0xFF1DB954),
+                            text = when {
+                                state.signatureMismatch || state.downgradeBlocked -> "Action Needed: Signature / Version Conflict"
+                                state.sha256Verified == true -> "Ready to Install (SHA-256 Verified)"
+                                else -> "Ready to Install (APK Verified)"
+                            },
+                            color = if (state.signatureMismatch || state.downgradeBlocked) Color(0xFFFFB74D) else Color(0xFF1DB954),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                         )
                     }
                     Text(
-                        text = "Android updates in-place over your current SpotUI install while keeping your library & settings. Backup copy saved in ${state.savedDisplayPath}.",
-                        color = Color(0xFFD0D5E0),
+                        text = if (state.compatWarning.isNotBlank()) {
+                            "${state.compatWarning} Backup saved at ${state.savedDisplayPath}."
+                        } else {
+                            "Android updates in-place over your current SpotUI install while keeping your library & settings. Backup copy saved in ${state.savedDisplayPath}."
+                        },
+                        color = if (state.signatureMismatch || state.downgradeBlocked) Color(0xFFFFE0B2) else Color(0xFFD0D5E0),
                         fontSize = 11.sp,
                     )
                     if (installPermissionNeeded) {

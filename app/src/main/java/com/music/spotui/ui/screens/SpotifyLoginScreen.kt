@@ -159,7 +159,7 @@ fun SpotifyLoginScreen(navController: NavController) {
     var dialogCookieError by remember { mutableStateOf<String?>(null) }
 
     // Web Browser State
-    var uaMode by remember { mutableStateOf(WebUaMode.SYSTEM_WEBVIEW) }
+    var uaMode by remember { mutableStateOf(WebUaMode.ANDROID_CHROME) }
     var isPageLoading by remember { mutableStateOf(true) }
     var pageProgress by remember { mutableIntStateOf(0) }
     var hasWebError by remember { mutableStateOf(false) }
@@ -171,6 +171,9 @@ fun SpotifyLoginScreen(navController: NavController) {
     var lastLoggedDomError by remember { mutableStateOf("") }
     var failedAutoSyncSpDc by remember { mutableStateOf<String?>(null) }
     var webViewExtractedToken by remember { mutableStateOf<SpotifyInternalToken?>(null) }
+    var autoRecoveredOnce by remember { mutableStateOf(false) }
+    var pendingWarmupToLogin by remember { mutableStateOf(false) }
+    var popupBlockedHint by remember { mutableStateOf<String?>(null) }
 
     // OAuth Popup WebView (Google/Facebook/Apple SSO)
     var popupWebView by remember { mutableStateOf<WebView?>(null) }
@@ -257,12 +260,12 @@ fun SpotifyLoginScreen(navController: NavController) {
         }
     }
 
-    fun applyUaAndReload(nextMode: WebUaMode) {
+    fun applyUaAndReload(nextMode: WebUaMode, warmViaOpenSpotify: Boolean = false) {
         uaMode = nextMode
         val resolvedUa = resolveUserAgent(context, nextMode)
         DevConsoleManager.logInfo(
             "SpotifyLogin",
-            "Switched WebView UA to ${nextMode.shortLabel} (prefix=${resolvedUa.take(48)}...)",
+            "Switched WebView UA to ${nextMode.shortLabel} (warmup=$warmViaOpenSpotify, prefix=${resolvedUa.take(48)}...)",
         )
         domAuthBanner = null
         domHasOtpPrompt = false
@@ -270,14 +273,16 @@ fun SpotifyLoginScreen(navController: NavController) {
         lastLoggedDomError = ""
         hasWebError = false
         isPageLoading = true
+        pendingWarmupToLogin = warmViaOpenSpotify
         webViewRef?.let { wv ->
             configureAuthWebViewSettings(context, wv.settings, nextMode)
-            wv.loadUrl(SpotifyAuth.LOGIN_URL)
+            wv.loadUrl(if (warmViaOpenSpotify) "https://open.spotify.com/" else SpotifyAuth.LOGIN_URL)
         }
     }
 
-    fun autoRecoverWebLogin(preferEmailCode: Boolean = true) {
-        DevConsoleManager.logButtonAction("SpotifyLogin", "AutoRecover", "nextUa=${uaMode.nextRecoveryMode().shortLabel}")
+    fun autoRecoverWebLogin(preferEmailCode: Boolean = true, statusNotice: String? = null) {
+        val nextMode = uaMode.nextRecoveryMode()
+        DevConsoleManager.logButtonAction("SpotifyLogin", "AutoRecover", "nextUa=${nextMode.shortLabel}, warmup=true")
         resetSpotifyWebCookies {
             domAuthBanner = null
             domHasOtpPrompt = false
@@ -285,13 +290,16 @@ fun SpotifyLoginScreen(navController: NavController) {
             webViewExtractedToken = null
             lastLoggedDomError = ""
             emailCodeGuideActive = preferEmailCode
+            if (!statusNotice.isNullOrBlank()) {
+                statusMessage = statusNotice
+            }
             if (preferEmailCode && emailOrUsername.isNotBlank()) {
                 pendingHandoff = PendingCredentialHandoff(
                     emailOrUsername = emailOrUsername.trim(),
                     preferEmailCode = true,
                 )
             }
-            applyUaAndReload(uaMode.nextRecoveryMode())
+            applyUaAndReload(nextMode, warmViaOpenSpotify = true)
         }
     }
 
@@ -1016,6 +1024,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                                         setBackgroundColor(android.graphics.Color.parseColor("#121212"))
                                         cookieManager?.setAcceptThirdPartyCookies(this, true)
                                         configureAuthWebViewSettings(ctx, settings, uaMode)
+                                        installAuthDocumentStartShims(this)
 
                                         webChromeClient = object : WebChromeClient() {
                                             override fun onProgressChanged(view: WebView?, newProgress: Int) {
@@ -1052,21 +1061,33 @@ fun SpotifyLoginScreen(navController: NavController) {
                                             ): Boolean {
                                                 val transport = resultMsg?.obj as? WebView.WebViewTransport ?: return false
                                                 DevConsoleManager.logInfo("SpotifyLogin", "Opening OAuth popup window (Google/SSO)")
+                                                popupBlockedHint = null
                                                 val child = WebView(ctx).apply {
                                                     isFocusable = true
                                                     isFocusableInTouchMode = true
                                                     cookieManager?.setAcceptThirdPartyCookies(this, true)
                                                     configureAuthWebViewSettings(ctx, settings, uaMode, forOAuthPopup = true)
+                                                    installAuthDocumentStartShims(this)
                                                     webViewClient = object : WebViewClient() {
                                                         override fun onPageFinished(v: WebView?, url: String?) {
                                                             runCatching { CookieManager.getInstance().flush() }
                                                             tryExchangeCapturedCookies("OAuthPopup")
                                                             if (url?.contains("disallowed_useragent", ignoreCase = true) == true) {
-                                                                domAuthBanner = "Google blocks embedded sign-in here. Use Email Code or Spotify password directly."
+                                                                popupBlockedHint = "Google blocks embedded WebView login for this account. Tap 'Use Email Code' or sign in via Chrome + Cookie tab."
+                                                                domAuthBanner = "Google blocked embedded WebView login. Use Email Code or Spotify password."
+                                                            } else if (url?.contains("accounts.google.com", ignoreCase = true) == true) {
+                                                                v?.evaluateJavascript(
+                                                                    "(function(){var t=(document.body&&document.body.innerText)||'';return (t.indexOf('403')>-1&&t.indexOf('disallowed_useragent')>-1)?'blocked':'ok';})();"
+                                                                ) { flag ->
+                                                                    if (flag?.contains("blocked") == true) {
+                                                                        popupBlockedHint = "Google rejected embedded sign-in (403 disallowed_useragent). Use 'Email Code' or Chrome + Cookie tab."
+                                                                    }
+                                                                }
                                                             }
                                                             if (url?.contains("open.spotify.com") == true ||
                                                                 url?.contains("accounts.spotify.com/en/status") == true
                                                             ) {
+                                                                popupBlockedHint = null
                                                                 runCatching { v?.destroy() }
                                                                 popupWebView = null
                                                                 webViewRef?.loadUrl("https://open.spotify.com/")
@@ -1084,6 +1105,9 @@ fun SpotifyLoginScreen(navController: NavController) {
                                                             if (status >= 400 && (req?.isForMainFrame == true || host.contains("spotify", ignoreCase = true) || host.contains("google", ignoreCase = true))) {
                                                                 val summary = "HTTP $status on $host$path"
                                                                 DevConsoleManager.logError("SpotifyOAuthPopup", summary)
+                                                                if (host.contains("google", ignoreCase = true) && status == 403) {
+                                                                    popupBlockedHint = "Google returned HTTP 403 for embedded WebView. Use 'Email Code' or sign in via Chrome + Cookie."
+                                                                }
                                                                 when (status) {
                                                                     402 -> domAuthBanner = "OAuth challenge returned HTTP 402. Close popup and tap 'Auto-Recover' or 'Email Code'."
                                                                     400 -> domAuthBanner = "OAuth login rejected (HTTP 400). Try 'Auto-Recover' or 'Email Code'."
@@ -1128,6 +1152,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                                                         }
 
                                                         override fun onCloseWindow(window: WebView?) {
+                                                            popupBlockedHint = null
                                                             runCatching { window?.destroy() }
                                                             popupWebView = null
                                                         }
@@ -1162,6 +1187,17 @@ fun SpotifyLoginScreen(navController: NavController) {
 
                                                 // Check cookies right away
                                                 tryExchangeCapturedCookies("WebPageFinished")
+
+                                                // Complete open.spotify.com warmup hop by navigating to LOGIN_URL with fresh .spotify.com cookies
+                                                if (!tokenFetchStarted.get() &&
+                                                    pendingWarmupToLogin &&
+                                                    host.contains("open.spotify.com", ignoreCase = true)
+                                                ) {
+                                                    pendingWarmupToLogin = false
+                                                    DevConsoleManager.logInfo("SpotifyWebNav", "Session warmup complete; loading accounts.spotify.com/en/login")
+                                                    view?.loadUrl(SpotifyAuth.LOGIN_URL)
+                                                    return
+                                                }
 
                                                 // If Spotify parked on /status after auth without redirecting yet, push to open.spotify.com
                                                 if (!tokenFetchStarted.get() &&
@@ -1200,12 +1236,30 @@ fun SpotifyLoginScreen(navController: NavController) {
                                                 if (status >= 400 && host.contains("spotify", ignoreCase = true)) {
                                                     val summary = "HTTP $status on $host$path (mainFrame=$isMain)"
                                                     DevConsoleManager.logError("SpotifyWebHTTP", summary)
+                                                    val isChallengeReject = path.contains("login", ignoreCase = true) ||
+                                                        path.contains("code", ignoreCase = true) ||
+                                                        path.contains("challenge", ignoreCase = true) ||
+                                                        isMain
+                                                    if (!autoRecoveredOnce && status in listOf(400, 402, 403) && isChallengeReject) {
+                                                        autoRecoveredOnce = true
+                                                        DevConsoleManager.logInfo(
+                                                            "SpotifyLogin",
+                                                            "Auto-recovering from HTTP $status via open.spotify.com warmup + ${uaMode.nextRecoveryMode().shortLabel}",
+                                                        )
+                                                        view?.post {
+                                                            autoRecoverWebLogin(
+                                                                preferEmailCode = emailCodeGuideActive,
+                                                                statusNotice = "Refreshed Spotify session (${uaMode.nextRecoveryMode().shortLabel}) — please retry sign-in.",
+                                                            )
+                                                        }
+                                                        return
+                                                    }
                                                     when (status) {
                                                         402 -> {
-                                                            domAuthBanner = "Spotify challenge/risk guard returned HTTP 402. Tap 'Auto-Recover' below to clear challenge cookies and switch browser profile."
+                                                            domAuthBanner = "Spotify challenge/risk guard returned HTTP 402. Tap 'Auto-Recover' or use the Cookie (sp_dc) tab."
                                                         }
-                                                        400 -> if (path.contains("login", ignoreCase = true) || path.contains("challenge", ignoreCase = true) || isMain) {
-                                                            domAuthBanner = "Spotify rejected login request (HTTP 400). Tap 'Auto-Recover' or 'Email Code' below."
+                                                        400 -> if (isChallengeReject) {
+                                                            domAuthBanner = "Spotify rejected login request (HTTP 400). Tap 'Auto-Recover', 'Email Code', or use Cookie (sp_dc)."
                                                         }
                                                         403 -> {
                                                             domAuthBanner = "Spotify blocked embedded browser profile (HTTP 403). Tap 'Auto-Recover' or 'Switch UA'."
@@ -1219,7 +1273,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                                                             component = "SpotifyLogin",
                                                             action = "HTTP_$status",
                                                             reason = "$summary [UA=${uaMode.shortLabel}]",
-                                                            autoFixHint = "Spotify returned HTTP $status. Tap Auto-Recover, Email Code, or Switch UA.",
+                                                            autoFixHint = "Spotify returned HTTP $status. Tap Auto-Recover, Email Code, or use Cookie (sp_dc).",
                                                         )
                                                     }
                                                 }
@@ -1310,18 +1364,83 @@ fun SpotifyLoginScreen(navController: NavController) {
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .background(Color(0xFF1C1C22))
-                                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                                            .padding(horizontal = 10.dp, vertical = 4.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                     ) {
-                                        Text("OAuth Sign-In Window", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            text = "OAuth Sign-In",
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        TextButton(
+                                            onClick = {
+                                                runCatching { child.destroy() }
+                                                popupWebView = null
+                                                popupBlockedHint = null
+                                                emailCodeGuideActive = true
+                                                pendingHandoff = PendingCredentialHandoff(
+                                                    emailOrUsername = emailOrUsername.trim(),
+                                                    preferEmailCode = true,
+                                                )
+                                                webViewRef?.loadUrl(SpotifyAuth.LOGIN_URL)
+                                            },
+                                            modifier = Modifier.heightIn(min = 48.dp),
+                                        ) {
+                                            Text("Email Code", color = Color(LOGIN_SPOTIFY_GREEN), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
                                         IconButton(
                                             onClick = {
                                                 runCatching { child.destroy() }
                                                 popupWebView = null
+                                                popupBlockedHint = null
                                             },
+                                            modifier = Modifier.size(48.dp),
                                         ) {
                                             Icon(Icons.Default.Close, contentDescription = "Close OAuth popup", tint = Color.White)
+                                        }
+                                    }
+                                    if (!popupBlockedHint.isNullOrBlank()) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(Color(0xFF2B181B))
+                                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                                        ) {
+                                            Text(
+                                                text = popupBlockedHint!!,
+                                                color = Color(0xFFFFB4AB),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                            )
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                TextButton(
+                                                    onClick = {
+                                                        runCatching { child.destroy() }
+                                                        popupWebView = null
+                                                        popupBlockedHint = null
+                                                        selectedTab = LoginTab.COOKIE
+                                                    },
+                                                    modifier = Modifier.heightIn(min = 48.dp),
+                                                ) {
+                                                    Text("Cookie (sp_dc) Bypass", color = Color(LOGIN_SPOTIFY_GREEN), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                                TextButton(
+                                                    onClick = {
+                                                        openInExternalBrowser()
+                                                        runCatching { child.destroy() }
+                                                        popupWebView = null
+                                                        popupBlockedHint = null
+                                                        selectedTab = LoginTab.COOKIE
+                                                    },
+                                                    modifier = Modifier.heightIn(min = 48.dp),
+                                                ) {
+                                                    Text("Open Chrome", color = Color.White, fontSize = 11.sp)
+                                                }
+                                            }
                                         }
                                     }
                                     key(child) {
@@ -1539,26 +1658,34 @@ fun SpotifyLoginScreen(navController: NavController) {
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Text(
-                                text = "Quick cookie bypass (always works):",
+                                text = "Quick HttpOnly cookie bypass (always works):",
                                 color = Color(LOGIN_SPOTIFY_GREEN),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                             )
                             Text(
-                                text = "1. Sign in to open.spotify.com in Chrome or desktop browser.",
+                                text = "1. Tap 'Open in Browser' below and sign in to Spotify normally (Google/Apple/SSO/Passkey all work in Chrome).",
                                 color = Color(LOGIN_TEXT_SECONDARY),
                                 fontSize = 11.sp,
                             )
                             Text(
-                                text = "2. Copy Cookie-Editor JSON or the sp_dc cookie value.",
+                                text = "2. Copy Cookie-Editor JSON or the `sp_dc` cookie (in Desktop DevTools -> Application -> Cookies -> open.spotify.com).",
                                 color = Color(LOGIN_TEXT_SECONDARY),
                                 fontSize = 11.sp,
                             )
                             Text(
-                                text = "3. Tap 'Paste from Clipboard' above and Connect.",
+                                text = "3. Return here, tap 'Paste from Clipboard', and Connect.",
                                 color = Color(LOGIN_TEXT_SECONDARY),
                                 fontSize = 11.sp,
                             )
+                            TextButton(
+                                onClick = openInExternalBrowser,
+                                modifier = Modifier.heightIn(min = 48.dp).testTag("cookie_open_browser_button"),
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = Color(LOGIN_SPOTIFY_GREEN), modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Open Spotify Sign-In in Browser", color = Color(LOGIN_SPOTIFY_GREEN), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
                         }
                     }
 

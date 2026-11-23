@@ -222,18 +222,25 @@ object MrbeanDownloadClient {
         }
     }
 
-    private fun buildMediaRequest(url: String, rangeHeader: String? = null): Request =
-        Request.Builder()
+    private fun buildMediaRequest(url: String, rangeHeader: String? = null): Request {
+        val lower = url.lowercase()
+        val isYouTubeHost = lower.contains("googlevideo.com") ||
+            lower.contains("youtube.com") ||
+            lower.contains("ytimg.com")
+        return Request.Builder()
             .url(url)
             .header("User-Agent", DOWNLOAD_UA)
             .header("Accept-Encoding", "identity")
             .header("Accept", "*/*")
-            .header("Referer", "https://music.youtube.com/")
-            .header("Origin", "https://music.youtube.com")
             .apply {
+                if (isYouTubeHost) {
+                    header("Referer", "https://music.youtube.com/")
+                    header("Origin", "https://music.youtube.com")
+                }
                 if (rangeHeader != null) header("Range", rangeHeader)
             }
             .build()
+    }
 
     /**
      * Downloads [url] into [destFile] using HTTP/2 connection pooling and optional multi-range

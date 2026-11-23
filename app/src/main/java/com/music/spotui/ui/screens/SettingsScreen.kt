@@ -164,6 +164,19 @@ import com.music.spotui.ui.screens.settings.ModuleLibsSettingsSection
 import com.music.spotui.ui.screens.settings.PlaybackAndToolsSection
 import com.music.spotui.ui.screens.settings.UiSoundAndStyleSection
 import com.music.spotui.accessibility.AccessibilityHelper
+import com.music.spotui.data.preferences.FloaterHapticStrength
+import com.music.spotui.data.preferences.floaterSettingsUpdates
+import com.music.spotui.data.preferences.getFloaterAutoHideMs
+import com.music.spotui.data.preferences.getFloaterHapticStrength
+import com.music.spotui.data.preferences.isFloaterEqAnd3dEnabled
+import com.music.spotui.data.preferences.isFloaterHapticsEnabled
+import com.music.spotui.data.preferences.isFloaterStartExpanded
+import com.music.spotui.data.preferences.resetFloaterGeometry
+import com.music.spotui.data.preferences.setFloaterAutoHideMs
+import com.music.spotui.data.preferences.setFloaterEqAnd3dEnabled
+import com.music.spotui.data.preferences.setFloaterHapticStrength
+import com.music.spotui.data.preferences.setFloaterHapticsEnabled
+import com.music.spotui.data.preferences.setFloaterStartExpanded
 import com.music.spotui.util.AppDiagnostics
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -188,6 +201,19 @@ fun SettingsScreen(navController: NavController) {
     var playerVideoPreview by remember { mutableStateOf(com.music.spotui.data.preferences.isPlayerVideoPreviewEnabled(context)) }
     var batteryOptExempt by remember { mutableStateOf(BatteryOptimizationHelper.isIgnoringBatteryOptimization(context)) }
     var accessibilityMiniPlayerEnabled by remember { mutableStateOf(AccessibilityHelper.isServiceEnabled(context)) }
+    var floaterEq3dHook by remember { mutableStateOf(isFloaterEqAnd3dEnabled(context)) }
+    var floaterStartExpanded by remember { mutableStateOf(isFloaterStartExpanded(context)) }
+    var floaterHaptics by remember { mutableStateOf(isFloaterHapticsEnabled(context)) }
+    var floaterHapticStrength by remember { mutableStateOf(getFloaterHapticStrength(context)) }
+    var floaterAutoHideMs by remember { mutableStateOf(getFloaterAutoHideMs(context)) }
+    val floaterPrefRevision by floaterSettingsUpdates.collectAsStateWithLifecycle()
+    LaunchedEffect(floaterPrefRevision) {
+        floaterEq3dHook = isFloaterEqAnd3dEnabled(context)
+        floaterStartExpanded = isFloaterStartExpanded(context)
+        floaterHaptics = isFloaterHapticsEnabled(context)
+        floaterHapticStrength = getFloaterHapticStrength(context)
+        floaterAutoHideMs = getFloaterAutoHideMs(context)
+    }
     var updateRepoUrl by remember { mutableStateOf(getUpdateRepoUrl(context)) }
     var isDefaultLinkHandler by remember { mutableStateOf(DefaultLinkHelper.isAppDefaultLinkHandler(context)) }
     var showDefaultGuide by remember { mutableStateOf(false) }
@@ -281,10 +307,20 @@ fun SettingsScreen(navController: NavController) {
     var manualUpdateInfo by remember { mutableStateOf<UpdateChecker.UpdateInfo?>(null) }
     var autoDownloadUpdates by remember { mutableStateOf(isAutoDownloadUpdatesEnabled(context)) }
     val updateDownloadState by UpdateDownloader.state.collectAsStateWithLifecycle()
+    val pendingConfirmIntent by UpdateDownloader.pendingConfirmIntent.collectAsStateWithLifecycle()
     var settingsAutoOpenedVersion by remember { mutableStateOf<String?>(null) }
     var settingsInstallPermNeeded by remember { mutableStateOf(false) }
     var settingsInstallError by remember { mutableStateOf<String?>(null) }
     var showPatchNotesModal by remember { mutableStateOf(false) }
+
+    LaunchedEffect(pendingConfirmIntent) {
+        val confirmIntent = UpdateDownloader.consumePendingConfirmIntent() ?: return@LaunchedEffect
+        runCatching {
+            context.startActivity(confirmIntent)
+        }.onFailure { err ->
+            settingsInstallError = err.message ?: "Unable to open Android PackageInstaller dialog"
+        }
+    }
 
     val settingsUnknownSourcesLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -306,6 +342,8 @@ fun SettingsScreen(navController: NavController) {
         val st = updateDownloadState
         if (st is UpdateDownloader.DownloadState.Completed &&
             manualUpdateInfo?.version == st.version &&
+            !st.signatureMismatch &&
+            !st.downgradeBlocked &&
             settingsAutoOpenedVersion != st.version
         ) {
             settingsAutoOpenedVersion = st.version
@@ -888,7 +926,7 @@ fun SettingsScreen(navController: NavController) {
 
                     Spacer(Modifier.height(14.dp))
 
-                    // One UI 9.0 Game Mini-Player (Accessibility Button Overlay)
+                    // One UI 9.0 Game Mini-Player & Studio Floater (Accessibility Button Overlay)
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = Color(0xFF22242E),
@@ -905,7 +943,7 @@ fun SettingsScreen(navController: NavController) {
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
                                 Text(
-                                    "One UI Game Mini-Player",
+                                    "One UI Studio Mini-Player Floater",
                                     color = Color.White,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
@@ -972,6 +1010,158 @@ fun SettingsScreen(navController: NavController) {
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.SemiBold,
                                     )
+                                }
+                            }
+
+                            Spacer(Modifier.height(12.dp))
+
+                            // Floater Dedicated Settings & Studio FX Hook
+                            SettingsSwitchRow(
+                                title = "Floater EQ & 3D Studio Controls",
+                                subtitle = "Adjust 7-band EQ presets, Bass/Vocal/Treble, 3D Spatial profile & 8D audio live from the floater (controls SpotUI In-App Volume)",
+                                checked = floaterEq3dHook,
+                            ) { enabled ->
+                                floaterEq3dHook = enabled
+                                setFloaterEqAnd3dEnabled(context, enabled)
+                            }
+                            if (floaterEq3dHook) {
+                                SettingsSwitchRow(
+                                    title = "Open Floater Expanded to Studio FX",
+                                    subtitle = "Automatically expand the EQ & 3D drawer when opening the floating overlay",
+                                    checked = floaterStartExpanded,
+                                ) { expanded ->
+                                    floaterStartExpanded = expanded
+                                    setFloaterStartExpanded(context, expanded)
+                                }
+                            }
+                            SettingsSwitchRow(
+                                title = "Tactile Vibration Feedback",
+                                subtitle = "Criss-cross haptic ticks for corner resizing, transport taps, sliders, and EQ/3D switches",
+                                checked = floaterHaptics,
+                            ) { enabled ->
+                                floaterHaptics = enabled
+                                setFloaterHapticsEnabled(context, enabled)
+                            }
+
+                            if (floaterHaptics) {
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    "Vibration Intensity",
+                                    color = Color(0xFFD0D6E0),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Spacer(Modifier.height(6.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    FloaterHapticStrength.entries.forEach { strength ->
+                                        val selected = floaterHapticStrength == strength
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .heightIn(min = 48.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(if (selected) AppPalette else Color(0xFF1A1B23))
+                                                .clickable {
+                                                    floaterHapticStrength = strength
+                                                    setFloaterHapticStrength(context, strength)
+                                                }
+                                                .testTag("floater_haptic_${strength.name.lowercase()}")
+                                                .padding(horizontal = 8.dp, vertical = 10.dp),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Text(
+                                                strength.label,
+                                                color = if (selected) Color.Black else Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(Modifier.height(10.dp))
+                            Text(
+                                "Auto-Dismiss Inactivity Timer",
+                                color = Color(0xFFD0D6E0),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                listOf(
+                                    5_000L to "5s",
+                                    12_000L to "12s",
+                                    25_000L to "25s",
+                                    0L to "Stay Open",
+                                ).forEach { (ms, label) ->
+                                    val selected = floaterAutoHideMs == ms
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .heightIn(min = 48.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(if (selected) AppPalette else Color(0xFF1A1B23))
+                                            .clickable {
+                                                floaterAutoHideMs = ms
+                                                setFloaterAutoHideMs(context, ms)
+                                            }
+                                            .testTag("floater_autohide_${ms}")
+                                            .padding(horizontal = 6.dp, vertical = 10.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            label,
+                                            color = if (selected) Color.Black else Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                TextButton(
+                                    onClick = {
+                                        resetFloaterGeometry(context)
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Floater size & corner position reset to default",
+                                            android.widget.Toast.LENGTH_SHORT,
+                                        ).show()
+                                    },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 48.dp)
+                                        .testTag("floater_reset_geometry_button"),
+                                ) {
+                                    Text("Reset Size & Pos", color = Color(0xFFFFB74D), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                                TextButton(
+                                    onClick = {
+                                        audioSectionExpanded = true
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Expanded Studio EQ & 3D section below",
+                                            android.widget.Toast.LENGTH_SHORT,
+                                        ).show()
+                                    },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 48.dp)
+                                        .testTag("floater_open_dsp_hook_button"),
+                                ) {
+                                    Text("Tune EQ & 3D", color = AppPalette, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -2846,18 +3036,22 @@ fun SettingsScreen(navController: NavController) {
                         }
                         is UpdateDownloader.DownloadState.Completed -> {
                             Text(
-                                text = if (dlState.sha256Verified == true) {
-                                    "✓ v${dlState.version} ready to install (SHA-256 verified)"
-                                } else {
-                                    "✓ v${dlState.version} ready to install (APK verified)"
+                                text = when {
+                                    dlState.signatureMismatch || dlState.downgradeBlocked -> "⚠ v${dlState.version} downloaded (Signature/Version conflict)"
+                                    dlState.sha256Verified == true -> "✓ v${dlState.version} ready to install (SHA-256 verified)"
+                                    else -> "✓ v${dlState.version} ready to install (APK verified)"
                                 },
-                                color = Color(0xFF81C784),
+                                color = if (dlState.signatureMismatch || dlState.downgradeBlocked) Color(0xFFFFB74D) else Color(0xFF81C784),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                             )
                             Text(
-                                text = "Installs in-place over your current SpotUI install while keeping your library. Backup copy: ${dlState.savedDisplayPath} (${UpdateDownloader.formatBytes(dlState.sizeBytes)}).",
-                                color = Color(0xFFD0D6E0),
+                                text = if (dlState.compatWarning.isNotBlank()) {
+                                    "${dlState.compatWarning} Saved copy: ${dlState.savedDisplayPath} (${UpdateDownloader.formatBytes(dlState.sizeBytes)})."
+                                } else {
+                                    "Installs in-place over your current SpotUI install while keeping your library. Backup copy: ${dlState.savedDisplayPath} (${UpdateDownloader.formatBytes(dlState.sizeBytes)})."
+                                },
+                                color = if (dlState.signatureMismatch || dlState.downgradeBlocked) Color(0xFFFFE0B2) else Color(0xFFD0D6E0),
                                 fontSize = 11.sp,
                             )
                             if (settingsInstallPermNeeded) {
@@ -2880,35 +3074,47 @@ fun SettingsScreen(navController: NavController) {
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                TextButton(
-                                    modifier = Modifier.heightIn(min = 48.dp),
-                                    onClick = {
-                                        UiSoundEngine.playTapChime(context)
-                                        if (!UpdateDownloader.canRequestPackageInstalls(context)) {
-                                            settingsUnknownSourcesLauncher.launch(
-                                                UpdateDownloader.buildUnknownAppSourcesIntent(context, newTask = false),
-                                            )
-                                        } else {
-                                            when (val res = UpdateDownloader.installApk(context, dlState)) {
-                                                is UpdateDownloader.InstallLaunchResult.Launched -> {
-                                                    settingsInstallPermNeeded = false
-                                                    settingsInstallError = null
-                                                }
-                                                is UpdateDownloader.InstallLaunchResult.PermissionRequired -> {
-                                                    settingsInstallPermNeeded = true
-                                                }
-                                                is UpdateDownloader.InstallLaunchResult.Failed -> {
-                                                    settingsInstallError = res.reason
+                                if (dlState.signatureMismatch || dlState.downgradeBlocked) {
+                                    TextButton(
+                                        modifier = Modifier.heightIn(min = 48.dp),
+                                        onClick = {
+                                            UiSoundEngine.playTapChime(context)
+                                            UpdateDownloader.triggerUninstallCurrentApp(context)
+                                        },
+                                    ) {
+                                        Text("Uninstall Old App", color = Color(0xFFFFB74D), fontWeight = FontWeight.Bold)
+                                    }
+                                } else {
+                                    TextButton(
+                                        modifier = Modifier.heightIn(min = 48.dp),
+                                        onClick = {
+                                            UiSoundEngine.playTapChime(context)
+                                            if (!UpdateDownloader.canRequestPackageInstalls(context)) {
+                                                settingsUnknownSourcesLauncher.launch(
+                                                    UpdateDownloader.buildUnknownAppSourcesIntent(context, newTask = false),
+                                                )
+                                            } else {
+                                                when (val res = UpdateDownloader.installApk(context, dlState)) {
+                                                    is UpdateDownloader.InstallLaunchResult.Launched -> {
+                                                        settingsInstallPermNeeded = false
+                                                        settingsInstallError = null
+                                                    }
+                                                    is UpdateDownloader.InstallLaunchResult.PermissionRequired -> {
+                                                        settingsInstallPermNeeded = true
+                                                    }
+                                                    is UpdateDownloader.InstallLaunchResult.Failed -> {
+                                                        settingsInstallError = res.reason
+                                                    }
                                                 }
                                             }
-                                        }
-                                    },
-                                ) {
-                                    Text(
-                                        if (settingsInstallPermNeeded) "Allow & Install" else "Install Update",
-                                        color = AppPalette,
-                                        fontWeight = FontWeight.Bold,
-                                    )
+                                        },
+                                    ) {
+                                        Text(
+                                            if (settingsInstallPermNeeded) "Allow & Install" else "Install Update",
+                                            color = AppPalette,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                    }
                                 }
                                 TextButton(
                                     modifier = Modifier.heightIn(min = 48.dp),
@@ -2961,37 +3167,55 @@ fun SettingsScreen(navController: NavController) {
                             val fallback = dlState.fallbackCompleted
                             if (fallback != null) {
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    TextButton(
-                                        modifier = Modifier.heightIn(min = 48.dp),
-                                        onClick = {
-                                            UiSoundEngine.playTapChime(context)
-                                            if (!UpdateDownloader.canRequestPackageInstalls(context)) {
-                                                settingsUnknownSourcesLauncher.launch(
-                                                    UpdateDownloader.buildUnknownAppSourcesIntent(context, newTask = false),
-                                                )
-                                            } else {
-                                                when (val res = UpdateDownloader.installApk(context, fallback)) {
-                                                    is UpdateDownloader.InstallLaunchResult.Launched -> {
-                                                        settingsInstallPermNeeded = false
-                                                        settingsInstallError = null
-                                                    }
-                                                    is UpdateDownloader.InstallLaunchResult.PermissionRequired -> {
-                                                        settingsInstallPermNeeded = true
-                                                    }
-                                                    is UpdateDownloader.InstallLaunchResult.Failed -> {
-                                                        settingsInstallError = res.reason
+                                    if (fallback.signatureMismatch || fallback.downgradeBlocked) {
+                                        TextButton(
+                                            modifier = Modifier.heightIn(min = 48.dp),
+                                            onClick = {
+                                                UiSoundEngine.playTapChime(context)
+                                                UpdateDownloader.triggerUninstallCurrentApp(context)
+                                            },
+                                        ) {
+                                            Text("Uninstall Old App", color = Color(0xFFFFB74D), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        TextButton(
+                                            modifier = Modifier.heightIn(min = 48.dp),
+                                            onClick = { UpdateDownloader.openDownloadsFolder(context) },
+                                        ) {
+                                            Text("Open Downloads", color = Color(0xFF9ED4FF), fontSize = 12.sp)
+                                        }
+                                    } else {
+                                        TextButton(
+                                            modifier = Modifier.heightIn(min = 48.dp),
+                                            onClick = {
+                                                UiSoundEngine.playTapChime(context)
+                                                if (!UpdateDownloader.canRequestPackageInstalls(context)) {
+                                                    settingsUnknownSourcesLauncher.launch(
+                                                        UpdateDownloader.buildUnknownAppSourcesIntent(context, newTask = false),
+                                                    )
+                                                } else {
+                                                    when (val res = UpdateDownloader.installApk(context, fallback, ignoreCompatCheck = true)) {
+                                                        is UpdateDownloader.InstallLaunchResult.Launched -> {
+                                                            settingsInstallPermNeeded = false
+                                                            settingsInstallError = null
+                                                        }
+                                                        is UpdateDownloader.InstallLaunchResult.PermissionRequired -> {
+                                                            settingsInstallPermNeeded = true
+                                                        }
+                                                        is UpdateDownloader.InstallLaunchResult.Failed -> {
+                                                            settingsInstallError = res.reason
+                                                        }
                                                     }
                                                 }
-                                            }
-                                        },
-                                    ) {
-                                        Text("Retry PackageInstaller", color = AppPalette, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                    TextButton(
-                                        modifier = Modifier.heightIn(min = 48.dp),
-                                        onClick = { UpdateDownloader.openFileProviderFallbackInstaller(context, fallback) },
-                                    ) {
-                                        Text("System Fallback", color = Color(0xFF9ED4FF), fontSize = 12.sp)
+                                            },
+                                        ) {
+                                            Text("Retry PackageInstaller", color = AppPalette, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        TextButton(
+                                            modifier = Modifier.heightIn(min = 48.dp),
+                                            onClick = { UpdateDownloader.openFileProviderFallbackInstaller(context, fallback) },
+                                        ) {
+                                            Text("System Fallback", color = Color(0xFF9ED4FF), fontSize = 12.sp)
+                                        }
                                     }
                                 }
                             }

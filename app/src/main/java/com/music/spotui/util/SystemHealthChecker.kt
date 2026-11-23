@@ -6,6 +6,7 @@ import android.net.NetworkCapabilities
 import androidx.media3.common.Player
 import com.metrolist.innertube.network.AuthSessionStore
 import com.metrolist.spotify.SpotiFlac
+import com.music.spotui.accessibility.AccessibilityHelper
 import com.music.spotui.audio.AudioEffectController
 import com.music.spotui.data.BatteryOptimizationHelper
 import com.music.spotui.data.api.SpotifySession
@@ -14,9 +15,13 @@ import com.music.spotui.data.preferences.ProviderRoutingPreferences
 import com.music.spotui.data.preferences.getCustomLosslessMirrorUrl
 import com.music.spotui.data.preferences.getDeezerArl
 import com.music.spotui.data.preferences.getDnsPreset
+import com.music.spotui.data.preferences.getFloaterAutoHideMs
 import com.music.spotui.data.preferences.getProxyUrls
 import com.music.spotui.data.preferences.isEqEnabled
 import com.music.spotui.data.preferences.isEqSpatialEnabled
+import com.music.spotui.data.preferences.isFloaterEqAnd3dEnabled
+import com.music.spotui.data.preferences.isFloaterHapticsEnabled
+import com.music.spotui.data.preferences.resetFloaterGeometry
 import com.music.spotui.deezer.DeezerSession
 import com.music.spotui.di.SongPlayer
 import kotlinx.coroutines.Dispatchers
@@ -57,8 +62,8 @@ data class HealthScanReport(
 }
 
 /**
- * Active 20-point runtime health, playback, DSP, Bluetooth headset, fault monitor,
- * network, authentication, provider, and storage scanner with 1-tap remediation actions.
+ * Active 21-point runtime health, playback, DSP, Accessibility Floater, Bluetooth headset,
+ * fault monitor, network, authentication, provider, and storage scanner with 1-tap remediation.
  */
 object SystemHealthChecker {
 
@@ -158,13 +163,14 @@ object SystemHealthChecker {
                 async { checkCrashReports(appCtx) },
                 async { checkQueueIntegrity(appCtx) },
                 async { checkBluetoothSpecsAndConflicts(appCtx) },
+                async { checkAccessibilityFloater(appCtx) },
                 async { checkComponentFaults() },
             ).awaitAll()
         }
         val elapsed = (System.currentTimeMillis() - start).coerceAtLeast(1L)
         DevConsoleManager.logInfo(
             "HealthScanner",
-            "20-point scan completed in ${elapsed}ms: ${results.count { it.severity == CheckSeverity.OK }} OK, " +
+            "21-point scan completed in ${elapsed}ms: ${results.count { it.severity == CheckSeverity.OK }} OK, " +
                 "${results.count { it.severity == CheckSeverity.WARNING }} WARN, " +
                 "${results.count { it.severity == CheckSeverity.FAIL }} FAIL",
         )
@@ -876,6 +882,44 @@ object SystemHealthChecker {
                 severity = CheckSeverity.OK,
                 summary = "${bt.activeOutputType} · ${bt.sampleRateKhz}",
                 detail = "${bt.transportLabel} · ${bt.bitsPerSample} · Zero BT conflicts detected.",
+            )
+        }
+    }
+
+    private fun checkAccessibilityFloater(context: Context): HealthCheckResult {
+        val enabled = runCatching { AccessibilityHelper.isServiceEnabled(context) }.getOrDefault(false)
+        val appVol = runCatching { SongPlayer.getAppVolumePercent(context) }.getOrDefault(100)
+        val fxHook = isFloaterEqAnd3dEnabled(context)
+        val haptics = isFloaterHapticsEnabled(context)
+        val autoHideMs = getFloaterAutoHideMs(context)
+        val hideLabel = if (autoHideMs <= 0L) "Stay Open" else "${autoHideMs / 1000L}s"
+        return if (enabled) {
+            HealthCheckResult(
+                id = "accessibility_floater",
+                title = "Accessibility Studio Floater & In-App Vol",
+                category = "Interface",
+                severity = CheckSeverity.OK,
+                summary = "Active · In-App Vol ${appVol}% · EQ/3D=${if (fxHook) "ON" else "OFF"}",
+                detail = "Haptics=${if (haptics) "ON" else "OFF"} · Auto-Hide=$hideLabel · Corner drag resize ready",
+                fixLabel = "Reset Size/Pos",
+                autoFix = { ctx ->
+                    resetFloaterGeometry(ctx)
+                    "Reset Accessibility Floater coordinates and custom corner size."
+                },
+            )
+        } else {
+            HealthCheckResult(
+                id = "accessibility_floater",
+                title = "Accessibility Studio Floater & In-App Vol",
+                category = "Interface",
+                severity = CheckSeverity.WARNING,
+                summary = "Accessibility shortcut not enabled (In-App Vol ${appVol}%)",
+                detail = "Enable Spotui Floating Mini-Player in Android Accessibility Settings for overlay In-App Volume, EQ & 3D controls.",
+                fixLabel = "Enable Floater",
+                autoFix = { ctx ->
+                    AccessibilityHelper.openAccessibilitySettings(ctx)
+                    "Opened Android Accessibility Settings."
+                },
             )
         }
     }

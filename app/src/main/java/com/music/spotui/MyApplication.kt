@@ -63,20 +63,28 @@ class MyApplication : Application(), Configuration.Provider {
         super.onCreate()
         instance = this
 
-        // Install and verify the global crash handler and logger
+        // Install and verify the global crash handler, developer console, and disk logger
         CrashHandler.install(this)
-        Logger.initialize(this)
         AppDiagnostics.initialize(this)
+        Logger.initialize(this)
         AppDiagnostics.info("MyApplication", "Application startup initialized")
 
-        // Surface provider diagnostics to both logcat and bounded app-private storage.
+        // Surface provider diagnostics to both logcat, live Developer Console, and bounded app-private storage.
         com.metrolist.spotify.Spotify.logger = { level, msg ->
             android.util.Log.d("SpotifyREST", "[$level] $msg")
-            AppDiagnostics.info("SpotifyREST:$level", msg)
+            when {
+                level.contains("ERR", ignoreCase = true) -> AppDiagnostics.error("SpotifyREST:$level", msg)
+                level.contains("WARN", ignoreCase = true) -> AppDiagnostics.warning("SpotifyREST:$level", msg)
+                else -> AppDiagnostics.info("SpotifyREST:$level", msg)
+            }
         }
         com.metrolist.spotify.SpotifyCanvas.setLogger { level, msg ->
             android.util.Log.d("SpotifyCanvas", "[$level] $msg")
-            AppDiagnostics.info("SpotifyCanvas:$level", msg)
+            when {
+                level.contains("ERR", ignoreCase = true) -> AppDiagnostics.error("SpotifyCanvas:$level", msg)
+                level.contains("WARN", ignoreCase = true) -> AppDiagnostics.warning("SpotifyCanvas:$level", msg)
+                else -> AppDiagnostics.info("SpotifyCanvas:$level", msg)
+            }
         }
         // Required by the ported YouTube streaming flow (cipher/PoToken WebViews).
         runCatching { CipherDeobfuscator.initialize(this) }

@@ -1,17 +1,35 @@
 package com.music.spotui.util
 
+import android.content.Context
+import android.os.Build
+import com.music.spotui.BuildConfig
+import com.music.spotui.accessibility.AccessibilityHelper
+import com.music.spotui.audio.AudioEffectController
+import com.music.spotui.audio.BluetoothAudioInspector
+import com.music.spotui.data.preferences.getBassBoostStrength
+import com.music.spotui.data.preferences.getEqPreset
+import com.music.spotui.data.preferences.getFloaterAutoHideMs
+import com.music.spotui.data.preferences.getFloaterHapticStrength
+import com.music.spotui.data.preferences.getSpatialProfile
+import com.music.spotui.data.preferences.getSpatialStrength
+import com.music.spotui.data.preferences.isEqEnabled
+import com.music.spotui.data.preferences.isEqSpatialEnabled
+import com.music.spotui.data.preferences.isFloaterEqAnd3dEnabled
+import com.music.spotui.data.preferences.isFloaterHapticsEnabled
+import com.music.spotui.data.preferences.isSpatial8dOrbitEnabled
+import com.music.spotui.di.SongPlayer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * DevConsoleManager
  * Real-time logging, video & audio watchdog, stream diagnostic telemetry,
- * error viewing, and audio focus / stream request collision detection for SpotUI.
+ * Accessibility Floater & Audio FX monitoring, error viewing, and collision detection.
  */
 object DevConsoleManager {
 
@@ -20,7 +38,7 @@ object DevConsoleManager {
         val level: LogLevel,
         val tag: String,
         val message: String,
-        val exceptionDetails: String? = null
+        val exceptionDetails: String? = null,
     )
 
     enum class LogLevel {
@@ -52,7 +70,8 @@ object DevConsoleManager {
     )
 
     private val dateFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
-    private val maxLogs = 600
+    private const val MAX_LOGS = 800
+    private val initialized = AtomicBoolean(false)
 
     private val _logs = MutableStateFlow<List<LogEntry>>(emptyList())
     val logs: StateFlow<List<LogEntry>> = _logs.asStateFlow()
@@ -63,6 +82,9 @@ object DevConsoleManager {
     private val _diagnostics = MutableStateFlow(PlaybackDiagnostics())
     val diagnostics: StateFlow<PlaybackDiagnostics> = _diagnostics.asStateFlow()
 
+    private val _isStreamPaused = MutableStateFlow(false)
+    val isStreamPaused: StateFlow<Boolean> = _isStreamPaused.asStateFlow()
+
     // Configurable Developer Flags
     val forceLosslessFlac = MutableStateFlow(false)
     val forceYoutubeEngine = MutableStateFlow(false)
@@ -72,25 +94,91 @@ object DevConsoleManager {
     val watchdogEnabled = MutableStateFlow(true)
 
     init {
-        logInfo("DevConsoleManager", "Developer Console, BT & Component Fault Telemetry initialized.")
+        appendInMemoryEntry(
+            LogEntry(
+                timestamp = formatNow(),
+                level = LogLevel.INFO,
+                tag = "DevConsoleManager",
+                message = "Developer Console, Floater, BT & Component Fault Telemetry ready.",
+            ),
+        )
+    }
+
+    fun initialize(context: Context) {
+        if (!initialized.compareAndSet(false, true)) return
+        val appCtx = context.applicationContext
+        val floaterEnabled = runCatching { AccessibilityHelper.isServiceEnabled(appCtx) }.getOrDefault(false)
+        val appVol = runCatching { SongPlayer.getAppVolumePercent(appCtx) }.getOrDefault(100)
+        logInfo(
+            "DevConsoleManager",
+            "Session v${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE}) | Floater=${if (floaterEnabled) "Active" else "Standby"} | InAppVol=$appVol%",
+        )
+    }
+
+    fun setStreamPaused(paused: Boolean) {
+        _isStreamPaused.value = paused
     }
 
     @Synchronized
-    fun log(level: LogLevel, tag: String, message: String, exception: Throwable? = null) {
-        val entry = LogEntry(
-            timestamp = dateFormat.format(Date()),
-            level = level,
-            tag = tag,
-            message = message,
-            exceptionDetails = exception?.stackTraceToString()
-        )
+    private fun appendInMemoryEntry(entry: LogEntry) {
+        if (_isStreamPaused.value && entry.level != LogLevel.ERROR && entry.level != LogLevel.COMPONENT_FAULT) {
+            return
+        }
         val current = _logs.value.toMutableList()
-        if (current.size >= maxLogs) {
+        while (current.size >= MAX_LOGS) {
             current.removeAt(0)
         }
         current.add(entry)
         _logs.value = current
-        AppDiagnostics.record(level.name, tag, message, exception)
+    }
+
+    private fun formatNow(): String = runCatching {
+        dateFormat.format(Date())
+    }.getOrDefault("00:00:00.000")
+
+    fun log(level: LogLevel, tag: String, message: String, exception: Throwable? = null) {
+        val entry = LogEntry(
+            timestamp = formatNow(),
+            level = level,
+            tag = tag,
+            message = message,
+            exceptionDetails = exception?.stackTraceToString(),
+        )
+        appendInMemoryEntry(entry)
+        // Persist to disk without mirroring back to avoid recursion.
+        AppDiagnostics.record(level.name, tag, message, exception, mirrorToConsole = false)
+    }
+
+    /**
+     * Bridges logs recorded directly via [AppDiagnostics] or [Logger] into the live
+     * Developer Console UI without re-writing them to disk a second time.
+     */
+    internal fun appendExternalLog(
+        rawLevel: String,
+        tag: String,
+        message: String,
+        exception: Throwable? = null,
+    ) {
+        val mapped = when (rawLevel.uppercase(Locale.US)) {
+            "ERROR", "FATAL" -> LogLevel.ERROR
+            "WARN", "WARNING" -> LogLevel.WARNING
+            "DEBUG" -> LogLevel.DEBUG
+            "WATCHDOG" -> LogLevel.WATCHDOG
+            "SANITIZATION" -> LogLevel.SANITIZATION
+            "COLLISION" -> LogLevel.COLLISION
+            "COMPONENT_FAULT" -> LogLevel.COMPONENT_FAULT
+            "BT_DIAGNOSTIC" -> LogLevel.BT_DIAGNOSTIC
+            else -> LogLevel.INFO
+        }
+        appendInMemoryEntry(
+            LogEntry(
+                timestamp = formatNow(),
+                level = mapped,
+                tag = tag,
+                message = message,
+                exceptionDetails = exception?.stackTraceToString(),
+            ),
+        )
     }
 
     fun logInfo(tag: String, message: String) = log(LogLevel.INFO, tag, message)
@@ -118,7 +206,7 @@ object DevConsoleManager {
         autoFixHint: String = "",
         exception: Throwable? = null,
     ) {
-        val ts = dateFormat.format(Date())
+        val ts = formatNow()
         val id = "${component}_${action}_${System.currentTimeMillis()}"
         val fault = ComponentFault(
             id = id,
@@ -159,6 +247,96 @@ object DevConsoleManager {
 
     fun clearLogs() {
         _logs.value = emptyList()
-        logInfo("DevConsoleManager", "Logs cleared by developer.")
+        logInfo("DevConsoleManager", "Live memory logs cleared by user.")
+    }
+
+    fun clearAllLogs(context: Context) {
+        _logs.value = emptyList()
+        AppDiagnostics.clear(context.applicationContext)
+        logInfo("DevConsoleManager", "Cleared both live memory logs and persistent disk diagnostics.")
+    }
+
+    /** Generates a clean, redacted full support bundle suitable for Clipboard or File Share. */
+    fun buildDiagnosticReportText(
+        context: Context,
+        healthReport: HealthScanReport? = null,
+        btReport: BluetoothAudioInspector.BluetoothSpecsReport? = null,
+        includeDiskTail: Boolean = true,
+    ): String = buildString {
+        val appCtx = context.applicationContext
+        val floaterActive = runCatching { AccessibilityHelper.isServiceEnabled(appCtx) }.getOrDefault(false)
+        val appVol = runCatching { SongPlayer.getAppVolumePercent(appCtx) }.getOrDefault(100)
+        val route = AudioEffectController.routeState.value
+        val telemetry = runCatching { SongPlayer.telemetrySnapshot(appCtx) }.getOrNull()
+        val autoHideMs = getFloaterAutoHideMs(appCtx)
+
+        appendLine("=== SPOTUI DIAGNOSTIC REPORT ===")
+        appendLine("Version: v${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE})")
+        appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL} (Android SDK ${Build.VERSION.SDK_INT})")
+        appendLine("Timestamp: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss z", Locale.US).format(Date())}")
+        appendLine()
+
+        appendLine("=== ACCESSIBILITY FLOATER & AUDIO DSP ===")
+        appendLine("Accessibility Service: ${if (floaterActive) "Active" else "Inactive"}")
+        appendLine("In-App Volume: $appVol% (independent of Android OS volume)")
+        appendLine("Floater EQ/3D Hook: ${if (isFloaterEqAnd3dEnabled(appCtx)) "Enabled" else "Hidden"}")
+        appendLine("Floater Haptics: ${if (isFloaterHapticsEnabled(appCtx)) getFloaterHapticStrength(appCtx).label else "Off"}")
+        appendLine("Floater Auto-Hide: ${if (autoHideMs <= 0L) "Stay Open" else "${autoHideMs / 1000L}s"}")
+        appendLine("EQ: enabled=${isEqEnabled(appCtx)} preset=${getEqPreset(appCtx)} bassBoost=${getBassBoostStrength(appCtx) / 10}%")
+        appendLine(
+            "3D Spatial: enabled=${isEqSpatialEnabled(appCtx)} profile=${getSpatialProfile(appCtx).label} " +
+                "depth=${getSpatialStrength(appCtx) / 10}% 8D=${isSpatial8dOrbitEnabled(appCtx)}",
+        )
+        appendLine("Output Route: ${route.route.label} (${route.deviceName})")
+        if (telemetry != null) {
+            appendLine(
+                "Playback: source=${telemetry.activeSource} quality=${telemetry.currentQuality} " +
+                    "state=${telemetry.playbackState} session=#${telemetry.sessionId} swDsp=${telemetry.softwareDspActive}",
+            )
+            if (!telemetry.lastError.isNullOrBlank()) {
+                appendLine("Last Player Error: ${telemetry.lastError}")
+            }
+        }
+
+        if (btReport != null) {
+            appendLine()
+            appendLine("=== BLUETOOTH / SINK SPECS ===")
+            appendLine("Device=${btReport.deviceName} Codec=${btReport.codecName} Rate=${btReport.sampleRateKhz} Depth=${btReport.bitsPerSample}")
+            appendLine("Transport=${btReport.transportLabel} Conflicts=${btReport.issueCount}")
+        }
+
+        if (healthReport != null) {
+            appendLine()
+            appendLine("=== SYSTEM HEALTH (${healthReport.checks.size} CHECKS) ===")
+            appendLine("Summary: ${healthReport.okCount} OK | ${healthReport.warnCount} WARN | ${healthReport.failCount} FAIL (${healthReport.durationMs}ms)")
+            healthReport.checks.forEach { c ->
+                appendLine("[${c.severity}] ${c.title}: ${c.summary} | ${c.detail}")
+            }
+        }
+
+        val currentFaults = faults.value
+        if (currentFaults.isNotEmpty()) {
+            appendLine()
+            appendLine("=== COMPONENT FAULTS (${currentFaults.size}) ===")
+            currentFaults.take(30).forEach { f ->
+                appendLine("${f.timestamp} [${if (f.resolved) "RESOLVED" else "OPEN"}] ${f.component}.${f.action}: ${f.reason}")
+            }
+        }
+
+        val liveLogs = logs.value.takeLast(120).reversed()
+        appendLine()
+        appendLine("=== LIVE MEMORY LOGS (${liveLogs.size} of ${logs.value.size}) ===")
+        liveLogs.forEach { l ->
+            appendLine("${l.timestamp} [${l.level}] ${l.tag}: ${l.message}")
+            if (!l.exceptionDetails.isNullOrBlank()) {
+                appendLine(l.exceptionDetails.take(600))
+            }
+        }
+
+        if (includeDiskTail) {
+            appendLine()
+            appendLine("=== PERSISTED DIAGNOSTICS LOG TAIL ===")
+            appendLine(AppDiagnostics.readRecent(appCtx, maxCharacters = 12_000))
+        }
     }
 }

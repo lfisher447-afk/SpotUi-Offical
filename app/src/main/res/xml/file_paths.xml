@@ -3,4 +3,10 @@
     <cache-path
         name="apk_updates"
         path="updates/" />
+    <cache-path
+        name="shared_logs"
+        path="logs/" />
+    <files-path
+        name="diagnostics"
+        path="diagnostics/" />
 </paths>

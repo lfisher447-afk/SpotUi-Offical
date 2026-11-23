@@ -51,8 +51,11 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.music.spotui.audio.AudioEffectController
+import com.music.spotui.audio.EqPresetCatalog
 import com.music.spotui.data.preferences.SpatialProfile
+import com.music.spotui.data.preferences.dspSettingsUpdates
 import com.music.spotui.data.preferences.getAudioNormalizerGainMb
 import com.music.spotui.data.preferences.getAudioNormalizerTargetLufs
 import com.music.spotui.data.preferences.getBassBoostStrength
@@ -105,26 +108,6 @@ import com.music.spotui.di.SongPlayer
 import com.music.spotui.ui.theme.AppPalette
 import kotlin.math.roundToInt
 
-private data class EqPresetCurve(
-    val name: String,
-    val bands: FloatArray, // SubBass, Bass, LowMid, Vocal, Presence, Treble, Brilliance (0..100)
-)
-
-private val studioEqPresets = listOf(
-    EqPresetCurve("Flat", floatArrayOf(50f, 50f, 50f, 50f, 50f, 50f, 50f)),
-    EqPresetCurve("Bass Boost", floatArrayOf(88f, 84f, 58f, 48f, 50f, 46f, 44f)),
-    EqPresetCurve("Vocal Boost", floatArrayOf(42f, 44f, 52f, 84f, 74f, 56f, 50f)),
-    EqPresetCurve("Electronic", floatArrayOf(82f, 76f, 44f, 48f, 62f, 78f, 82f)),
-    EqPresetCurve("Classical", floatArrayOf(48f, 46f, 54f, 68f, 64f, 66f, 70f)),
-    EqPresetCurve("Pop", floatArrayOf(58f, 62f, 52f, 66f, 68f, 64f, 58f)),
-    EqPresetCurve("Rock", floatArrayOf(74f, 76f, 46f, 54f, 68f, 74f, 68f)),
-    EqPresetCurve("Jazz", floatArrayOf(56f, 60f, 58f, 64f, 58f, 64f, 60f)),
-    EqPresetCurve("R&B / Hip-Hop", floatArrayOf(86f, 78f, 52f, 54f, 58f, 54f, 52f)),
-    EqPresetCurve("Acoustic", floatArrayOf(52f, 56f, 58f, 70f, 66f, 60f, 56f)),
-    EqPresetCurve("Late Night", floatArrayOf(66f, 62f, 50f, 62f, 52f, 44f, 40f)),
-    EqPresetCurve("Treble Sparkle", floatArrayOf(48f, 48f, 50f, 56f, 68f, 82f, 88f)),
-)
-
 @Composable
 fun AudioDspSection(
     modifier: Modifier = Modifier,
@@ -158,6 +141,34 @@ fun AudioDspSection(
     var spatialOrbitSpeed by remember { mutableStateOf(getSpatialOrbitSpeed(context)) }
     var spatialCorrelationGuard by remember { mutableStateOf(isSpatialCorrelationGuardEnabled(context)) }
     var headphoneCrossfeed by remember { mutableStateOf(isHeadphoneCrossfeedEnabled(context)) }
+
+    val dspRevision by dspSettingsUpdates.collectAsStateWithLifecycle()
+    LaunchedEffect(dspRevision) {
+        eqEnabled = isEqEnabled(context)
+        eqPreset = getEqPreset(context)
+        eqSubBass = getEqSubBass(context)
+        eqBass = getEqBass(context)
+        eqLowMid = getEqLowMid(context)
+        eqVocal = getEqVocal(context)
+        eqHighMid = getEqHighMid(context)
+        eqTreble = getEqTreble(context)
+        eqBrilliance = getEqBrilliance(context)
+        preampDb = getEqPreampDb(context)
+        bassBoostStrength = getBassBoostStrength(context).toFloat()
+        limiterEnabled = isLimiterEnabled(context)
+        audioNormalizer = isAudioNormalizerEnabled(context)
+        normalizerGainMb = getAudioNormalizerGainMb(context).toFloat()
+        normalizerTargetLufs = getAudioNormalizerTargetLufs(context)
+        eqSpatial = isEqSpatialEnabled(context)
+        spatialProfile = getSpatialProfile(context)
+        spatialStrength = getSpatialStrength(context).toFloat()
+        roomDelayMs = getSpatialRoomDelayMs(context)
+        spatialElevationDepth = getSpatialElevationDepth(context)
+        spatial8dOrbit = isSpatial8dOrbitEnabled(context)
+        spatialOrbitSpeed = getSpatialOrbitSpeed(context)
+        spatialCorrelationGuard = isSpatialCorrelationGuardEnabled(context)
+        headphoneCrossfeed = isHeadphoneCrossfeedEnabled(context)
+    }
 
     val applyLiveDsp = remember {
         {
@@ -365,7 +376,7 @@ fun AudioDspSection(
                 .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            studioEqPresets.forEach { preset ->
+            EqPresetCatalog.presets.forEach { preset ->
                 val isSelected = eqPreset == preset.name
                 Box(
                     modifier = Modifier
@@ -373,8 +384,8 @@ fun AudioDspSection(
                         .clip(RoundedCornerShape(20.dp))
                         .background(if (isSelected) AppPalette else Color.White.copy(alpha = 0.08f))
                         .clickable {
+                            EqPresetCatalog.applyPreset(context, preset)
                             eqPreset = preset.name
-                            setEqPreset(context, preset.name)
                             eqSubBass = preset.bands[0]
                             eqBass = preset.bands[1]
                             eqLowMid = preset.bands[2]
@@ -382,17 +393,7 @@ fun AudioDspSection(
                             eqHighMid = preset.bands[4]
                             eqTreble = preset.bands[5]
                             eqBrilliance = preset.bands[6]
-                            setEqSubBass(context, eqSubBass)
-                            setEqBass(context, eqBass)
-                            setEqLowMid(context, eqLowMid)
-                            setEqVocal(context, eqVocal)
-                            setEqHighMid(context, eqHighMid)
-                            setEqTreble(context, eqTreble)
-                            setEqBrilliance(context, eqBrilliance)
-                            if (!eqEnabled) {
-                                eqEnabled = true
-                                setEqEnabled(context, true)
-                            }
+                            eqEnabled = true
                             applyLiveDsp()
                         }
                         .testTag("eq_preset_${preset.name.lowercase().replace(" ", "_")}")

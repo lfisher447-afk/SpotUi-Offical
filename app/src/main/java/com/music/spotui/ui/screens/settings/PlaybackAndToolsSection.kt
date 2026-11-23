@@ -493,7 +493,7 @@ fun PlaybackAndToolsSection(
             }
         }
 
-        // Direct Shortcut to 18-Point Health Scanner & Logger
+        // Direct Shortcut to 21-Point Health Scanner & Logger
         Button(
             onClick = onOpenDeveloperConsole,
             colors = ButtonDefaults.buttonColors(containerColor = AppPalette, contentColor = Color.Black),
@@ -502,7 +502,7 @@ fun PlaybackAndToolsSection(
                 .heightIn(min = 48.dp)
                 .testTag("open_health_scanner_from_playback_button"),
         ) {
-            Text("Run 18-Point System Health Check & Logger", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text("Run 21-Point System Health Check & Logger", fontSize = 13.sp, fontWeight = FontWeight.Bold)
         }
     }
 }

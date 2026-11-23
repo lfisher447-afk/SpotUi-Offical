@@ -3,7 +3,9 @@ package com.music.spotui.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.widget.Toast
+import androidx.core.content.FileProvider
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,12 +32,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Healing
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -77,15 +84,31 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
 import androidx.navigation.NavController
+import com.music.spotui.accessibility.AccessibilityHelper
 import com.music.spotui.audio.BluetoothAudioInspector
+import com.music.spotui.data.preferences.dspSettingsUpdates
+import com.music.spotui.data.preferences.floaterSettingsUpdates
+import com.music.spotui.data.preferences.getEqPreset
+import com.music.spotui.data.preferences.getFloaterAutoHideMs
+import com.music.spotui.data.preferences.getFloaterHapticStrength
+import com.music.spotui.data.preferences.getSpatialProfile
+import com.music.spotui.data.preferences.getSpatialStrength
+import com.music.spotui.data.preferences.isEqEnabled
+import com.music.spotui.data.preferences.isEqSpatialEnabled
+import com.music.spotui.data.preferences.isFloaterEqAnd3dEnabled
+import com.music.spotui.data.preferences.isFloaterHapticsEnabled
+import com.music.spotui.data.preferences.isSpatial8dOrbitEnabled
+import com.music.spotui.data.preferences.resetFloaterGeometry
 import com.music.spotui.di.SongPlayer
 import com.music.spotui.ui.theme.AppBackground
 import com.music.spotui.ui.theme.AppPalette
+import com.music.spotui.util.AppDiagnostics
 import com.music.spotui.util.CheckSeverity
 import com.music.spotui.util.CrashHandler
 import com.music.spotui.util.DevConsoleManager
 import com.music.spotui.util.HealthCheckResult
 import com.music.spotui.util.HealthScanReport
+import com.music.spotui.util.Logger
 import com.music.spotui.util.SystemHealthChecker
 import androidx.compose.material.icons.filled.BluetoothAudio
 import androidx.compose.material.icons.filled.Build
@@ -102,10 +125,11 @@ fun DeveloperConsoleScreen(navController: NavController) {
     val diagnostics by DevConsoleManager.diagnostics.collectAsStateWithLifecycle()
 
     val faults by DevConsoleManager.faults.collectAsStateWithLifecycle()
+    val isStreamPaused by DevConsoleManager.isStreamPaused.collectAsStateWithLifecycle()
 
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    // Tab 1: 20-Point System Health Scanner State
+    // Tab 1: 21-Point System Health Scanner State
     var healthReport by remember { mutableStateOf<HealthScanReport?>(null) }
     var isScanning by remember { mutableStateOf(false) }
     var fixingId by remember { mutableStateOf<String?>(null) }
@@ -118,6 +142,10 @@ fun DeveloperConsoleScreen(navController: NavController) {
     var selectedFilter by remember { mutableStateOf<DevConsoleManager.LogLevel?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedLogForDialog by remember { mutableStateOf<DevConsoleManager.LogEntry?>(null) }
+    var showDiskLogDialog by remember { mutableStateOf(false) }
+    var diskLogText by remember { mutableStateOf("") }
+    var diskLogBytes by remember { mutableStateOf(AppDiagnostics.logFileSizeBytes(context)) }
+    var showClearLogsDialog by remember { mutableStateOf(false) }
 
     // Tab 3: Telemetry & Developer Switches State
     var telemetry by remember { mutableStateOf(SongPlayer.telemetrySnapshot(context)) }
@@ -160,6 +188,10 @@ fun DeveloperConsoleScreen(navController: NavController) {
     LaunchedEffect(Unit) {
         triggerScan()
         refreshBtSpecs()
+    }
+
+    LaunchedEffect(selectedTab, logs.size) {
+        diskLogBytes = AppDiagnostics.logFileSizeBytes(context)
     }
 
     // Periodic live telemetry refresh while on Telemetry or BT tab
@@ -210,25 +242,63 @@ fun DeveloperConsoleScreen(navController: NavController) {
                     IconButton(
                         onClick = {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            val summary = buildString {
-                                appendLine("=== SPOTUI DIAGNOSTIC REPORT ===")
-                                healthReport?.checks?.forEach { c ->
-                                    appendLine("[${c.severity}] ${c.title}: ${c.summary} | ${c.detail}")
-                                }
-                                appendLine("\n=== RECENT LOGS (${filteredLogs.size}) ===")
-                                filteredLogs.take(80).forEach { l ->
-                                    appendLine("${l.timestamp} [${l.level}] ${l.tag}: ${l.message}")
-                                }
-                            }
+                            val summary = DevConsoleManager.buildDiagnosticReportText(
+                                context = context,
+                                healthReport = healthReport,
+                                btReport = btReport,
+                                includeDiskTail = true,
+                            )
                             clipboard.setPrimaryClip(ClipData.newPlainText("SpotUIDiagnostics", summary))
-                            Toast.makeText(context, "Diagnostic report copied", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Full diagnostic report copied", Toast.LENGTH_SHORT).show()
                         },
                         modifier = Modifier.testTag("dev_console_copy_all_button"),
                     ) {
                         Icon(Icons.Default.ContentCopy, contentDescription = "Copy Full Report", tint = AppPalette)
                     }
                     IconButton(
-                        onClick = { DevConsoleManager.clearLogs() },
+                        onClick = {
+                            val bundle = DevConsoleManager.buildDiagnosticReportText(
+                                context = context,
+                                healthReport = healthReport,
+                                btReport = btReport,
+                                includeDiskTail = true,
+                            )
+                            val exportFile = AppDiagnostics.writeShareExportFile(context, bundle)
+                            val launched = runCatching {
+                                if (exportFile != null) {
+                                    val uri = FileProvider.getUriForFile(
+                                        context,
+                                        "${context.packageName}.fileprovider",
+                                        exportFile,
+                                    )
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_SUBJECT, "SpotUI Diagnostic Report")
+                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                        putExtra(Intent.EXTRA_TEXT, bundle.take(8_000))
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    context.startActivity(Intent.createChooser(shareIntent, "Share SpotUI Logs"))
+                                } else {
+                                    val textIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_SUBJECT, "SpotUI Diagnostic Report")
+                                        putExtra(Intent.EXTRA_TEXT, bundle.take(16_000))
+                                    }
+                                    context.startActivity(Intent.createChooser(textIntent, "Share SpotUI Logs"))
+                                }
+                                true
+                            }.getOrDefault(false)
+                            if (!launched) {
+                                Toast.makeText(context, "Unable to open share sheet", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.testTag("dev_console_share_logs_button"),
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = "Share Logs", tint = Color(0xFF8AB4F8))
+                    }
+                    IconButton(
+                        onClick = { showClearLogsDialog = true },
                         modifier = Modifier.testTag("dev_console_clear_logs_button"),
                     ) {
                         Icon(Icons.Default.Delete, contentDescription = "Clear Logs", tint = Color(0xFFFF6B6B))
@@ -253,7 +323,7 @@ fun DeveloperConsoleScreen(navController: NavController) {
                 Tab(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    text = { Text("Health (20)", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                    text = { Text("Health (21)", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
                     modifier = Modifier.testTag("dev_tab_health"),
                 )
                 Tab(
@@ -304,11 +374,24 @@ fun DeveloperConsoleScreen(navController: NavController) {
                     },
                 )
                 1 -> LiveLoggerTab(
+                    allLogs = logs,
                     filteredLogs = filteredLogs,
                     selectedFilter = selectedFilter,
                     searchQuery = searchQuery,
+                    isStreamPaused = isStreamPaused,
+                    diskLogBytes = diskLogBytes,
                     onFilterChange = { selectedFilter = it },
                     onSearchChange = { searchQuery = it },
+                    onToggleStreamPause = { DevConsoleManager.setStreamPaused(!isStreamPaused) },
+                    onOpenDiskLog = {
+                        diskLogText = AppDiagnostics.readRecent(context, maxCharacters = 48_000)
+                        diskLogBytes = AppDiagnostics.logFileSizeBytes(context)
+                        showDiskLogDialog = true
+                    },
+                    onEmitTestLog = {
+                        Logger.info("LoggerCheck", "Manual verification event recorded to Live Console & AppDiagnostics")
+                        Toast.makeText(context, "Test event logged", Toast.LENGTH_SHORT).show()
+                    },
                     onSelectLog = { selectedLogForDialog = it },
                 )
                 2 -> TelemetryAndCrashesTab(
@@ -450,6 +533,111 @@ fun DeveloperConsoleScreen(navController: NavController) {
             containerColor = Color(0xFF17171F),
         )
     }
+
+    if (showClearLogsDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearLogsDialog = false },
+            containerColor = Color(0xFF17171F),
+            title = { Text("Clear Diagnostic Logs", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Choose whether to clear the in-memory live log viewer, persisted disk diagnostics (${(diskLogBytes / 1024L).coerceAtLeast(1L)} KB), or both.",
+                    color = Color(0xFFC8CCD8),
+                    fontSize = 13.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        DevConsoleManager.clearAllLogs(context)
+                        diskLogBytes = AppDiagnostics.logFileSizeBytes(context)
+                        showClearLogsDialog = false
+                        Toast.makeText(context, "Cleared live & disk logs", Toast.LENGTH_SHORT).show()
+                    },
+                ) {
+                    Text("Clear All", color = Color(0xFFFF6B6B), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        onClick = {
+                            DevConsoleManager.clearLogs()
+                            showClearLogsDialog = false
+                            Toast.makeText(context, "Cleared live logs", Toast.LENGTH_SHORT).show()
+                        },
+                    ) {
+                        Text("Live Only", color = AppPalette)
+                    }
+                    TextButton(onClick = { showClearLogsDialog = false }) {
+                        Text("Cancel", color = Color.Gray)
+                    }
+                }
+            },
+        )
+    }
+
+    if (showDiskLogDialog) {
+        AlertDialog(
+            onDismissRequest = { showDiskLogDialog = false },
+            containerColor = Color(0xFF17171F),
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Description, contentDescription = null, tint = AppPalette)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Persisted Disk Diagnostics", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp)
+                        .background(Color.Black, RoundedCornerShape(8.dp))
+                        .padding(8.dp),
+                ) {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        item(key = "disk_log_body") {
+                            Text(
+                                text = diskLogText,
+                                color = Color(0xFFD5DCE8),
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 10.sp,
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("SpotUIDiskLog", diskLogText))
+                        Toast.makeText(context, "Disk log copied", Toast.LENGTH_SHORT).show()
+                    },
+                ) {
+                    Text("Copy Disk Log", color = AppPalette)
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        onClick = {
+                            AppDiagnostics.clear(context)
+                            diskLogText = AppDiagnostics.readRecent(context)
+                            diskLogBytes = AppDiagnostics.logFileSizeBytes(context)
+                            Toast.makeText(context, "Disk diagnostics cleared", Toast.LENGTH_SHORT).show()
+                        },
+                    ) {
+                        Text("Wipe Disk Log", color = Color(0xFFFF6B6B))
+                    }
+                    TextButton(onClick = { showDiskLogDialog = false }) {
+                        Text("Close", color = Color.Gray)
+                    }
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -584,13 +772,22 @@ private fun HealthCheckRow(
 
 @Composable
 private fun LiveLoggerTab(
+    allLogs: List<DevConsoleManager.LogEntry>,
     filteredLogs: List<DevConsoleManager.LogEntry>,
     selectedFilter: DevConsoleManager.LogLevel?,
     searchQuery: String,
+    isStreamPaused: Boolean,
+    diskLogBytes: Long,
     onFilterChange: (DevConsoleManager.LogLevel?) -> Unit,
     onSearchChange: (String) -> Unit,
+    onToggleStreamPause: () -> Unit,
+    onOpenDiskLog: () -> Unit,
+    onEmitTestLog: () -> Unit,
     onSelectLog: (DevConsoleManager.LogEntry) -> Unit,
 ) {
+    val levelCounts = remember(allLogs) {
+        allLogs.groupingBy { it.level }.eachCount()
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -602,6 +799,13 @@ private fun LiveLoggerTab(
             onValueChange = onSearchChange,
             placeholder = { Text("Filter by tag or message…", color = Color.Gray, fontSize = 13.sp) },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color.Gray) },
+            trailingIcon = {
+                if (searchQuery.isNotBlank()) {
+                    IconButton(onClick = { onSearchChange("") }) {
+                        Icon(Icons.Default.Close, contentDescription = "Clear search", tint = Color.Gray)
+                    }
+                }
+            },
             singleLine = true,
             modifier = Modifier
                 .fillMaxWidth()
@@ -617,6 +821,57 @@ private fun LiveLoggerTab(
             ),
         )
 
+        // Logger Status + Stream Controls Strip
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0xFF1A1B23))
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = "${allLogs.size} live · Disk ${(diskLogBytes / 1024L)} KB",
+                color = Color(0xFFB3BAC8),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(
+                    onClick = onToggleStreamPause,
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("logger_pause_stream_button"),
+                ) {
+                    Icon(
+                        imageVector = if (isStreamPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                        contentDescription = if (isStreamPaused) "Resume live logs" else "Pause live logs",
+                        tint = if (isStreamPaused) Color(0xFFFFB74D) else AppPalette,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        if (isStreamPaused) "Paused" else "Live",
+                        color = if (isStreamPaused) Color(0xFFFFB74D) else AppPalette,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                TextButton(
+                    onClick = onOpenDiskLog,
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("logger_view_disk_button"),
+                ) {
+                    Text("Disk Log", color = Color(0xFF9ED4FF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+                TextButton(
+                    onClick = onEmitTestLog,
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("logger_test_event_button"),
+                ) {
+                    Text("Test", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -626,14 +881,15 @@ private fun LiveLoggerTab(
             FilterChip(
                 selected = selectedFilter == null,
                 onClick = { onFilterChange(null) },
-                label = { Text("ALL", fontSize = 11.sp) },
+                label = { Text("ALL (${allLogs.size})", fontSize = 11.sp) },
                 modifier = Modifier.testTag("log_filter_all"),
             )
             DevConsoleManager.LogLevel.entries.forEach { lvl ->
+                val count = levelCounts[lvl] ?: 0
                 FilterChip(
                     selected = selectedFilter == lvl,
                     onClick = { onFilterChange(if (selectedFilter == lvl) null else lvl) },
-                    label = { Text(lvl.name, fontSize = 11.sp) },
+                    label = { Text("${lvl.name} ($count)", fontSize = 11.sp) },
                     modifier = Modifier.testTag("log_filter_${lvl.name.lowercase()}"),
                 )
             }
@@ -739,6 +995,63 @@ private fun TelemetryAndCrashesTab(
                     Icon(Icons.Default.BugReport, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("VIEW LATEST CRASH DUMP", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        // Accessibility Floater, In-App Volume & Studio DSP Live Card
+        val context = LocalContext.current
+        val dspRevision by dspSettingsUpdates.collectAsStateWithLifecycle()
+        val floaterRevision by floaterSettingsUpdates.collectAsStateWithLifecycle()
+        val inAppVolPct by SongPlayer.appVolumePercentFlow.collectAsStateWithLifecycle()
+        val floaterActive = remember(floaterRevision) { AccessibilityHelper.isServiceEnabled(context) }
+        val fxHookOn = remember(floaterRevision) { isFloaterEqAnd3dEnabled(context) }
+        val hapticsOn = remember(floaterRevision) { isFloaterHapticsEnabled(context) }
+        val hapticStrength = remember(floaterRevision) { getFloaterHapticStrength(context) }
+        val autoHideMs = remember(floaterRevision) { getFloaterAutoHideMs(context) }
+        val eqOn = remember(dspRevision) { isEqEnabled(context) }
+        val eqPreset = remember(dspRevision) { getEqPreset(context) }
+        val spatialOn = remember(dspRevision) { isEqSpatialEnabled(context) }
+        val spatialProf = remember(dspRevision) { getSpatialProfile(context) }
+        val spatialStrengthPct = remember(dspRevision) { (getSpatialStrength(context) / 10).coerceIn(0, 100) }
+        val orbitOn = remember(dspRevision) { isSpatial8dOrbitEnabled(context) }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFF1E2029))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("ACCESSIBILITY FLOATER & AUDIO FX TELEMETRY", color = AppPalette, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                DiagnosticBadge("Floater", if (floaterActive) "Active" else "Standby")
+                DiagnosticBadge("In-App Vol", "$inAppVolPct%")
+                DiagnosticBadge("EQ Preset", if (eqOn) eqPreset else "Off")
+                DiagnosticBadge("3D Audio", if (spatialOn) spatialProf.label else "Off")
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                DiagnosticBadge("FX Hook", if (fxHookOn) "Shown" else "Hidden")
+                DiagnosticBadge("Haptics", if (hapticsOn) hapticStrength.label else "Off")
+                DiagnosticBadge("Auto-Hide", if (autoHideMs <= 0L) "Stay Open" else "${autoHideMs / 1000L}s")
+                DiagnosticBadge("8D / Depth", if (spatialOn) "${if (orbitOn) "8D" else "Static"} $spatialStrengthPct%" else "Idle")
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    onClick = {
+                        resetFloaterGeometry(context)
+                        Toast.makeText(context, "Reset Floater size & position", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                ) {
+                    Text("Reset Floater Size/Pos", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
+                TextButton(
+                    onClick = { AccessibilityHelper.openAccessibilitySettings(context) },
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                ) {
+                    Text("Accessibility Settings", color = AppPalette, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }

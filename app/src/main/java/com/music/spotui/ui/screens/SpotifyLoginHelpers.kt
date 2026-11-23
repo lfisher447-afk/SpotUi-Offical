@@ -6,8 +6,11 @@ import android.content.Context
 import android.webkit.CookieManager
 import android.webkit.PermissionRequest
 import android.webkit.WebSettings
+import android.webkit.WebView
 import android.widget.Toast
+import androidx.webkit.UserAgentMetadata
 import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -74,14 +77,14 @@ internal enum class LoginTab {
 }
 
 internal enum class WebUaMode(val shortLabel: String, val detailLabel: String) {
-    SYSTEM_WEBVIEW("System Default", "Authentic Android System WebView UA (matches Sec-CH-UA Client Hints cleanly)"),
-    ANDROID_CHROME("Android Chrome", "Mobile Chrome UA (no '; wv') — try if Spotify rejects System WebView"),
-    DESKTOP_CHROME("Desktop Chrome", "Linux Chrome UA (fallback if Spotify forces desktop flow)");
+    ANDROID_CHROME("Android Chrome", "Mobile Chrome UA + synchronized Sec-CH-UA Client Hints (no '; wv')"),
+    DESKTOP_CHROME("Desktop Chrome", "Linux Chrome UA + Desktop Client Hints (fallback if Spotify forces desktop)"),
+    SYSTEM_WEBVIEW("System Default", "Unmodified Android System WebView UA");
 
     fun nextRecoveryMode(): WebUaMode = when (this) {
         SYSTEM_WEBVIEW -> ANDROID_CHROME
         ANDROID_CHROME -> DESKTOP_CHROME
-        DESKTOP_CHROME -> SYSTEM_WEBVIEW
+        DESKTOP_CHROME -> ANDROID_CHROME
     }
 }
 
@@ -91,26 +94,36 @@ internal data class PendingCredentialHandoff(
     val preferEmailCode: Boolean = false,
 )
 
+private val CHROME_VERSION_RE = Regex("""Chrome/(\d+\.\d+\.\d+\.\d+)""")
+
+private fun extractChromeVersionPair(context: Context): Pair<String, String> {
+    val sysUa = runCatching { WebSettings.getDefaultUserAgent(context) }.getOrNull().orEmpty()
+    val full = CHROME_VERSION_RE.find(sysUa)?.groupValues?.getOrNull(1) ?: "135.0.7049.111"
+    val major = full.substringBefore('.').takeIf { it.all(Char::isDigit) } ?: "135"
+    return major to full
+}
+
 internal fun resolveUserAgent(context: Context, mode: WebUaMode): String {
     val sysUa = runCatching { WebSettings.getDefaultUserAgent(context) }.getOrNull().orEmpty()
+    val (majorVer, fullVer) = extractChromeVersionPair(context)
     return when (mode) {
         WebUaMode.ANDROID_CHROME -> {
             if (sysUa.isNotBlank()) {
-                // Removing "; wv" makes Spotify & Google OAuth treat WebView as authentic mobile Chrome
-                // while keeping the true Android OS, device build, GPU, and touch fingerprint intact!
+                // Removing "; wv" & "Version/4.0 " makes Spotify/reCAPTCHA treat WebView as mobile Chrome
+                // while keeping genuine hardware build & synchronized UserAgentMetadata Client Hints.
                 sysUa
                     .replace("; wv)", ")")
                     .replace("; wv;", ";")
                     .replace("Version/4.0 ", "")
             } else {
-                "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.200 Mobile Safari/537.36"
+                "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$fullVer Mobile Safari/537.36"
             }
         }
         WebUaMode.SYSTEM_WEBVIEW -> sysUa.ifBlank {
-            "Mozilla/5.0 (Linux; Android 14; K; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/131.0.6778.200 Mobile Safari/537.36"
+            "Mozilla/5.0 (Linux; Android 14; K; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/$fullVer Mobile Safari/537.36"
         }
         WebUaMode.DESKTOP_CHROME -> {
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$majorVer.0.0.0 Safari/537.36"
         }
     }
 }
@@ -164,11 +177,13 @@ internal fun configureAuthWebViewSettings(
     } else {
         uaMode
     }
+    val (majorVer, fullVer) = extractChromeVersionPair(context)
     settings.apply {
         javaScriptEnabled = true
         domStorageEnabled = true
         databaseEnabled = true
         allowContentAccess = true
+        loadsImagesAutomatically = true
         mediaPlaybackRequiresUserGesture = false
         useWideViewPort = true
         loadWithOverviewMode = true
@@ -183,6 +198,151 @@ internal fun configureAuthWebViewSettings(
     runCatching {
         if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
             WebSettingsCompat.setRequestedWithHeaderOriginAllowList(settings, emptySet())
+        }
+    }
+    runCatching {
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)) {
+            WebSettingsCompat.setWebAuthenticationSupport(
+                settings,
+                WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP,
+            )
+        }
+    }
+    runCatching {
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) {
+            val baseMeta = runCatching { WebSettingsCompat.getUserAgentMetadata(settings) }.getOrNull()
+            when (effectiveUaMode) {
+                WebUaMode.ANDROID_CHROME -> {
+                    val existingBrands = baseMeta?.brandVersionList.orEmpty()
+                    val patchedBrands = if (existingBrands.isNotEmpty()) {
+                        existingBrands.map { bv ->
+                            if (bv.brand.contains("WebView", ignoreCase = true)) {
+                                UserAgentMetadata.BrandVersion.Builder()
+                                    .setBrand("Google Chrome")
+                                    .setMajorVersion(bv.majorVersion.ifBlank { majorVer })
+                                    .setFullVersion(bv.fullVersion.ifBlank { fullVer })
+                                    .build()
+                            } else {
+                                bv
+                            }
+                        }
+                    } else {
+                        listOf(
+                            UserAgentMetadata.BrandVersion.Builder()
+                                .setBrand("Not(A:Brand")
+                                .setMajorVersion("99")
+                                .setFullVersion("99.0.0.0")
+                                .build(),
+                            UserAgentMetadata.BrandVersion.Builder()
+                                .setBrand("Chromium")
+                                .setMajorVersion(majorVer)
+                                .setFullVersion(fullVer)
+                                .build(),
+                            UserAgentMetadata.BrandVersion.Builder()
+                                .setBrand("Google Chrome")
+                                .setMajorVersion(majorVer)
+                                .setFullVersion(fullVer)
+                                .build(),
+                        )
+                    }
+                    val builder = if (baseMeta != null) {
+                        UserAgentMetadata.Builder(baseMeta)
+                    } else {
+                        UserAgentMetadata.Builder()
+                    }
+                    WebSettingsCompat.setUserAgentMetadata(
+                        settings,
+                        builder
+                            .setBrandVersionList(patchedBrands)
+                            .setFullVersion(baseMeta?.fullVersion?.ifBlank { fullVer } ?: fullVer)
+                            .setPlatform("Android")
+                            .setMobile(true)
+                            .build(),
+                    )
+                }
+                WebUaMode.DESKTOP_CHROME -> {
+                    val desktopVer = "$majorVer.0.0.0"
+                    val desktopBrands = listOf(
+                        UserAgentMetadata.BrandVersion.Builder()
+                            .setBrand("Not(A:Brand")
+                            .setMajorVersion("99")
+                            .setFullVersion("99.0.0.0")
+                            .build(),
+                        UserAgentMetadata.BrandVersion.Builder()
+                            .setBrand("Chromium")
+                            .setMajorVersion(majorVer)
+                            .setFullVersion(desktopVer)
+                            .build(),
+                        UserAgentMetadata.BrandVersion.Builder()
+                            .setBrand("Google Chrome")
+                            .setMajorVersion(majorVer)
+                            .setFullVersion(desktopVer)
+                            .build(),
+                    )
+                    WebSettingsCompat.setUserAgentMetadata(
+                        settings,
+                        UserAgentMetadata.Builder()
+                            .setBrandVersionList(desktopBrands)
+                            .setFullVersion(desktopVer)
+                            .setPlatform("Linux")
+                            .setPlatformVersion("6.8.0")
+                            .setArchitecture("x86")
+                            .setBitness(64)
+                            .setModel("")
+                            .setMobile(false)
+                            .setWow64(false)
+                            .build(),
+                    )
+                }
+                WebUaMode.SYSTEM_WEBVIEW -> Unit
+            }
+        }
+    }
+}
+
+private const val AUTH_STORAGE_ACCESS_SHIM_JS = """
+(function(){
+  try {
+    if (window.__spotuiStorageShim) return;
+    window.__spotuiStorageShim = true;
+    if (typeof Document !== 'undefined' && Document.prototype) {
+      var origHas = Document.prototype.hasStorageAccess;
+      var origReq = Document.prototype.requestStorageAccess;
+      if (origHas) {
+        Document.prototype.hasStorageAccess = function(){
+          return origHas.call(this).catch(function(){ return true; });
+        };
+      }
+      if (origReq) {
+        Document.prototype.requestStorageAccess = function(){
+          return origReq.call(this).catch(function(){ return undefined; });
+        };
+      }
+    }
+  } catch(e){}
+})();
+"""
+
+/**
+ * Installs a document-start Storage Access fallback shim on Spotify/challenge origins so embedded
+ * challenge iframes never fail or stall when Android WebView rejects `requestStorageAccess()`
+ * despite third-party cookies already being permitted by [android.webkit.CookieManager].
+ */
+internal fun installAuthDocumentStartShims(webView: WebView) {
+    runCatching {
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            WebViewCompat.addDocumentStartJavaScript(
+                webView,
+                AUTH_STORAGE_ACCESS_SHIM_JS.trimIndent(),
+                setOf(
+                    "https://accounts.spotify.com",
+                    "https://challenge.spotify.com",
+                    "https://open.spotify.com",
+                    "https://www.spotify.com",
+                    "https://www.google.com",
+                    "https://www.recaptcha.net",
+                ),
+            )
         }
     }
 }

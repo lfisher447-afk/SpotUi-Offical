@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import com.metrolist.music.constants.AudioQuality
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * User-facing audio quality tiers (Spotify-style). Each maps to the YouTube format
@@ -97,10 +98,24 @@ private fun prefs(c: Context) = c.getSharedPreferences(PREF, Context.MODE_PRIVAT
 
 private val uiSettingsRevision = MutableStateFlow(0)
 val uiSettingsUpdates = uiSettingsRevision.asStateFlow()
-private fun notifyUiSettingsChanged() { uiSettingsRevision.value += 1 }
+private fun notifyUiSettingsChanged() { uiSettingsRevision.update { it + 1 } }
+
+private val dspSettingsRevision = MutableStateFlow(0)
+val dspSettingsUpdates = dspSettingsRevision.asStateFlow()
+private fun notifyDspSettingsChanged() { dspSettingsRevision.update { it + 1 } }
+
+private val floaterSettingsRevision = MutableStateFlow(0)
+val floaterSettingsUpdates = floaterSettingsRevision.asStateFlow()
+private fun notifyFloaterSettingsChanged() { floaterSettingsRevision.update { it + 1 } }
 
 /** Allows appearance/accessibility modules to request an app-wide settings recomposition. */
 fun signalUiSettingsChanged() { notifyUiSettingsChanged() }
+
+/** Signals Settings UI and the Accessibility Floater to re-read EQ / 3D DSP state. */
+fun signalDspSettingsChanged() { notifyDspSettingsChanged() }
+
+/** Signals the Accessibility Floater service to refresh behavior, haptics, or geometry. */
+fun signalFloaterSettingsChanged() { notifyFloaterSettingsChanged() }
 
 private fun readQ(c: Context, key: String, def: StreamQuality): StreamQuality {
     val raw = prefs(c).getString(key, def.name)
@@ -250,42 +265,75 @@ private const val KEY_EQ_SPATIAL = "audio_eq_spatial"
 private const val KEY_AUDIO_NORMALIZER = "audio_volume_normalizer"
 
 fun getEqPreset(c: Context): String = prefs(c).getString(KEY_EQ_PRESET, "Flat").orEmpty()
-fun setEqPreset(c: Context, v: String) = prefs(c).edit().putString(KEY_EQ_PRESET, v).apply()
+fun setEqPreset(c: Context, v: String) {
+    prefs(c).edit().putString(KEY_EQ_PRESET, v).apply()
+    notifyDspSettingsChanged()
+}
 
 fun getEqBass(c: Context): Float = prefs(c).getFloat(KEY_EQ_BASS, 50f)
-fun setEqBass(c: Context, v: Float) = prefs(c).edit().putFloat(KEY_EQ_BASS, v).apply()
+fun setEqBass(c: Context, v: Float) {
+    prefs(c).edit().putFloat(KEY_EQ_BASS, v).apply()
+    notifyDspSettingsChanged()
+}
 
 fun getEqVocal(c: Context): Float = prefs(c).getFloat(KEY_EQ_VOCAL, 50f)
-fun setEqVocal(c: Context, v: Float) = prefs(c).edit().putFloat(KEY_EQ_VOCAL, v).apply()
+fun setEqVocal(c: Context, v: Float) {
+    prefs(c).edit().putFloat(KEY_EQ_VOCAL, v).apply()
+    notifyDspSettingsChanged()
+}
 
 fun getEqTreble(c: Context): Float = prefs(c).getFloat(KEY_EQ_TREBLE, 50f)
-fun setEqTreble(c: Context, v: Float) = prefs(c).edit().putFloat(KEY_EQ_TREBLE, v).apply()
+fun setEqTreble(c: Context, v: Float) {
+    prefs(c).edit().putFloat(KEY_EQ_TREBLE, v).apply()
+    notifyDspSettingsChanged()
+}
 
 fun getEqLowMid(c: Context): Float = prefs(c).getFloat(KEY_EQ_LOW_MID, 50f)
-fun setEqLowMid(c: Context, v: Float) = prefs(c).edit().putFloat(KEY_EQ_LOW_MID, v.coerceIn(0f, 100f)).apply()
+fun setEqLowMid(c: Context, v: Float) {
+    prefs(c).edit().putFloat(KEY_EQ_LOW_MID, v.coerceIn(0f, 100f)).apply()
+    notifyDspSettingsChanged()
+}
 
 fun getEqHighMid(c: Context): Float = prefs(c).getFloat(KEY_EQ_HIGH_MID, 50f)
-fun setEqHighMid(c: Context, v: Float) = prefs(c).edit().putFloat(KEY_EQ_HIGH_MID, v.coerceIn(0f, 100f)).apply()
+fun setEqHighMid(c: Context, v: Float) {
+    prefs(c).edit().putFloat(KEY_EQ_HIGH_MID, v.coerceIn(0f, 100f)).apply()
+    notifyDspSettingsChanged()
+}
 
 fun isEqSpatialEnabled(c: Context): Boolean = prefs(c).getBoolean(KEY_EQ_SPATIAL, false)
-fun setEqSpatialEnabled(c: Context, v: Boolean) = prefs(c).edit().putBoolean(KEY_EQ_SPATIAL, v).apply()
+fun setEqSpatialEnabled(c: Context, v: Boolean) {
+    prefs(c).edit().putBoolean(KEY_EQ_SPATIAL, v).apply()
+    notifyDspSettingsChanged()
+}
 
 fun isAudioNormalizerEnabled(c: Context): Boolean = prefs(c).getBoolean(KEY_AUDIO_NORMALIZER, true)
-fun setAudioNormalizerEnabled(c: Context, v: Boolean) = prefs(c).edit().putBoolean(KEY_AUDIO_NORMALIZER, v).apply()
+fun setAudioNormalizerEnabled(c: Context, v: Boolean) {
+    prefs(c).edit().putBoolean(KEY_AUDIO_NORMALIZER, v).apply()
+    notifyDspSettingsChanged()
+}
 
 /** Device effect strength is expressed in millibels; 0–600 keeps the effect useful without an aggressive gain jump. */
 fun getAudioNormalizerGainMb(c: Context): Int = prefs(c).getInt(KEY_NORMALIZER_GAIN_MB, 250).coerceIn(0, 600)
-fun setAudioNormalizerGainMb(c: Context, v: Int) = prefs(c).edit().putInt(KEY_NORMALIZER_GAIN_MB, v.coerceIn(0, 600)).apply()
+fun setAudioNormalizerGainMb(c: Context, v: Int) {
+    prefs(c).edit().putInt(KEY_NORMALIZER_GAIN_MB, v.coerceIn(0, 600)).apply()
+    notifyDspSettingsChanged()
+}
 
 fun getSpatialProfile(c: Context): SpatialProfile {
     val raw = prefs(c).getString(KEY_SPATIAL_PROFILE, SpatialProfile.IMMERSIVE.name)
     return raw?.let { runCatching { SpatialProfile.valueOf(it) }.getOrNull() } ?: SpatialProfile.IMMERSIVE
 }
-fun setSpatialProfile(c: Context, profile: SpatialProfile) = prefs(c).edit().putString(KEY_SPATIAL_PROFILE, profile.name).apply()
+fun setSpatialProfile(c: Context, profile: SpatialProfile) {
+    prefs(c).edit().putString(KEY_SPATIAL_PROFILE, profile.name).apply()
+    notifyDspSettingsChanged()
+}
 
 /** Framework virtualizer strength: 0–1000. */
 fun getSpatialStrength(c: Context): Int = prefs(c).getInt(KEY_SPATIAL_STRENGTH, 900).coerceIn(0, 1000)
-fun setSpatialStrength(c: Context, strength: Int) = prefs(c).edit().putInt(KEY_SPATIAL_STRENGTH, strength.coerceIn(0, 1000)).apply()
+fun setSpatialStrength(c: Context, strength: Int) {
+    prefs(c).edit().putInt(KEY_SPATIAL_STRENGTH, strength.coerceIn(0, 1000)).apply()
+    notifyDspSettingsChanged()
+}
 
 fun getNavigationMode(c: Context): NavigationMode {
     val raw = prefs(c).getString(KEY_NAVIGATION_MODE, NavigationMode.BOTTOM_BAR.name)
@@ -480,28 +528,52 @@ private const val KEY_SPATIAL_ROOM_DELAY_MS = "audio_spatial_room_delay_ms"
 private const val KEY_NORMALIZER_TARGET_LUFS = "audio_normalizer_target_lufs"
 
 fun isEqEnabled(c: Context): Boolean = prefs(c).getBoolean(KEY_EQ_ENABLED, true)
-fun setEqEnabled(c: Context, v: Boolean) = prefs(c).edit().putBoolean(KEY_EQ_ENABLED, v).apply()
+fun setEqEnabled(c: Context, v: Boolean) {
+    prefs(c).edit().putBoolean(KEY_EQ_ENABLED, v).apply()
+    notifyDspSettingsChanged()
+}
 
 fun getEqSubBass(c: Context): Float = prefs(c).getFloat(KEY_EQ_SUB_BASS, 50f).coerceIn(0f, 100f)
-fun setEqSubBass(c: Context, v: Float) = prefs(c).edit().putFloat(KEY_EQ_SUB_BASS, v.coerceIn(0f, 100f)).apply()
+fun setEqSubBass(c: Context, v: Float) {
+    prefs(c).edit().putFloat(KEY_EQ_SUB_BASS, v.coerceIn(0f, 100f)).apply()
+    notifyDspSettingsChanged()
+}
 
 fun getEqBrilliance(c: Context): Float = prefs(c).getFloat(KEY_EQ_BRILLIANCE, 50f).coerceIn(0f, 100f)
-fun setEqBrilliance(c: Context, v: Float) = prefs(c).edit().putFloat(KEY_EQ_BRILLIANCE, v.coerceIn(0f, 100f)).apply()
+fun setEqBrilliance(c: Context, v: Float) {
+    prefs(c).edit().putFloat(KEY_EQ_BRILLIANCE, v.coerceIn(0f, 100f)).apply()
+    notifyDspSettingsChanged()
+}
 
 fun getEqPreampDb(c: Context): Float = prefs(c).getFloat(KEY_EQ_PREAMP_DB, 0f).coerceIn(-12f, 6f)
-fun setEqPreampDb(c: Context, db: Float) = prefs(c).edit().putFloat(KEY_EQ_PREAMP_DB, db.coerceIn(-12f, 6f)).apply()
+fun setEqPreampDb(c: Context, db: Float) {
+    prefs(c).edit().putFloat(KEY_EQ_PREAMP_DB, db.coerceIn(-12f, 6f)).apply()
+    notifyDspSettingsChanged()
+}
 
 fun getBassBoostStrength(c: Context): Int = prefs(c).getInt(KEY_BASS_BOOST_STRENGTH, 0).coerceIn(0, 1000)
-fun setBassBoostStrength(c: Context, v: Int) = prefs(c).edit().putInt(KEY_BASS_BOOST_STRENGTH, v.coerceIn(0, 1000)).apply()
+fun setBassBoostStrength(c: Context, v: Int) {
+    prefs(c).edit().putInt(KEY_BASS_BOOST_STRENGTH, v.coerceIn(0, 1000)).apply()
+    notifyDspSettingsChanged()
+}
 
 fun isLimiterEnabled(c: Context): Boolean = prefs(c).getBoolean(KEY_LIMITER_ENABLED, true)
-fun setLimiterEnabled(c: Context, v: Boolean) = prefs(c).edit().putBoolean(KEY_LIMITER_ENABLED, v).apply()
+fun setLimiterEnabled(c: Context, v: Boolean) {
+    prefs(c).edit().putBoolean(KEY_LIMITER_ENABLED, v).apply()
+    notifyDspSettingsChanged()
+}
 
 fun isHeadphoneCrossfeedEnabled(c: Context): Boolean = prefs(c).getBoolean(KEY_HEADPHONE_CROSSFEED, false)
-fun setHeadphoneCrossfeedEnabled(c: Context, v: Boolean) = prefs(c).edit().putBoolean(KEY_HEADPHONE_CROSSFEED, v).apply()
+fun setHeadphoneCrossfeedEnabled(c: Context, v: Boolean) {
+    prefs(c).edit().putBoolean(KEY_HEADPHONE_CROSSFEED, v).apply()
+    notifyDspSettingsChanged()
+}
 
 fun getSpatialRoomDelayMs(c: Context): Float = prefs(c).getFloat(KEY_SPATIAL_ROOM_DELAY_MS, 12f).coerceIn(2f, 28f)
-fun setSpatialRoomDelayMs(c: Context, ms: Float) = prefs(c).edit().putFloat(KEY_SPATIAL_ROOM_DELAY_MS, ms.coerceIn(2f, 28f)).apply()
+fun setSpatialRoomDelayMs(c: Context, ms: Float) {
+    prefs(c).edit().putFloat(KEY_SPATIAL_ROOM_DELAY_MS, ms.coerceIn(2f, 28f)).apply()
+    notifyDspSettingsChanged()
+}
 
 private const val KEY_SPATIAL_8D_ORBIT = "audio_spatial_8d_orbit"
 private const val KEY_SPATIAL_ORBIT_SPEED = "audio_spatial_orbit_speed"
@@ -509,23 +581,34 @@ private const val KEY_SPATIAL_ELEVATION_DEPTH = "audio_spatial_elevation_depth"
 private const val KEY_SPATIAL_CORRELATION_GUARD = "audio_spatial_correlation_guard"
 
 fun isSpatial8dOrbitEnabled(c: Context): Boolean = prefs(c).getBoolean(KEY_SPATIAL_8D_ORBIT, false)
-fun setSpatial8dOrbitEnabled(c: Context, enabled: Boolean) =
+fun setSpatial8dOrbitEnabled(c: Context, enabled: Boolean) {
     prefs(c).edit().putBoolean(KEY_SPATIAL_8D_ORBIT, enabled).apply()
+    notifyDspSettingsChanged()
+}
 
 fun getSpatialOrbitSpeed(c: Context): Float = prefs(c).getFloat(KEY_SPATIAL_ORBIT_SPEED, 0.32f).coerceIn(0.10f, 1.50f)
-fun setSpatialOrbitSpeed(c: Context, hz: Float) =
+fun setSpatialOrbitSpeed(c: Context, hz: Float) {
     prefs(c).edit().putFloat(KEY_SPATIAL_ORBIT_SPEED, hz.coerceIn(0.10f, 1.50f)).apply()
+    notifyDspSettingsChanged()
+}
 
 fun getSpatialElevationDepth(c: Context): Float = prefs(c).getFloat(KEY_SPATIAL_ELEVATION_DEPTH, 0.70f).coerceIn(0f, 1f)
-fun setSpatialElevationDepth(c: Context, depth: Float) =
+fun setSpatialElevationDepth(c: Context, depth: Float) {
     prefs(c).edit().putFloat(KEY_SPATIAL_ELEVATION_DEPTH, depth.coerceIn(0f, 1f)).apply()
+    notifyDspSettingsChanged()
+}
 
 fun isSpatialCorrelationGuardEnabled(c: Context): Boolean = prefs(c).getBoolean(KEY_SPATIAL_CORRELATION_GUARD, true)
-fun setSpatialCorrelationGuardEnabled(c: Context, enabled: Boolean) =
+fun setSpatialCorrelationGuardEnabled(c: Context, enabled: Boolean) {
     prefs(c).edit().putBoolean(KEY_SPATIAL_CORRELATION_GUARD, enabled).apply()
+    notifyDspSettingsChanged()
+}
 
 fun getAudioNormalizerTargetLufs(c: Context): Float = prefs(c).getFloat(KEY_NORMALIZER_TARGET_LUFS, -14f).coerceIn(-24f, -8f)
-fun setAudioNormalizerTargetLufs(c: Context, lufs: Float) = prefs(c).edit().putFloat(KEY_NORMALIZER_TARGET_LUFS, lufs.coerceIn(-24f, -8f)).apply()
+fun setAudioNormalizerTargetLufs(c: Context, lufs: Float) {
+    prefs(c).edit().putFloat(KEY_NORMALIZER_TARGET_LUFS, lufs.coerceIn(-24f, -8f)).apply()
+    notifyDspSettingsChanged()
+}
 
 // ── Playback Engine, Focus, Buffer & Search Preferences ──
 private const val KEY_AUTOPLAY_RADIO = "playback_autoplay_radio"
@@ -648,5 +731,80 @@ fun isAutoSyncYoutubePlaylistsEnabled(c: Context): Boolean =
 
 fun setAutoSyncYoutubePlaylistsEnabled(c: Context, enabled: Boolean) =
     prefs(c).edit().putBoolean(KEY_YT_AUTO_SYNC_PLAYLISTS, enabled).apply()
+
+// ── Accessibility Floating Studio Mini-Player Hooks ──
+enum class FloaterHapticStrength(
+    val label: String,
+    val clickDurationMs: Long,
+    val accentDurationMs: Long,
+    val amplitude: Int,
+) {
+    LIGHT("Light", 10L, 18L, 85),
+    MEDIUM("Medium", 16L, 28L, 150),
+    STRONG("Strong", 24L, 42L, 235),
+}
+
+private const val KEY_FLOATER_EQ_AND_3D_ENABLED = "accessibility_floater_eq_3d_enabled"
+private const val KEY_FLOATER_START_EXPANDED = "accessibility_floater_start_expanded"
+private const val KEY_FLOATER_HAPTICS_ENABLED = "accessibility_floater_haptics_enabled"
+private const val KEY_FLOATER_HAPTIC_STRENGTH = "accessibility_floater_haptic_strength"
+private const val KEY_FLOATER_AUTO_HIDE_MS = "accessibility_floater_auto_hide_ms"
+const val FLOATER_OVERLAY_PREFS_NAME = "spotui_accessibility_mini_player"
+
+fun isFloaterEqAnd3dEnabled(c: Context): Boolean =
+    prefs(c).getBoolean(KEY_FLOATER_EQ_AND_3D_ENABLED, true)
+
+fun setFloaterEqAnd3dEnabled(c: Context, enabled: Boolean) {
+    prefs(c).edit().putBoolean(KEY_FLOATER_EQ_AND_3D_ENABLED, enabled).apply()
+    notifyFloaterSettingsChanged()
+}
+
+fun isFloaterStartExpanded(c: Context): Boolean =
+    prefs(c).getBoolean(KEY_FLOATER_START_EXPANDED, false)
+
+fun setFloaterStartExpanded(c: Context, expanded: Boolean) {
+    prefs(c).edit().putBoolean(KEY_FLOATER_START_EXPANDED, expanded).apply()
+    notifyFloaterSettingsChanged()
+}
+
+fun isFloaterHapticsEnabled(c: Context): Boolean =
+    prefs(c).getBoolean(KEY_FLOATER_HAPTICS_ENABLED, true)
+
+fun setFloaterHapticsEnabled(c: Context, enabled: Boolean) {
+    prefs(c).edit().putBoolean(KEY_FLOATER_HAPTICS_ENABLED, enabled).apply()
+    notifyFloaterSettingsChanged()
+}
+
+fun getFloaterHapticStrength(c: Context): FloaterHapticStrength {
+    val raw = prefs(c).getString(KEY_FLOATER_HAPTIC_STRENGTH, FloaterHapticStrength.MEDIUM.name)
+    return raw?.let { runCatching { FloaterHapticStrength.valueOf(it) }.getOrNull() }
+        ?: FloaterHapticStrength.MEDIUM
+}
+
+fun setFloaterHapticStrength(c: Context, strength: FloaterHapticStrength) {
+    prefs(c).edit().putString(KEY_FLOATER_HAPTIC_STRENGTH, strength.name).apply()
+    notifyFloaterSettingsChanged()
+}
+
+/** Auto-hide timeout in ms; 0L keeps the Accessibility Floater open until dismissed manually. */
+fun getFloaterAutoHideMs(c: Context): Long =
+    prefs(c).getLong(KEY_FLOATER_AUTO_HIDE_MS, 12_000L).let { v ->
+        if (v < 0L) 12_000L else v
+    }
+
+fun setFloaterAutoHideMs(c: Context, timeoutMs: Long) {
+    prefs(c).edit().putLong(KEY_FLOATER_AUTO_HIDE_MS, timeoutMs.coerceAtLeast(0L)).apply()
+    notifyFloaterSettingsChanged()
+}
+
+fun resetFloaterGeometry(c: Context) {
+    c.applicationContext
+        .getSharedPreferences(FLOATER_OVERLAY_PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .clear()
+        .apply()
+    notifyFloaterSettingsChanged()
+}
+
 
 

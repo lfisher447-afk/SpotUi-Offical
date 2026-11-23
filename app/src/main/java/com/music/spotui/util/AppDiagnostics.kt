@@ -13,8 +13,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Bounded app-private diagnostics for support and crash investigation.
  *
  * Records operational events only; it deliberately does not write access tokens,
- * stream URLs, cookies, or playlist contents. The log remains in app-private
- * storage and can be exported only through an explicit user action.
+ * stream URLs, cookies, or playlist contents. Every recorded entry is also mirrored
+ * cleanly into [DevConsoleManager] for live in-app inspection without recursion.
  */
 object AppDiagnostics {
     private const val TAG = "AppDiagnostics"
@@ -44,13 +44,21 @@ object AppDiagnostics {
 
     fun info(tag: String, message: String) = record("INFO", tag, message)
 
+    fun debug(tag: String, message: String) = record("DEBUG", tag, message)
+
     fun warning(tag: String, message: String, throwable: Throwable? = null) =
         record("WARN", tag, message, throwable)
 
     fun error(tag: String, message: String, throwable: Throwable? = null) =
         record("ERROR", tag, message, throwable)
 
-    fun record(level: String, tag: String, message: String, throwable: Throwable? = null) {
+    fun record(
+        level: String,
+        tag: String,
+        message: String,
+        throwable: Throwable? = null,
+        mirrorToConsole: Boolean = true,
+    ) {
         val safeTag = tag.take(80).replace(Regex("[\\r\\n]"), " ")
         val safeMessage = sanitize(message)
         val throwableText = throwable?.stackTraceToString()?.take(MAX_STACK_CHARS)
@@ -71,8 +79,15 @@ object AppDiagnostics {
 
         when (level) {
             "ERROR", "FATAL" -> Log.e(TAG, "[$safeTag] $safeMessage", throwable)
-            "WARN" -> Log.w(TAG, "[$safeTag] $safeMessage", throwable)
+            "WARN", "WARNING" -> Log.w(TAG, "[$safeTag] $safeMessage", throwable)
+            "DEBUG" -> Log.d(TAG, "[$safeTag] $safeMessage")
             else -> Log.i(TAG, "[$safeTag] $safeMessage")
+        }
+
+        if (mirrorToConsole) {
+            runCatching {
+                DevConsoleManager.appendExternalLog(level, safeTag, safeMessage, throwable)
+            }
         }
 
         val context = appContext ?: return
@@ -93,17 +108,32 @@ object AppDiagnostics {
 
     fun logFile(context: Context): File = File(context.filesDir, "diagnostics/$LOG_FILE_NAME")
 
+    fun logFileSizeBytes(context: Context): Long = runCatching {
+        val f = logFile(context)
+        if (f.exists()) f.length() else 0L
+    }.getOrDefault(0L)
+
     fun readRecent(context: Context, maxCharacters: Int = 32_000): String = runCatching {
         val file = logFile(context)
         if (!file.exists()) "No diagnostic entries recorded."
         else file.readText().takeLast(maxCharacters.coerceIn(1_000, 256_000))
     }.getOrElse { "Unable to read diagnostics: ${it.javaClass.simpleName}" }
 
+    fun writeShareExportFile(context: Context, content: String): File? = runCatching {
+        val dir = File(context.cacheDir, "logs").apply { mkdirs() }
+        // Retain at most the 2 newest temporary log exports.
+        dir.listFiles()?.sortedByDescending { it.lastModified() }?.drop(2)?.forEach { it.delete() }
+        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+        File(dir, "spotui-diagnostics-$stamp.txt").apply {
+            writeText(content)
+        }
+    }.getOrNull()
+
     fun clear(context: Context) {
         synchronized(writeLock) {
             runCatching { logFile(context).delete() }
         }
-        info(TAG, "Diagnostics cleared by user")
+        record("INFO", TAG, "Diagnostics cleared by user", mirrorToConsole = false)
     }
 
     private fun buildLaunchMessage(context: Context): String {
