@@ -228,7 +228,7 @@ SpotUi-Offical/
 ### Option A — Automated GitHub Actions (`.github/workflows/release-apk.yml`)
 1. Push a commit to `main`/`master`, push a tag matching `v*` (e.g., `git tag v2.5.2 && git push origin v2.5.2`), or manually trigger **Actions -> Build & Publish Release APK -> Run workflow**.
 2. **Default Fast Builds (`skip_tests: true` by default)**: Tag/branch builds and default manual dispatches skip unit tests so release APKs build quickly and reliably. To run `:spotify:test`, `:innertube:testDebugUnitTest`, and `:app:testDebugUnitTest`, trigger **Run workflow** manually and **uncheck** `Skip unit tests`.
-3. CI builds `:app:assembleRelease`, verifies signatures with `apksigner`, generates a `.sha256` checksum, uploads build artifacts, and (on `v*` tags or `workflow_dispatch`) publishes **`SpotUI-v2.5.2-release.apk`** + **`.sha256`** to **GitHub Releases**.
+3. CI builds `:app:assembleRelease`, verifies signatures with `apksigner`, generates a `.sha256` checksum, uploads build artifacts, and automatically publishes **`SpotUI-v2.5.2-release.apk`** + **`.sha256`** to **GitHub Releases** on `main`/`master` pushes, `v*` tags, and manual runs.
 
 ### Option B — Local Release Script (`tools/build-release-apk.sh`) or Gradle
 Requires **JDK 21** and **Android SDK Platform 36**:
