@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
-import android.os.Build
 import android.os.Message
 import android.view.ViewGroup
 import android.webkit.ConsoleMessage
@@ -18,7 +17,6 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -62,6 +60,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -76,7 +75,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.metrolist.spotify.SpotifyAuth
 import com.music.spotui.audio.UiSoundEngine
 import com.music.spotui.util.DevConsoleManager
 
@@ -190,12 +188,14 @@ internal fun ColumnScope.LegacyWebViewLoginPane(
     var recoveryHint by remember { mutableStateOf<String?>(null) }
     var popupWebView by remember { mutableStateOf<WebView?>(null) }
 
+    // The main WebView is destroyed by AndroidView's onRelease; this effect only owns the popup
+    // and tells the parent to drop its reference (reading state, never a stale first-composition copy).
+    val latestOnWebViewCreated by rememberUpdatedState(onWebViewCreated)
     DisposableEffect(Unit) {
         onDispose {
-            runCatching { popupWebView?.destroy() }
+            popupWebView?.let { runCatching { it.stopLoading(); it.destroy() } }
             popupWebView = null
-            runCatching { webViewRef?.destroy() }
-            onWebViewCreated(null)
+            latestOnWebViewCreated(null)
         }
     }
 
@@ -469,33 +469,21 @@ internal fun ColumnScope.LegacyWebViewLoginPane(
                                     cm.setAcceptThirdPartyCookies(this, true)
                                     webChromeClient = object : WebChromeClient() {
                                         override fun onCloseWindow(window: WebView?) {
-                                            runCatching { window?.destroy() }
                                             popupWebView = null
+                                            window?.post { runCatching { window.stopLoading(); window.destroy() } }
                                         }
                                     }
                                     webViewClient = object : WebViewClient() {
-                                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                                            val u = request?.url?.toString().orEmpty()
-                                            if (u.startsWith("http://") || u.startsWith("https://")) return false
-                                            if (u.startsWith("intent://")) {
-                                                runCatching {
-                                                    val intent = Intent.parseUri(u, Intent.URI_INTENT_SCHEME)
-                                                    val fallback = intent.getStringExtra("browser_fallback_url")
-                                                    if (!fallback.isNullOrBlank()) {
-                                                        view?.loadUrl(fallback)
-                                                    } else {
-                                                        ctx.startActivity(intent)
-                                                    }
-                                                }
-                                            }
-                                            return true
-                                        }
+                                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean =
+                                            handleNonWebNavigation(ctx, view, request?.url?.toString().orEmpty())
 
                                         override fun onPageFinished(view: WebView?, url: String?) {
+                                            super.onPageFinished(view, url)
+                                            runCatching { cm.flush() }
                                             if (url != null && url.contains("spotify.com", ignoreCase = true)) {
                                                 if (onTryCaptureSessionFromWeb(url, "OAuthPopup")) {
-                                                    runCatching { destroy() }
                                                     popupWebView = null
+                                                    view?.post { runCatching { view.stopLoading(); view.destroy() } }
                                                 }
                                             }
                                         }
@@ -515,22 +503,8 @@ internal fun ColumnScope.LegacyWebViewLoginPane(
                                 runCatching { Uri.parse(url).host }.getOrNull()?.let { currentHost = it }
                             }
 
-                            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                                val u = request?.url?.toString().orEmpty()
-                                if (u.startsWith("http://") || u.startsWith("https://")) return false
-                                if (u.startsWith("intent://")) {
-                                    runCatching {
-                                        val intent = Intent.parseUri(u, Intent.URI_INTENT_SCHEME)
-                                        val fallback = intent.getStringExtra("browser_fallback_url")
-                                        if (!fallback.isNullOrBlank()) {
-                                            view?.loadUrl(fallback)
-                                        } else {
-                                            ctx.startActivity(intent)
-                                        }
-                                    }
-                                }
-                                return true
-                            }
+                            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean =
+                                handleNonWebNavigation(ctx, view, request?.url?.toString().orEmpty())
 
                             override fun onReceivedHttpError(
                                 view: WebView?,
@@ -564,6 +538,8 @@ internal fun ColumnScope.LegacyWebViewLoginPane(
 
                             override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
                                 DevConsoleManager.logError("SpotifyLegacyWebView", "Render process crashed (didCrash=${detail?.didCrash()})")
+                                recoveryHint = "The embedded WebView crashed. Use Chrome + Cookie, or leave and reopen this screen."
+                                isPageLoading = false
                                 return true
                             }
 
@@ -580,6 +556,9 @@ internal fun ColumnScope.LegacyWebViewLoginPane(
                         loadUrl(currentWebUrl)
                     }
                 },
+                onRelease = { released ->
+                    runCatching { released.stopLoading(); released.destroy() }
+                },
             )
         }
     }
@@ -587,8 +566,8 @@ internal fun ColumnScope.LegacyWebViewLoginPane(
     popupWebView?.let { popup ->
         Dialog(
             onDismissRequest = {
-                runCatching { popup.destroy() }
                 popupWebView = null
+                popup.post { runCatching { popup.stopLoading(); popup.destroy() } }
             },
             properties = DialogProperties(usePlatformDefaultWidth = false),
         ) {
@@ -606,8 +585,8 @@ internal fun ColumnScope.LegacyWebViewLoginPane(
                         Text("Account Sign-In", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                         IconButton(
                             onClick = {
-                                runCatching { popup.destroy() }
                                 popupWebView = null
+                                popup.post { runCatching { popup.stopLoading(); popup.destroy() } }
                             },
                             modifier = Modifier.size(48.dp),
                         ) {
@@ -630,6 +609,7 @@ private fun configureLegacyWebViewSettings(
     webView.settings.apply {
         javaScriptEnabled = true
         domStorageEnabled = true
+        @Suppress("DEPRECATION")
         databaseEnabled = true
         javaScriptCanOpenWindowsAutomatically = true
         setSupportMultipleWindows(true)
@@ -638,8 +618,30 @@ private fun configureLegacyWebViewSettings(
         loadWithOverviewMode = true
         mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         userAgentString = resolveLoginUserAgent(context, profile)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            safeBrowsingEnabled = false
+    }
+}
+
+/**
+ * Handles non-http(s) navigations inside the login WebViews. Only `intent://` links are honoured, and
+ * only after being stripped of anything that could target an arbitrary component: web content must
+ * never be able to launch a specific app component or hand us a selector intent.
+ */
+private fun handleNonWebNavigation(context: android.content.Context, view: WebView?, url: String): Boolean {
+    if (url.startsWith("http://") || url.startsWith("https://")) return false
+    if (url.startsWith("intent://")) {
+        runCatching {
+            val intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME)
+            val fallback = intent.getStringExtra("browser_fallback_url")
+            if (!fallback.isNullOrBlank() && (fallback.startsWith("https://") || fallback.startsWith("http://"))) {
+                view?.loadUrl(fallback)
+            } else {
+                intent.addCategory(Intent.CATEGORY_BROWSABLE)
+                intent.component = null
+                intent.selector = null
+                if (context !is android.app.Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+            }
         }
     }
+    return true
 }
