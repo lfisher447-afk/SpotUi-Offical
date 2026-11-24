@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -158,6 +159,7 @@ internal fun launchLoginTask(block: suspend CoroutineScope.() -> Unit): Job =
  */
 internal fun installSpotifyTokenAutoRefresh(context: Context) {
     val app = context.applicationContext
+    installSpotifyHashRecovery(app)
     Spotify.tokenRefresher = refresher@{
         val spDc = SpotifySession.spDc(app)
         if (spDc.isBlank()) return@refresher null
@@ -395,6 +397,7 @@ fun SpotifyLoginScreen(navController: NavController) {
     var hasError by remember { mutableStateOf(false) }
 
     var showManualCookieInput by remember { mutableStateOf(false) }
+    var showOAuthPane by remember { mutableStateOf(false) }
     var cookieText by remember { mutableStateOf("") }
     var showLogsDialog by remember { mutableStateOf(false) }
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
@@ -465,6 +468,32 @@ fun SpotifyLoginScreen(navController: NavController) {
         )
     }
 
+    fun startOAuthSignIn() {
+        if (isProcessing) return
+        processOAuthLogin(
+            context = context,
+            scope = scope,
+            setProcessing = { isProcessing = it },
+            setStatus = { statusMessage = it },
+            setError = { hasError = it },
+            onStage = { stage = it },
+            onAccount = { accountName = it },
+            onComplete = { ok ->
+                if (ok) {
+                    stage = null
+                    isAccountLinked = true
+                    SpotifySync.lastSyncDetail.takeIf { it.isNotBlank() }?.let { syncSummaryText = it }
+                }
+            },
+            onSuccess = { summary ->
+                if (!summary.isNullOrBlank()) syncSummaryText = summary
+                val who = accountName?.let { " as $it" }.orEmpty()
+                Toast.makeText(context, "Signed in$who with Spotify!", Toast.LENGTH_SHORT).show()
+                navigateToHome()
+            },
+        )
+    }
+
     fun checkAndCaptureCookies(url: String?) {
         if (tokenFetchStarted.get()) return
         val sweep = sweepSpotifyCookies(url)
@@ -478,6 +507,7 @@ fun SpotifyLoginScreen(navController: NavController) {
     BackHandler {
         when {
             popupWebView != null -> closePopup()
+            showOAuthPane -> if (!isProcessing) showOAuthPane = false
             !showManualCookieInput && webViewInstance?.canGoBack() == true -> webViewInstance?.goBack()
             else -> navigateToHome()
         }
@@ -545,7 +575,25 @@ fun SpotifyLoginScreen(navController: NavController) {
                 IconButton(
                     onClick = {
                         UiSoundEngine.playTapChime(context)
+                        if (!isProcessing) {
+                            showOAuthPane = !showOAuthPane
+                            if (showOAuthPane) showManualCookieInput = false
+                        }
+                    },
+                    modifier = Modifier.size(44.dp).testTag("toggle_oauth"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.VpnKey,
+                        contentDescription = "Official Spotify OAuth",
+                        tint = if (showOAuthPane) Color.White else Color(LOGIN_SPOTIFY_GREEN),
+                    )
+                }
+
+                IconButton(
+                    onClick = {
+                        UiSoundEngine.playTapChime(context)
                         showManualCookieInput = !showManualCookieInput
+                        if (showManualCookieInput) showOAuthPane = false
                     },
                     modifier = Modifier.size(44.dp).testTag("toggle_manual_cookie"),
                 ) {
@@ -617,7 +665,13 @@ fun SpotifyLoginScreen(navController: NavController) {
                 }
             }
 
-            if (showManualCookieInput) {
+            if (showOAuthPane) {
+                OAuthSignInPane(
+                    isProcessing = isProcessing,
+                    onSignIn = { startOAuthSignIn() },
+                    onClose = { if (!isProcessing) showOAuthPane = false },
+                )
+            } else if (showManualCookieInput) {
                 ManualCookiePane(
                     cookieText = cookieText,
                     onCookieTextChange = { cookieText = it },
