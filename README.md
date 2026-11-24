@@ -1,6 +1,6 @@
 <div align="center">
 
-# SpotUI Android — v2.5.4 (`202611234`)
+# spotUI Android — v2.5.4 (`202611234`)
 
 ### Expressive Jetpack Compose audio and Spotify and YouTube audio with automatic playlist sync for both Spotify and YouTube as soon as you log in — Android 8 – 17 & One UI 9.0 Ready 😊💫
 
