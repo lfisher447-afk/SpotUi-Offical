@@ -24,12 +24,8 @@ object SpotifyHashProvider {
 
     private val hashes = ConcurrentHashMap<String, GqlHashEntry>()
 
-    init {
-        loadHardcodedDefaults()
-    }
-
-    private fun loadHardcodedDefaults() {
-        val defaults = mapOf(
+    private val hardcodedDefaults: Map<String, String> by lazy {
+        mapOf(
             "profileAttributes" to "53bcb064f6cd18c23f752bc324a791194d20df612d8e1239c735144ab0399ced",
             "libraryV3" to "973e511ca44261fda7eebac8b653155e7caee3675abb4fb110cc1b8c78b091c3",
             "fetchPlaylist" to "346811f856fb0b7e4f6c59f8ebea78dd081c6e2fb01b77c954b26259d5fc6763",
@@ -47,10 +43,20 @@ object SpotifyHashProvider {
             "home" to "23e37f2e58d82d567f27080101d36609009d8c3676457b1086cb0acc55b72a5d",
             "internalLinkRecommenderTrack" to "eda0a1e9140af4114340bf3098980172dfd1003b65cfc980c36ab238dbfcef84",
         )
-        defaults.forEach { (op, hash) ->
+    }
+
+    private fun loadHardcodedDefaults() {
+        hardcodedDefaults.forEach { (op, hash) ->
             hashes[op] = GqlHashEntry(hash = hash, source = HashSource.HARDCODED)
         }
     }
+
+    init {
+        loadHardcodedDefaults()
+    }
+
+    /** The hash that shipped with this build for [operationName], ignoring any remote/learned override. */
+    fun hardcodedHash(operationName: String): String? = hardcodedDefaults[operationName]
 
     /**
      * Returns the best available hash for [operationName].
