@@ -82,27 +82,8 @@ object Spotify {
             coerceInputValues = true
         }
 
-    private val sharedOkHttpPool by lazy {
-        okhttp3.ConnectionPool(16, 5, java.util.concurrent.TimeUnit.MINUTES)
-    }
-
     private val restClient by lazy {
         HttpClient(OkHttp) {
-            engine {
-                config {
-                    dispatcher(
-                        okhttp3.Dispatcher().apply {
-                            maxRequests = 48
-                            maxRequestsPerHost = 16
-                        },
-                    )
-                    connectionPool(sharedOkHttpPool)
-                    protocols(listOf(okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
-                    retryOnConnectionFailure(true)
-                    connectTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
-                    readTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
-                }
-            }
             install(ContentNegotiation) {
                 json(json)
             }
@@ -121,18 +102,9 @@ object Spotify {
         HttpClient(OkHttp) {
             engine {
                 config {
-                    dispatcher(
-                        okhttp3.Dispatcher().apply {
-                            maxRequests = 48
-                            maxRequestsPerHost = 16
-                        },
-                    )
-                    connectionPool(sharedOkHttpPool)
-                    protocols(listOf(okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
-                    retryOnConnectionFailure(true)
-                    connectTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
-                    readTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
-                    writeTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
+                    connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                    readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                    writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
                 }
             }
             defaultRequest {
@@ -232,8 +204,7 @@ object Spotify {
                 throw SpotifyException(412, "PersistedQueryNotFound for $operationName — hash may have rotated")
             }
 
-            return result.json
-                ?: throw SpotifyException(500, "Empty GraphQL response for $operationName")
+            return result.json!!
         }
 
         throw SpotifyException(412, "No valid hash found for $operationName")
@@ -291,7 +262,8 @@ object Spotify {
             }
             if (response.status == HttpStatusCode.TooManyRequests) {
                 val retryAfter = response.headers["Retry-After"]?.toLongOrNull() ?: (2L * (attempt + 1))
-                if (attempt < maxRetries - 1) {
+                // Same cap as the REST path: never park a screen behind a long Retry-After.
+                if (retryAfter <= 3L && attempt < maxRetries - 1) {
                     log("W", "GQL $operationName -> 429, waiting ${retryAfter}s (attempt ${attempt + 1}/$maxRetries)")
                     delay(retryAfter * 1000)
                     continue
@@ -443,6 +415,12 @@ object Spotify {
             artists = artists,
             album = album,
             durationMs = parseGqlTrackDurationMs(trackData),
+            // Spotify's GQL payload nests this value, unlike REST's flat
+            // `explicit` boolean. Without it every GQL track inherited the
+            // model default false and YouTube matching preferred clean edits.
+            explicit = trackData.obj("contentRating")
+                ?.str("label")
+                ?.equals("EXPLICIT", ignoreCase = true) == true,
             uri = uri.ifEmpty { null },
         )
     }
@@ -523,6 +501,7 @@ object Spotify {
             val lyricsObj =
                 root.obj("lyrics") ?: throw SpotifyException(500, "Invalid color-lyrics response")
             val synced = lyricsObj.str("syncType") == "LINE_SYNCED"
+            val language = lyricsObj.str("language")?.takeIf { it.isNotBlank() }
             val lines =
                 lyricsObj.arr("lines")?.mapNotNull { el ->
                     val o = el.jsonObject
@@ -534,7 +513,11 @@ object Spotify {
                 }.orEmpty()
             if (lines.isEmpty()) throw SpotifyException(404, "Empty lyrics for $trackId")
             log("D", "lyrics($trackId) OK — ${lines.size} lines, synced=$synced")
-            com.metrolist.spotify.models.SpotifyLyrics(synced = synced, lines = lines)
+            com.metrolist.spotify.models.SpotifyLyrics(
+                synced = synced,
+                lines = lines,
+                language = language,
+            )
         }
 
     // ── Playlists (GQL: libraryV3) ──────────────────────────────────────
@@ -1025,38 +1008,28 @@ object Spotify {
         }
 
     /**
-     * Creates a new playlist for the current user via the REST API
+     * Creates a new (private) playlist for the current user via the REST API
      * and returns it. The web-player token carries the playlist-modify scopes.
      */
-    suspend fun createPlaylist(name: String, public: Boolean = false): Result<SpotifyPlaylist> =
+    suspend fun createPlaylist(name: String): Result<SpotifyPlaylist> =
         runCatching {
             val token = accessToken ?: throw SpotifyException(401, "Not authenticated")
+            val userId = me().getOrThrow().id
+            if (userId.isBlank()) throw SpotifyException(500, "No user id for createPlaylist")
             val body = buildJsonObject {
                 put("name", name)
-                put("public", public)
+                put("public", false)
             }
-            var response: io.ktor.client.statement.HttpResponse? = null
-            val maxRetries = 3
-            for (attempt in 0 until maxRetries) {
-                response = restClient.post("me/playlists") {
-                    header("Authorization", "Bearer $token")
-                    setBody(TextContent(body.toString(), ContentType.Application.Json))
-                }
-                if (response.status == HttpStatusCode.TooManyRequests) {
-                    val retryAfter = response.headers["Retry-After"]?.toLongOrNull() ?: (2L * (attempt + 1))
-                    log("W", "createPlaylist -> 429, waiting ${retryAfter}s (attempt ${attempt + 1}/$maxRetries)")
-                    delay(retryAfter * 1000)
-                    continue
-                }
-                break
+            val response = restClient.post("users/$userId/playlists") {
+                header("Authorization", "Bearer $token")
+                setBody(TextContent(body.toString(), ContentType.Application.Json))
             }
-            val resp = response ?: throw SpotifyException(500, "No response from createPlaylist")
-            if (resp.status.value !in 200..299) {
-                log("W", "createPlaylist($name) HTTP ${resp.status.value}: ${resp.bodyAsText().take(200)}")
-                throw SpotifyException(resp.status.value, "createPlaylist HTTP ${resp.status.value}")
+            if (response.status.value !in 200..299) {
+                log("W", "createPlaylist($name) HTTP ${response.status.value}: ${response.bodyAsText().take(200)}")
+                throw SpotifyException(response.status.value, "createPlaylist HTTP ${response.status.value}")
             }
-            val playlist = json.decodeFromString<SpotifyPlaylist>(resp.bodyAsText())
-            log("D", "createPlaylist($name, public=$public) OK — ${playlist.id}")
+            val playlist = json.decodeFromString<SpotifyPlaylist>(response.bodyAsText())
+            log("D", "createPlaylist($name) OK — ${playlist.id}")
             playlist
         }
 
@@ -1690,7 +1663,7 @@ object Spotify {
             "PlaylistResponseWrapper" -> parseHomePlaylist(data)
             "AlbumResponseWrapper" -> parseHomeAlbum(data)
             "ArtistResponseWrapper" -> parseHomeArtist(data)
-            else -> null
+            else -> null.also { log("D", "spotifyHome: skipped item type $wrapper") }
         }
     }
 

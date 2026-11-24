@@ -184,7 +184,7 @@ object SpotifySync {
         val app = context.applicationContext
         scope.launch {
             if (!SpotifyTokenProvider.ensureToken(app)) { onDone(false); return@launch }
-            val playlist = Spotify.createPlaylist(name, public).getOrNull()
+            val playlist = Spotify.createPlaylist(name).getOrNull()
             if (playlist == null || playlist.id.isBlank()) {
                 Log.w(TAG, "createPlaylist '$name' failed"); onDone(false); return@launch
             }
