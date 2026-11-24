@@ -152,6 +152,23 @@ internal fun launchLoginTask(block: suspend CoroutineScope.() -> Unit): Job =
     LoginPipelineScope.scope.launch(block = block)
 
 /**
+ * Lets [Spotify] transparently re-mint the web-player token (from the stored sp_dc) when a call
+ * comes back 401. Safe to call repeatedly; call once from `Application.onCreate` so it is active
+ * on cold start even when the login screen is never opened.
+ */
+internal fun installSpotifyTokenAutoRefresh(context: Context) {
+    val app = context.applicationContext
+    Spotify.tokenRefresher = refresher@{
+        val spDc = SpotifySession.spDc(app)
+        if (spDc.isBlank()) return@refresher null
+        SpotifyAuth.fetchAccessToken(spDc, SpotifySession.spKey(app)).getOrNull()?.let { fresh ->
+            SpotifyTokenProvider.seedVerifiedToken(fresh.accessToken, fresh.accessTokenExpirationTimestampMs)
+            fresh.accessToken
+        }
+    }
+}
+
+/**
  * The whole sign-in pipeline as one suspend function with a structured result:
  * cookie → web-player token (with retry/backoff) → persist session → profile → library sync.
  */
@@ -204,10 +221,11 @@ internal suspend fun runLoginPipeline(
         return LoginOutcome.Failure(LoginStage.VERIFY, message, lastError)
     }
 
-    // 2 — persist the session and arm the token provider.
+    // 2 — persist the session and arm the token provider + 401 auto-refresh.
     onStage(LoginStage.TOKEN)
     SpotifySession.setSpDc(app, spDc, spKey)
     SpotifyTokenProvider.seedVerifiedToken(verifiedToken.accessToken, verifiedToken.accessTokenExpirationTimestampMs)
+    installSpotifyTokenAutoRefresh(app)
 
     // 3 — who is this? (non-fatal: the session is already valid)
     onStage(LoginStage.PROFILE)
