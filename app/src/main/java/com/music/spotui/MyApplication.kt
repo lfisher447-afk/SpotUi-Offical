@@ -150,9 +150,9 @@ class MyApplication : Application(), Configuration.Provider {
             runCatching { api.getArtists().collect {} }
                 .onFailure { AppDiagnostics.warning("Artists", "Warm-up failed", it) }
         }
-        // Pre-warm the YouTube playback pipeline + embedded yt-dlp engine so the first tap doesn't pay for
-        // cold-starting the player.js parser, BotGuard WebView, or Python native runtime.
+        // Pre-warm the YouTube playback pipeline, SimpleCache, + embedded yt-dlp engine on IO
         appScope.launch {
+            com.music.spotui.di.SongPlayer.warmupMediaCacheAsync(applicationContext)
             runCatching { com.metrolist.innertube.NewPipeExtractor.init() }
                 .onFailure { AppDiagnostics.warning("NewPipe", "Playback pipeline warm-up failed", it) }
             com.music.spotui.engine.YtDlpEngine.warmupAsync(applicationContext)

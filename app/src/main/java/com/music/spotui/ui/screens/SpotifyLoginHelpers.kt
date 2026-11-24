@@ -12,6 +12,7 @@ import android.webkit.WebStorage
 import android.webkit.WebView
 import android.widget.Toast
 import androidx.browser.customtabs.CustomTabColorSchemeParams
+import androidx.browser.customtabs.CustomTabsClient
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -137,6 +138,23 @@ internal fun openSpotifyInChromeCustomTab(
             .setUrlBarHidingEnabled(false)
             .setShareState(CustomTabsIntent.SHARE_STATE_ON)
         val customTabsIntent = builder.build()
+        val customTabsPackage = runCatching {
+            CustomTabsClient.getPackageName(
+                context,
+                listOf(
+                    "com.android.chrome",
+                    "com.chrome.beta",
+                    "com.chrome.dev",
+                    "com.sec.android.app.sbrowser",
+                    "com.microsoft.emmx",
+                    "org.mozilla.firefox",
+                ),
+                false,
+            )
+        }.getOrNull()
+        if (!customTabsPackage.isNullOrBlank()) {
+            customTabsIntent.intent.setPackage(customTabsPackage)
+        }
         if (context !is Activity) {
             customTabsIntent.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }

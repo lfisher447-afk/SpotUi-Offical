@@ -67,6 +67,7 @@ fun DefaultAppPrompt(
     forceShow: Boolean = false,
     onDismiss: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     val appContext = context.applicationContext
     var showDialog by remember(forceShow) { mutableStateOf(false) }
     var currentHandlerApp by remember { mutableStateOf<HandlerAppInfo?>(null) }

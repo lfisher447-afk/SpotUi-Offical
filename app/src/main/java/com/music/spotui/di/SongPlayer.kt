@@ -64,6 +64,8 @@ object SongPlayer {
     private val videoCandidatesCache = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
     // Coalesces concurrent network resolutions for the same song query (e.g. ExoPlayer loader + preResolve).
     private val inFlightResolves = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.CompletableDeferred<String?>>()
+    @Volatile private var activeResolveJob: kotlinx.coroutines.Job? = null
+    private val mediaCacheLock = Any()
 
     // ── Lossless (SpotiFLAC) ──
     // When enabled, playback first tries to resolve a lossless FLAC stream (Tidal/
@@ -605,6 +607,9 @@ object SongPlayer {
     fun playSong(song: String, context: Context, mediaId: String? = null) {
         val appContext = context.applicationContext
         appCtx = appContext
+        if (currentRequest != song) {
+            activeResolveJob?.cancel()
+        }
         currentRequest = song
         val inferredMediaId = mediaId
             ?: boundState?.queue?.value?.firstOrNull { it.url == song }?.let { "song/${it.id}" }
@@ -1033,9 +1038,16 @@ object SongPlayer {
     @Volatile private var mediaCache: androidx.media3.datasource.cache.SimpleCache? = null
     @Volatile private var mediaCacheInitFailed = false
 
+    fun warmupMediaCacheAsync(context: Context) {
+        val appContext = context.applicationContext
+        scope.launch {
+            mediaCache(appContext)
+        }
+    }
+
     private fun mediaCache(context: Context): androidx.media3.datasource.cache.SimpleCache? {
         if (mediaCacheInitFailed) return null
-        return mediaCache ?: synchronized(this) {
+        return mediaCache ?: synchronized(mediaCacheLock) {
             if (mediaCacheInitFailed) return null
             mediaCache ?: runCatching {
                 val dir = java.io.File(context.cacheDir, "media")
@@ -1068,21 +1080,15 @@ object SongPlayer {
     private fun cacheDataSourceFactory(context: Context): androidx.media3.datasource.DataSource.Factory {
         // Local device schemes (file://, content://, asset://) MUST bypass CacheDataSource and
         // Mrbean network upstream so downloaded/local tracks open directly with zero cache locks.
-        val localDirectFactory = androidx.media3.datasource.DefaultDataSource.Factory(context)
+        // Remote cache lookup is deferred into open() on ExoPlayer's background loader thread so
+        // player creation on the Main thread never blocks on SQLite/filesystem I/O.
+        val appContext = context.applicationContext
+        val localDirectFactory = androidx.media3.datasource.DefaultDataSource.Factory(appContext)
         val upstream = androidx.media3.datasource.DefaultDataSource.Factory(
-            context,
-            org.eclipse.Mrbean.client.MrbeanMediaDataSource.upstreamFactory(context),
+            appContext,
+            org.eclipse.Mrbean.client.MrbeanMediaDataSource.upstreamFactory(appContext),
         )
-        val cache = mediaCache(context)
-        val cachedOrUpstream = if (cache != null) {
-            androidx.media3.datasource.cache.CacheDataSource.Factory()
-                .setCache(cache)
-                .setUpstreamDataSourceFactory(upstream)
-                .setFlags(androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-        } else {
-            upstream
-        }
-        val remoteFactory = com.music.spotui.deezer.DeezerAwareDataSourceFactory(cachedOrUpstream)
+        val directRemoteFactory = com.music.spotui.deezer.DeezerAwareDataSourceFactory(upstream)
         return androidx.media3.datasource.DataSource.Factory {
             object : androidx.media3.datasource.DataSource {
                 private var active: androidx.media3.datasource.DataSource? = null
@@ -1096,7 +1102,17 @@ object SongPlayer {
                     val delegate = if (scheme == "file" || scheme == "content" || scheme == "asset" || scheme == "android.resource") {
                         localDirectFactory.createDataSource()
                     } else {
-                        remoteFactory.createDataSource()
+                        val cache = mediaCache(appContext)
+                        if (cache != null) {
+                            com.music.spotui.deezer.DeezerAwareDataSourceFactory(
+                                androidx.media3.datasource.cache.CacheDataSource.Factory()
+                                    .setCache(cache)
+                                    .setUpstreamDataSourceFactory(upstream)
+                                    .setFlags(androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+                            ).createDataSource()
+                        } else {
+                            directRemoteFactory.createDataSource()
+                        }
                     }
                     active = delegate
                     return delegate.open(dataSpec)
@@ -1142,10 +1158,19 @@ object SongPlayer {
                     throw java.io.IOException("Missing stream resolve query")
                 }
                 val (wakeLock, wifiLock) = acquireResolveWakeLocks(appContext)
+                var currentJob: kotlinx.coroutines.Job? = null
                 try {
                     val isCurrent = currentRequest == query
-                    val rawUrl = kotlinx.coroutines.runBlocking(Dispatchers.IO) {
-                        resolveStreamUrl(query, appContext, forPlayback = isCurrent)
+                    val rawUrl = try {
+                        kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                            currentJob = coroutineContext[kotlinx.coroutines.Job]
+                            activeResolveJob = currentJob
+                            kotlinx.coroutines.withTimeoutOrNull(25_000L) {
+                                resolveStreamUrl(query, appContext, forPlayback = isCurrent)
+                            }
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw java.io.IOException("Stream resolution cancelled for $query", e)
                     } ?: throw java.io.IOException("No stream found for $query").also {
                         if (currentRequest == query) {
                             isResolvingTrack = false
@@ -1212,6 +1237,7 @@ object SongPlayer {
                         .setKey(null)
                         .build()
                 } finally {
+                    if (activeResolveJob === currentJob) activeResolveJob = null
                     releaseResolveWakeLocks(wakeLock, wifiLock)
                 }
             },
@@ -2921,6 +2947,8 @@ object SongPlayer {
     }
 
     fun stop() {
+        activeResolveJob?.cancel()
+        activeResolveJob = null
         isResolvingTrack = false
         playWhenResolved = false
         lastKnownPlayWhenReady = false
@@ -3081,6 +3109,8 @@ object SongPlayer {
     fun trimPlayedQueueHistory(): Int = boundState?.trimPlayedHistory() ?: 0
 
     fun release() {
+        activeResolveJob?.cancel()
+        activeResolveJob = null
         positionWatchJob?.cancel()
         isResolvingTrack = false
         playWhenResolved = true
