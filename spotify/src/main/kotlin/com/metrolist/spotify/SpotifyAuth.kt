@@ -124,9 +124,9 @@ object SpotifyAuth {
 
         var lastError: Throwable? = htmlResult.exceptionOrNull()
         if (nuanceCandidates.isNotEmpty()) {
-            val reasons = listOf("transport", "init")
+            val reasons = listOf("init", "transport")
             val timeOffsets = listOf(0L, 30L)
-            for (nuance in nuanceCandidates.take(2)) {
+            for (nuance in nuanceCandidates.take(3)) {
                 var stopVersion = false
                 for (offset in timeOffsets) {
                     if (stopVersion) break

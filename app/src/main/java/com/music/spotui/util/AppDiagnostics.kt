@@ -7,6 +7,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -24,6 +25,9 @@ object AppDiagnostics {
 
     private val initialized = AtomicBoolean(false)
     private val writeLock = Any()
+    private val ioExecutor = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "SpotuiDiagnosticsIO").apply { isDaemon = true }
+    }
 
     private fun formatNow(): String {
         return runCatching {
@@ -91,17 +95,21 @@ object AppDiagnostics {
         }
 
         val context = appContext ?: return
-        synchronized(writeLock) {
-            runCatching {
-                val file = logFile(context)
-                file.parentFile?.mkdirs()
-                if (file.exists() && file.length() > MAX_LOG_BYTES) {
-                    val retained = file.readText().takeLast((MAX_LOG_BYTES / 2).toInt())
-                    file.writeText("--- SpotUI diagnostic log rotated ---\n$retained")
+        runCatching {
+            ioExecutor.execute {
+                synchronized(writeLock) {
+                    runCatching {
+                        val file = logFile(context)
+                        file.parentFile?.mkdirs()
+                        if (file.exists() && file.length() > MAX_LOG_BYTES) {
+                            val retained = file.readText().takeLast((MAX_LOG_BYTES / 2).toInt())
+                            file.writeText("--- SpotUI diagnostic log rotated ---\n$retained")
+                        }
+                        file.appendText(line)
+                    }.onFailure {
+                        Log.w(TAG, "Unable to persist diagnostics", it)
+                    }
                 }
-                file.appendText(line)
-            }.onFailure {
-                Log.w(TAG, "Unable to persist diagnostics", it)
             }
         }
     }
@@ -130,8 +138,13 @@ object AppDiagnostics {
     }.getOrNull()
 
     fun clear(context: Context) {
-        synchronized(writeLock) {
-            runCatching { logFile(context).delete() }
+        val appCtx = context.applicationContext
+        runCatching {
+            ioExecutor.execute {
+                synchronized(writeLock) {
+                    runCatching { logFile(appCtx).delete() }
+                }
+            }
         }
         record("INFO", TAG, "Diagnostics cleared by user", mirrorToConsole = false)
     }

@@ -87,6 +87,8 @@ object DevConsoleManager {
     private val dateFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
     private const val MAX_LOGS = 2000
     private val initialized = AtomicBoolean(false)
+    private val logLock = Any()
+    private val ringBuffer = java.util.ArrayDeque<LogEntry>(MAX_LOGS)
 
     private val _logs = MutableStateFlow<List<LogEntry>>(emptyList())
     val logs: StateFlow<List<LogEntry>> = _logs.asStateFlow()
@@ -150,17 +152,19 @@ object DevConsoleManager {
         _isStreamPaused.value = paused
     }
 
-    @Synchronized
     private fun appendInMemoryEntry(entry: LogEntry) {
         if (_isStreamPaused.value && entry.level != LogLevel.ERROR && entry.level != LogLevel.COMPONENT_FAULT) {
             return
         }
-        val current = _logs.value.toMutableList()
-        while (current.size >= MAX_LOGS) {
-            current.removeAt(0)
+        val snapshot: List<LogEntry>
+        synchronized(logLock) {
+            while (ringBuffer.size >= MAX_LOGS) {
+                ringBuffer.removeFirst()
+            }
+            ringBuffer.addLast(entry)
+            snapshot = ArrayList(ringBuffer)
         }
-        current.add(entry)
-        _logs.value = current
+        _logs.value = snapshot
         _diagnostics.value = _diagnostics.value.let { d ->
             d.copy(
                 totalLogsRecorded = d.totalLogsRecorded + 1L,
@@ -294,11 +298,13 @@ object DevConsoleManager {
     }
 
     fun clearLogs() {
+        synchronized(logLock) { ringBuffer.clear() }
         _logs.value = emptyList()
         logInfo("DevConsoleManager", "Live memory logs cleared by user.")
     }
 
     fun clearAllLogs(context: Context) {
+        synchronized(logLock) { ringBuffer.clear() }
         _logs.value = emptyList()
         AppDiagnostics.clear(context.applicationContext)
         logInfo("DevConsoleManager", "Cleared both live memory logs and persistent disk diagnostics.")

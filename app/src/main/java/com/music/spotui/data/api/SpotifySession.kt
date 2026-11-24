@@ -27,14 +27,20 @@ object SpotifySession {
         return prefs.getString(KEY_SP_KEY, null)?.takeIf { it.isNotBlank() }.orEmpty()
     }
 
+    fun hasSession(context: Context): Boolean = spDc(context).isNotBlank()
+
     fun setSpDc(context: Context, value: String, spKey: String = "") {
+        val cleanedDc = value.trim()
         val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-        editor.putString(KEY_SP_DC, value.trim())
+        editor.putString(KEY_SP_DC, cleanedDc)
         if (spKey.isNotBlank()) {
             editor.putString(KEY_SP_KEY, spKey.trim())
-        } else if (value.isBlank()) {
+        } else if (cleanedDc.isBlank()) {
             editor.remove(KEY_SP_KEY)
         }
         editor.apply()
+        if (cleanedDc.isBlank()) {
+            SpotifyTokenProvider.clearSession()
+        }
     }
 }

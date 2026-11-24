@@ -5,12 +5,14 @@ import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebView
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
-import kotlin.coroutines.Continuation
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -25,11 +27,13 @@ class CipherWebView private constructor(
     private val playerJs: String,
     private val sigInfo: FunctionNameExtractor.SigFunctionInfo?,
     private val nFuncInfo: FunctionNameExtractor.NFunctionInfo?,
-    private val initContinuation: Continuation<CipherWebView>,
+    private val initContinuation: CancellableContinuation<CipherWebView>,
 ) {
     private val webView = WebView(context)
-    private var sigContinuation: Continuation<String>? = null
-    private var nContinuation: Continuation<String>? = null
+    private val initCompleted = AtomicBoolean(false)
+    private val closed = AtomicBoolean(false)
+    private val sigContinuation = AtomicReference<CancellableContinuation<String>?>(null)
+    private val nContinuation = AtomicReference<CancellableContinuation<String>?>(null)
 
     @Volatile
     var nFunctionAvailable: Boolean = false
@@ -442,14 +446,18 @@ function discoverAndInit() {
         Timber.tag(TAG).d("discoveredNFuncName=$discoveredNFuncName")
         Timber.tag(TAG).d("usingHardcodedMode=$usingHardcodedMode")
 
-        initContinuation.resume(this)
+        if (initCompleted.compareAndSet(false, true) && initContinuation.isActive) {
+            initContinuation.resume(this)
+        }
     }
 
     @JavascriptInterface
     fun onPlayerJsError(error: String) {
         Timber.tag(TAG).e("=== PLAYER.JS LOAD FAILED ===")
         Timber.tag(TAG).e("Error: $error")
-        initContinuation.resumeWithException(CipherException("Player JS load failed: $error"))
+        if (initCompleted.compareAndSet(false, true) && initContinuation.isActive) {
+            initContinuation.resumeWithException(CipherException("Player JS load failed: $error"))
+        }
     }
 
     // ==================== SIGNATURE DEOBFUSCATION ====================
@@ -460,14 +468,23 @@ function discoverAndInit() {
         Timber.tag(TAG).d("Input sig preview: ${obfuscatedSig.take(50)}...")
         Timber.tag(TAG).d("sigInfo: name=${sigInfo?.name}, constantArg=${sigInfo?.constantArg}")
 
+        if (closed.get()) throw CipherException("CipherWebView is closed")
         if (sigInfo == null) {
             Timber.tag(TAG).e("Signature function info not available")
             throw CipherException("Signature function info not available")
         }
 
-        return withContext(Dispatchers.Main) {
+        return withContext(Dispatchers.Main.immediate) {
             suspendCancellableCoroutine { cont ->
-                sigContinuation = cont
+                sigContinuation.getAndSet(cont)?.let { prev ->
+                    if (prev.isActive) prev.resumeWithException(CipherException("Superseded by newer signature request"))
+                }
+                cont.invokeOnCancellation { sigContinuation.compareAndSet(cont, null) }
+                if (closed.get()) {
+                    sigContinuation.compareAndSet(cont, null)
+                    if (cont.isActive) cont.resumeWithException(CipherException("CipherWebView closed"))
+                    return@suspendCancellableCoroutine
+                }
                 val constArgJs = if (sigInfo.constantArg != null) "${sigInfo.constantArg}" else "null"
                 val jsCall = "deobfuscateSig('${sigInfo.name}', $constArgJs, '${escapeJsString(obfuscatedSig)}')"
                 Timber.tag(TAG).d("Evaluating JS: ${jsCall.take(100)}...")
@@ -481,16 +498,16 @@ function discoverAndInit() {
         Timber.tag(TAG).d("========== SIGNATURE RESULT ==========")
         Timber.tag(TAG).d("Result length: ${result.length}")
         Timber.tag(TAG).d("Result preview: ${result.take(50)}...")
-        sigContinuation?.resume(result)
-        sigContinuation = null
+        val cont = sigContinuation.getAndSet(null)
+        if (cont != null && cont.isActive) cont.resume(result)
     }
 
     @JavascriptInterface
     fun onSigError(error: String) {
         Timber.tag(TAG).e("========== SIGNATURE ERROR ==========")
         Timber.tag(TAG).e("Error: $error")
-        sigContinuation?.resumeWithException(CipherException("Sig deobfuscation failed: $error"))
-        sigContinuation = null
+        val cont = sigContinuation.getAndSet(null)
+        if (cont != null && cont.isActive) cont.resumeWithException(CipherException("Sig deobfuscation failed: $error"))
     }
 
     // ==================== N-TRANSFORM ====================
@@ -501,14 +518,23 @@ function discoverAndInit() {
         Timber.tag(TAG).d("nFunctionAvailable: $nFunctionAvailable")
         Timber.tag(TAG).d("discoveredNFuncName: $discoveredNFuncName")
 
+        if (closed.get()) throw CipherException("CipherWebView is closed")
         if (!nFunctionAvailable) {
             Timber.tag(TAG).e("N-transform function not discovered")
             throw CipherException("N-transform function not discovered")
         }
 
-        return withContext(Dispatchers.Main) {
+        return withContext(Dispatchers.Main.immediate) {
             suspendCancellableCoroutine { cont ->
-                nContinuation = cont
+                nContinuation.getAndSet(cont)?.let { prev ->
+                    if (prev.isActive) prev.resumeWithException(CipherException("Superseded by newer N-transform request"))
+                }
+                cont.invokeOnCancellation { nContinuation.compareAndSet(cont, null) }
+                if (closed.get()) {
+                    nContinuation.compareAndSet(cont, null)
+                    if (cont.isActive) cont.resumeWithException(CipherException("CipherWebView closed"))
+                    return@suspendCancellableCoroutine
+                }
                 val jsCall = "transformN('${escapeJsString(nValue)}')"
                 Timber.tag(TAG).d("Evaluating JS: $jsCall")
                 webView.evaluateJavascript(jsCall, null)
@@ -521,28 +547,37 @@ function discoverAndInit() {
         Timber.tag(TAG).d("========== N-TRANSFORM RESULT ==========")
         Timber.tag(TAG).d("Result: $result")
         Timber.tag(TAG).d("Result length: ${result.length}")
-        nContinuation?.resume(result)
-        nContinuation = null
+        val cont = nContinuation.getAndSet(null)
+        if (cont != null && cont.isActive) cont.resume(result)
     }
 
     @JavascriptInterface
     fun onNError(error: String) {
         Timber.tag(TAG).e("========== N-TRANSFORM ERROR ==========")
         Timber.tag(TAG).e("Error: $error")
-        nContinuation?.resumeWithException(CipherException("N-transform failed: $error"))
-        nContinuation = null
+        val cont = nContinuation.getAndSet(null)
+        if (cont != null && cont.isActive) cont.resumeWithException(CipherException("N-transform failed: $error"))
     }
 
     // ==================== CLEANUP ====================
 
     fun close() {
+        if (!closed.compareAndSet(false, true)) return
         Timber.tag(TAG).d("Closing CipherWebView...")
-        webView.clearHistory()
-        webView.clearCache(true)
-        webView.loadUrl("about:blank")
-        webView.onPause()
-        webView.removeAllViews()
-        webView.destroy()
+        val err = CipherException("CipherWebView closed")
+        if (initCompleted.compareAndSet(false, true) && initContinuation.isActive) {
+            initContinuation.resumeWithException(err)
+        }
+        sigContinuation.getAndSet(null)?.let { if (it.isActive) it.resumeWithException(err) }
+        nContinuation.getAndSet(null)?.let { if (it.isActive) it.resumeWithException(err) }
+        runCatching {
+            webView.clearHistory()
+            webView.clearCache(true)
+            webView.loadUrl("about:blank")
+            webView.onPause()
+            webView.removeAllViews()
+            webView.destroy()
+        }
         Timber.tag(TAG).d("CipherWebView closed")
     }
 
@@ -572,9 +607,14 @@ function discoverAndInit() {
             Timber.tag(TAG).d("sigInfo: $sigInfo")
             Timber.tag(TAG).d("nFuncInfo: $nFuncInfo")
 
-            return withContext(Dispatchers.Main) {
+            return withContext(Dispatchers.Main.immediate) {
                 suspendCancellableCoroutine { cont ->
                     val wv = CipherWebView(context, playerJs, sigInfo, nFuncInfo, cont)
+                    cont.invokeOnCancellation {
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            wv.close()
+                        }
+                    }
                     wv.loadPlayerJsFromFile()
                 }
             }

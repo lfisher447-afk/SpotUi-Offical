@@ -9,6 +9,7 @@ import androidx.annotation.MainThread
 import androidx.collection.ArrayMap
 import com.metrolist.innertube.network.AuthSessionStore
 import com.music.spotui.BuildConfig
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
@@ -23,19 +24,21 @@ import timber.log.Timber
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.util.Collections
-import kotlin.coroutines.Continuation
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 class PoTokenWebView private constructor(
     context: Context,
     // to be used exactly once only during initialization!
-    private val continuation: Continuation<PoTokenWebView>,
+    private val continuation: CancellableContinuation<PoTokenWebView>,
 ) {
     private val webView = WebView(context)
     private val scope = MainScope()
+    private val initCompleted = AtomicBoolean(false)
+    private val closed = AtomicBoolean(false)
     private val poTokenContinuations =
-        Collections.synchronizedMap(ArrayMap<String, Continuation<String>>())
+        Collections.synchronizedMap(ArrayMap<String, CancellableContinuation<String>>())
     private val exceptionHandler = CoroutineExceptionHandler { _, t ->
         onInitializationErrorCloseAndCancel(t)
     }
@@ -68,7 +71,9 @@ class PoTokenWebView private constructor(
                     Timber.tag(TAG).e("This WebView implementation is broken: $fmt")
 
                     onInitializationErrorCloseAndCancel(exception)
-                    popAllPoTokenContinuations().forEach { (_, cont) -> cont.resumeWithException(exception) }
+                    popAllPoTokenContinuations().forEach { (_, cont) ->
+                        if (cont.isActive) cont.resumeWithException(exception)
+                    }
                 }
                 return super.onConsoleMessage(m)
             }
@@ -188,16 +193,27 @@ class PoTokenWebView private constructor(
     @JavascriptInterface
     fun onMinterCreated() {
         Timber.tag(TAG).d("poToken minter created successfully, initialization complete")
-        continuation.resume(this)
+        if (initCompleted.compareAndSet(false, true) && continuation.isActive) {
+            continuation.resume(this)
+        }
     }
     //endregion
 
     //region Obtaining poTokens
     suspend fun generatePoToken(identifier: String): String {
-        return withContext(Dispatchers.Main) {
+        if (closed.get()) throw PoTokenException("PoTokenWebView is closed")
+        return withContext(Dispatchers.Main.immediate) {
             suspendCancellableCoroutine { cont ->
                 Timber.tag(TAG).d("generatePoToken() called with identifier $identifier")
                 addPoTokenEmitter(identifier, cont)
+                cont.invokeOnCancellation {
+                    popPoTokenContinuation(identifier)
+                }
+                if (closed.get()) {
+                    popPoTokenContinuation(identifier)
+                    if (cont.isActive) cont.resumeWithException(PoTokenException("PoTokenWebView closed"))
+                    return@suspendCancellableCoroutine
+                }
                 // NOTE: obtainPoToken is now async, so we use .then()
                 webView.evaluateJavascript(
                     """try {
@@ -227,7 +243,8 @@ class PoTokenWebView private constructor(
         if (BuildConfig.DEBUG) {
             Timber.tag(TAG).e("obtainPoToken error from JavaScript: $error")
         }
-        popPoTokenContinuation(identifier)?.resumeWithException(buildExceptionForJsError(error))
+        val cont = popPoTokenContinuation(identifier) ?: return
+        if (cont.isActive) cont.resumeWithException(buildExceptionForJsError(error))
     }
 
     /**
@@ -237,15 +254,16 @@ class PoTokenWebView private constructor(
     @JavascriptInterface
     fun onObtainPoTokenResult(identifier: String, poTokenU8: String) {
         Timber.tag(TAG).d("Generated poToken (before decoding): identifier=$identifier poTokenU8=$poTokenU8")
+        val cont = popPoTokenContinuation(identifier) ?: return
         val poToken = try {
             u8ToBase64(poTokenU8)
         } catch (t: Throwable) {
-            popPoTokenContinuation(identifier)?.resumeWithException(t)
+            if (cont.isActive) cont.resumeWithException(t)
             return
         }
 
         Timber.tag(TAG).d("Generated poToken: identifier=$identifier poToken=$poToken")
-        popPoTokenContinuation(identifier)?.resume(poToken)
+        if (cont.isActive) cont.resume(poToken)
     }
 
     val isExpired: Boolean
@@ -253,18 +271,20 @@ class PoTokenWebView private constructor(
     //endregion
 
     //region Handling multiple emitters
-    private fun addPoTokenEmitter(identifier: String, continuation: Continuation<String>) {
+    private fun addPoTokenEmitter(identifier: String, continuation: CancellableContinuation<String>) {
         poTokenContinuations[identifier] = continuation
     }
 
-    private fun popPoTokenContinuation(identifier: String): Continuation<String>? {
+    private fun popPoTokenContinuation(identifier: String): CancellableContinuation<String>? {
         return poTokenContinuations.remove(identifier)
     }
 
-    private fun popAllPoTokenContinuations(): Map<String, Continuation<String>> {
-        val result = poTokenContinuations.toMap()
-        poTokenContinuations.clear()
-        return result
+    private fun popAllPoTokenContinuations(): Map<String, CancellableContinuation<String>> {
+        synchronized(poTokenContinuations) {
+            val result = poTokenContinuations.toMap()
+            poTokenContinuations.clear()
+            return result
+        }
     }
     //endregion
 
@@ -301,21 +321,31 @@ class PoTokenWebView private constructor(
 
     private fun onInitializationErrorCloseAndCancel(error: Throwable) {
         close()
-        continuation.resumeWithException(error)
+        if (initCompleted.compareAndSet(false, true) && continuation.isActive) {
+            continuation.resumeWithException(error)
+        }
     }
 
     @MainThread
     fun close() {
+        if (!closed.compareAndSet(false, true)) return
         scope.cancel()
+        val cancelErr = PoTokenException("PoTokenWebView closed")
+        if (initCompleted.compareAndSet(false, true) && continuation.isActive) {
+            continuation.resumeWithException(cancelErr)
+        }
+        popAllPoTokenContinuations().forEach { (_, cont) ->
+            if (cont.isActive) cont.resumeWithException(cancelErr)
+        }
 
-        webView.clearHistory()
-        webView.clearCache(true)
-
-        webView.loadUrl("about:blank")
-
-        webView.onPause()
-        webView.removeAllViews()
-        webView.destroy()
+        runCatching {
+            webView.clearHistory()
+            webView.clearCache(true)
+            webView.loadUrl("about:blank")
+            webView.onPause()
+            webView.removeAllViews()
+            webView.destroy()
+        }
     }
     //endregion
 
@@ -349,9 +379,14 @@ class PoTokenWebView private constructor(
         }
 
         suspend fun getNewPoTokenGenerator(context: Context): PoTokenWebView {
-            return withContext(Dispatchers.Main) {
+            return withContext(Dispatchers.Main.immediate) {
                 suspendCancellableCoroutine { cont ->
                     val potWv = PoTokenWebView(context, cont)
+                    cont.invokeOnCancellation {
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            potWv.close()
+                        }
+                    }
                     potWv.loadHtmlAndObtainBotguard()
                 }
             }

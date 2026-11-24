@@ -3,11 +3,16 @@ package com.metrolist.music.utils.cipher
 import android.content.Context
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import timber.log.Timber
 
 object CipherDeobfuscator {
     private const val TAG = "Metrolist_CipherDeobfusc"
+    private const val SOLVER_TIMEOUT_MS = 10_000L
+    private val webViewMutex = Mutex()
 
     lateinit var appContext: Context
         private set
@@ -56,8 +61,10 @@ object CipherDeobfuscator {
         val webView = getOrCreateWebView(forceRefresh = isRetry)
             ?: return null
 
-        // Deobfuscate signature
-        val deobfuscatedSig = webView.deobfuscateSignature(obfuscatedSig)
+        // Deobfuscate signature with bounded timeout so backgrounded WebView cannot deadlock callers
+        val deobfuscatedSig = withTimeout(SOLVER_TIMEOUT_MS) {
+            webView.deobfuscateSignature(obfuscatedSig)
+        }
 
         // Build the URL with deobfuscated signature
         val separator = if ("?" in baseUrl) "&" else "?"
@@ -98,7 +105,9 @@ object CipherDeobfuscator {
             return url
         }
 
-        val transformedN = webView.transformN(nValue)
+        val transformedN = withTimeout(SOLVER_TIMEOUT_MS) {
+            webView.transformN(nValue)
+        }
         Timber.tag(TAG).d("N-param transformed: $nValue -> $transformedN")
 
         // Replace n= parameter in URL
@@ -108,28 +117,28 @@ object CipherDeobfuscator {
         )
     }
 
-    private suspend fun getOrCreateWebView(forceRefresh: Boolean): CipherWebView? {
+    private suspend fun getOrCreateWebView(forceRefresh: Boolean): CipherWebView? = webViewMutex.withLock {
         val app = com.music.spotui.MyApplication.instanceOrNull
         if (!isInitialized && app != null) {
             runCatching { initialize(app) }
         }
         val ctx = if (isInitialized) appContext else app
-        if (ctx == null) return null
+        if (ctx == null) return@withLock null
 
         if (!forceRefresh && cipherWebView != null) {
-            return cipherWebView
+            return@withLock cipherWebView
         }
 
         // Close existing WebView if any
         if (cipherWebView != null) {
-            closeWebView()
+            closeWebViewUnlocked()
         }
 
         // Fetch player JS
         val result = PlayerJsFetcher.getPlayerJs(forceRefresh = forceRefresh)
         if (result == null) {
             Timber.tag(TAG).e("Failed to get player JS")
-            return null
+            return@withLock null
         }
         val (playerJs, hash) = result
 
@@ -138,7 +147,7 @@ object CipherDeobfuscator {
 
         if (sigInfo == null) {
             Timber.tag(TAG).e("Could not extract signature function info from player JS")
-            return null
+            return@withLock null
         }
 
         // Extract n-transform function info (for throttle avoidance / 403 fix)
@@ -150,24 +159,33 @@ object CipherDeobfuscator {
         Timber.tag(TAG).d("Creating CipherWebView with sig=${sigInfo.name}, constantArg=${sigInfo.constantArg}, nFunc=${nFuncInfo?.name}[${nFuncInfo?.arrayIndex}]")
 
         // Create WebView — n-function is exported to window if found, with brute-force fallback
-        val webView = CipherWebView.create(
-            context = ctx,
-            playerJs = playerJs,
-            sigInfo = sigInfo,
-            nFuncInfo = nFuncInfo,
-        )
+        val webView = withTimeout(SOLVER_TIMEOUT_MS) {
+            CipherWebView.create(
+                context = ctx,
+                playerJs = playerJs,
+                sigInfo = sigInfo,
+                nFuncInfo = nFuncInfo,
+            )
+        }
 
         cipherWebView = webView
         currentPlayerHash = hash
-        return webView
+        webView
     }
 
-    private suspend fun closeWebView() {
-        withContext(Dispatchers.Main) {
-            cipherWebView?.close()
-        }
+    private suspend fun closeWebView() = webViewMutex.withLock {
+        closeWebViewUnlocked()
+    }
+
+    private suspend fun closeWebViewUnlocked() {
+        val existing = cipherWebView
         cipherWebView = null
         currentPlayerHash = null
+        if (existing != null) {
+            withContext(Dispatchers.Main.immediate) {
+                existing.close()
+            }
+        }
     }
 
     private fun parseQueryParams(query: String): Map<String, String> {

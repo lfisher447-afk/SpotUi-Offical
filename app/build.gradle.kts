@@ -123,6 +123,7 @@ dependencies {
 
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.webkit)
+    implementation(libs.androidx.browser)
 
     // Hilt + Room persistence
     implementation(libs.hilt.android)

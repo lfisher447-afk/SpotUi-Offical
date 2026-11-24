@@ -42,7 +42,12 @@ object SpotifySync {
         private set
 
     fun isSessionReady(context: Context): Boolean =
-        SpotifySession.spDc(context.applicationContext).isNotBlank()
+        SpotifyTokenProvider.syncAuthState(context.applicationContext)
+
+    fun notifyAuthStateChanged(detail: String = "") {
+        lastSyncDetail = detail
+        _syncRevision.value = _syncRevision.value + 1
+    }
 
     suspend fun syncAllFromSession(context: Context): Result<SpotifySyncSummary> = runCatching {
         val app = context.applicationContext

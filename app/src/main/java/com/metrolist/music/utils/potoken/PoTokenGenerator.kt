@@ -4,8 +4,11 @@ import android.content.Context
 import android.os.Looper
 import android.webkit.CookieManager
 import com.metrolist.music.utils.cipher.CipherDeobfuscator
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -73,11 +76,12 @@ class PoTokenGenerator(
 
         // Prevent thread deadlocks if invoked on the main UI thread with runBlocking
         if (Looper.myLooper() == Looper.getMainLooper()) {
-            Timber.tag(TAG).e("getWebClientPoToken called on UI Thread! This can block JS evaluation.")
+            Timber.tag(TAG).e("getWebClientPoTokenBlocking called on UI Thread! Aborting to prevent deadlock.")
+            return null
         }
 
         return try {
-            runBlocking {
+            runBlocking(Dispatchers.IO) {
                 getWebClientPoToken(videoId, sessionId, timeoutMs)
             }
         } catch (e: Exception) {
@@ -197,8 +201,14 @@ class PoTokenGenerator(
      * Resets internal state and releases the current WebView resources.
      */
     fun reset() {
-        runBlocking {
-            invalidate()
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                invalidate()
+            }
+        } else {
+            runBlocking(Dispatchers.IO) {
+                invalidate()
+            }
         }
     }
 

@@ -144,21 +144,12 @@ fun MiniPlayer(navController: NavHostController) {
         0f
     }
 
-    val currentRoute = navController.currentBackStackEntry?.destination?.route
-
-
-
-    LaunchedEffect(key1  = songPlayingState) {
-            while (songPlayingState) {
-                songProgress = SongPlayer.getDuration().toFloat().let { dur ->
-                    if (dur > 0f) (SongPlayer.getCurrentPosition().toFloat() / dur).coerceIn(0f, 1f) else 0f
-                }
-                delay(300L) // update every .00 second
-
-                if (songProgress > 0f && songProgress >= 1f && currentRoute != Routes.Player.route) {
-                    navController.navigate(Routes.Player.route)
-                    miniPlayerViewModel.setPlaying(false)
-                }
+    LaunchedEffect(key1 = songPlayingState) {
+        while (songPlayingState) {
+            songProgress = SongPlayer.getDuration().toFloat().let { dur ->
+                if (dur > 0f) (SongPlayer.getCurrentPosition().toFloat() / dur).coerceIn(0f, 1f) else 0f
+            }
+            delay(300L)
         }
     }
 

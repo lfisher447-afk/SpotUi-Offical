@@ -216,60 +216,82 @@ fun PlayerScreen(navController: NavController) {
 
     // ── Safety net: if offsetY ever reaches the bottom after the player has
     //    opened, dismiss regardless of how it got there. ──
-    LaunchedEffect(offsetY) {
-        if (hasAppeared && offsetY >= screenHeight - 1f) {
+    LaunchedEffect(offsetY, screenHeight) {
+        if (hasAppeared && screenHeight > 0f && offsetY >= screenHeight - 1f) {
             navController.navigateUp()
         }
     }
 
     // ── Configure dialog window for edge-to-edge ──
     // `decorFitsSystemWindows = false` in DialogProperties does NOT actually
-    // make a Compose Navigation dialog draw behind system bars (known unfixed
-    // issue).  The proven workaround is to copy the Activity window's
-    // LayoutParams onto the dialog window and resize the dialog's parent view
-    // to fill the screen — see https://stackoverflow.com/a/75768025
+    // make a Compose Navigation dialog draw behind system bars. Apply the
+    // Activity window's edge-to-edge attributes once and only resize when the
+    // decorView has valid (> 0) dimensions and the size actually changed,
+    // avoiding SideEffect layout thrashing and 0x0 collapse on resume.
     val view = androidx.compose.ui.platform.LocalView.current
-    androidx.compose.runtime.SideEffect {
-        // Walk up the view tree to find the dialog window.
-        var dialogWindow: android.view.Window? = null
-        var v: android.view.View? = view
-        while (v != null) {
-            if (v is androidx.compose.ui.window.DialogWindowProvider) {
-                dialogWindow = v.window
-                break
-            }
-            val parent = v.parent
-            if (parent is android.view.View) {
-                v = parent
-            } else {
-                if (parent is androidx.compose.ui.window.DialogWindowProvider) {
-                    dialogWindow = parent.window
+    DisposableEffect(view) {
+        fun syncDialogWindow() {
+            var dialogWindow: android.view.Window? = null
+            var v: android.view.View? = view
+            while (v != null) {
+                if (v is androidx.compose.ui.window.DialogWindowProvider) {
+                    dialogWindow = v.window
                     break
                 }
-                break
+                val parent = v.parent
+                if (parent is android.view.View) {
+                    v = parent
+                } else {
+                    if (parent is androidx.compose.ui.window.DialogWindowProvider) {
+                        dialogWindow = parent.window
+                    }
+                    break
+                }
+            }
+            val activityWindow = generateSequence<android.content.Context>(view.context) { ctx ->
+                (ctx as? android.content.ContextWrapper)?.baseContext
+            }.filterIsInstance<android.app.Activity>().firstOrNull()?.window ?: return
+            val dw = dialogWindow ?: return
+
+            val attrs = android.view.WindowManager.LayoutParams().apply {
+                copyFrom(activityWindow.attributes)
+                type = dw.attributes.type
+            }
+            if (dw.attributes.flags != attrs.flags ||
+                dw.attributes.layoutInDisplayCutoutMode != attrs.layoutInDisplayCutoutMode
+            ) {
+                dw.attributes = attrs
+            }
+            dw.statusBarColor = android.graphics.Color.TRANSPARENT
+            dw.navigationBarColor = android.graphics.Color.TRANSPARENT
+
+            val w = activityWindow.decorView.width
+            val h = activityWindow.decorView.height
+            val parentView = view.parent as? android.view.View
+            if (parentView != null && w > 0 && h > 0) {
+                val cur = parentView.layoutParams
+                if (cur == null || cur.width != w || cur.height != h) {
+                    parentView.layoutParams = android.widget.FrameLayout.LayoutParams(w, h)
+                }
             }
         }
-        // Get the Activity window through the context (works even inside a dialog).
-        val activityWindow = generateSequence<android.content.Context>(view.context) { ctx ->
-            (ctx as? android.content.ContextWrapper)?.baseContext
-        }.filterIsInstance<android.app.Activity>().firstOrNull()?.window
 
-        if (activityWindow != null && dialogWindow != null) {
-            // Copy the Activity's window attributes (which already have
-            // edge-to-edge configured) onto the dialog window.
-            val attrs = android.view.WindowManager.LayoutParams()
-            attrs.copyFrom(activityWindow.attributes)
-            attrs.type = dialogWindow.attributes.type
-            dialogWindow.attributes = attrs
-            // Resize the dialog's parent view to fill the screen.
-            val parentView = view.parent as? android.view.View
-            parentView?.layoutParams = android.widget.FrameLayout.LayoutParams(
-                activityWindow.decorView.width,
-                activityWindow.decorView.height
-            )
-            // Make bars transparent.
-            dialogWindow.statusBarColor = android.graphics.Color.TRANSPARENT
-            dialogWindow.navigationBarColor = android.graphics.Color.TRANSPARENT
+        syncDialogWindow()
+        val activityDecor = generateSequence<android.content.Context>(view.context) { ctx ->
+            (ctx as? android.content.ContextWrapper)?.baseContext
+        }.filterIsInstance<android.app.Activity>().firstOrNull()?.window?.decorView
+        val layoutListener = android.view.View.OnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            val newW = right - left
+            val newH = bottom - top
+            val oldW = oldRight - oldLeft
+            val oldH = oldBottom - oldTop
+            if (newW > 0 && newH > 0 && (newW != oldW || newH != oldH)) {
+                syncDialogWindow()
+            }
+        }
+        activityDecor?.addOnLayoutChangeListener(layoutListener)
+        onDispose {
+            activityDecor?.removeOnLayoutChangeListener(layoutListener)
         }
     }
 
@@ -3030,14 +3052,35 @@ private fun CanvasVideo(url: String, modifier: Modifier = Modifier, onError: (()
             prepare()
         }
     }
-    androidx.compose.runtime.DisposableEffect(url) {
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(url, lifecycleOwner) {
         val listener = object : androidx.media3.common.Player.Listener {
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 onError?.invoke()
             }
         }
+        val lifecycleObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE,
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
+                    exo.playWhenReady = false
+                    exo.pause()
+                }
+                androidx.lifecycle.Lifecycle.Event.ON_START,
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
+                    exo.playWhenReady = true
+                    exo.play()
+                }
+                else -> Unit
+            }
+        }
         exo.addListener(listener)
-        onDispose { exo.removeListener(listener); exo.release() }
+        lifecycleOwner.lifecycle.addObserver(lifecycleObserver)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(lifecycleObserver)
+            exo.removeListener(listener)
+            exo.release()
+        }
     }
     androidx.compose.ui.viewinterop.AndroidView(
         modifier = modifier,

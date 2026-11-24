@@ -581,13 +581,25 @@ fun SettingsScreen(navController: NavController) {
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                isDefaultLinkHandler = DefaultLinkHelper.isAppDefaultLinkHandler(context)
-                youtubeSyncStatus = com.music.spotui.data.youtube.YouTubeMusicSync.status(context)
-                batteryOptExempt = BatteryOptimizationHelper.isIgnoringBatteryOptimization(context)
-                accessibilityMiniPlayerEnabled = AccessibilityHelper.isServiceEnabled(context)
-                hasNotifPerm = PermissionHelper.hasNotificationPermission(context)
-                hasMediaPerm = PermissionHelper.hasMediaReadPermission(context)
-                hasBluetoothPerm = PermissionHelper.hasBluetoothConnectPermission(context)
+                val appCtx = context.applicationContext
+                scope.launch(Dispatchers.IO) {
+                    val def = DefaultLinkHelper.isAppDefaultLinkHandler(appCtx)
+                    val yt = com.music.spotui.data.youtube.YouTubeMusicSync.status(appCtx)
+                    val bat = BatteryOptimizationHelper.isIgnoringBatteryOptimization(appCtx)
+                    val acc = AccessibilityHelper.isServiceEnabled(appCtx)
+                    val notif = PermissionHelper.hasNotificationPermission(appCtx)
+                    val media = PermissionHelper.hasMediaReadPermission(appCtx)
+                    val bt = PermissionHelper.hasBluetoothConnectPermission(appCtx)
+                    withContext(Dispatchers.Main) {
+                        isDefaultLinkHandler = def
+                        youtubeSyncStatus = yt
+                        batteryOptExempt = bat
+                        accessibilityMiniPlayerEnabled = acc
+                        hasNotifPerm = notif
+                        hasMediaPerm = media
+                        hasBluetoothPerm = bt
+                    }
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -3774,11 +3786,13 @@ fun SettingsScreen(navController: NavController) {
             if (showTab(SettingsSideTab.SYSTEM)) {
             Spacer(Modifier.height(12.dp))
             SectionTitle("Account")
-            val isSpotifyLoggedIn = remember(com.music.spotui.data.api.SpotifySession.spDc(context)) {
-                com.music.spotui.data.api.SpotifySession.spDc(context).isNotBlank()
+            val tokenAuth by com.music.spotui.data.api.SpotifyTokenProvider.isAuthenticated.collectAsStateWithLifecycle()
+            LaunchedEffect(Unit) {
+                com.music.spotui.data.api.SpotifyTokenProvider.syncAuthState(context)
             }
+            val isSpotifyLoggedIn = tokenAuth || com.music.spotui.data.api.SpotifySession.hasSession(context)
             Text(
-                text = if (isSpotifyLoggedIn) "Log out" else "Log in to Spotify",
+                text = if (isSpotifyLoggedIn) "Log out (Spotify linked)" else "Log in to Spotify",
                 color = if (isSpotifyLoggedIn) Color(0xFFE57373) else Color(0xFF1ED760),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -3789,6 +3803,7 @@ fun SettingsScreen(navController: NavController) {
                         if (isSpotifyLoggedIn) {
                             com.music.spotui.data.api.SpotifySession.setSpDc(context, "")
                             com.music.spotui.data.api.Api.HomeCache.clear()
+                            com.music.spotui.data.api.SpotifySync.notifyAuthStateChanged("")
                         }
                         navController.navigate(com.music.spotui.ui.navigation.Routes.Login.route)
                     }

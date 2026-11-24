@@ -137,24 +137,24 @@ object MediaNotificationAdapter {
         isPlayingOverride: Boolean? = null,
     ) {
         val appContext = context.applicationContext
-        if (!isBackgroundExitNotificationEnabled(appContext)) return
         if (!canPostNotifications(appContext)) return
-        ensureChannel(appContext)
-
         val snap = SongPlayer.nowPlayingMetaSnapshot()
-        val lastSaved = if (snap.title.isBlank()) loadLastPlayback(appContext)?.first else null
-        val title = snap.title.ifBlank { lastSaved?.title.orEmpty() }.ifBlank { "SpotUI Ready" }
-        val artist = snap.artist.ifBlank { lastSaved?.singer.orEmpty() }.ifBlank { "Tap Play to resume in background" }
-        val coverUri = snap.coverUri.ifBlank { lastSaved?.coverUri.orEmpty() }
-        val songId = lastSaved?.id?.toString()
-        val isPlaying = isPlayingOverride ?: (SongPlayer.isPlaying() || SpotifyWebPlayer.isPlaying)
+        val livePlayingSnapshot = isPlayingOverride ?: (SongPlayer.isPlaying() || SpotifyWebPlayer.isPlaying)
 
-        val cachedArt = loadLocalCoverFast(appContext, songId, coverUri)
-        postExitMiniInternal(appContext, title, artist, isPlaying, cachedArt)
-        isExitMiniShowing = true
+        artScope.launch {
+            if (!isBackgroundExitNotificationEnabled(appContext)) return@launch
+            ensureChannel(appContext)
+            val lastSaved = if (snap.title.isBlank()) loadLastPlayback(appContext)?.first else null
+            val title = snap.title.ifBlank { lastSaved?.title.orEmpty() }.ifBlank { "SpotUI Ready" }
+            val artist = snap.artist.ifBlank { lastSaved?.singer.orEmpty() }.ifBlank { "Tap Play to resume in background" }
+            val coverUri = snap.coverUri.ifBlank { lastSaved?.coverUri.orEmpty() }
+            val songId = lastSaved?.id?.toString()
 
-        if (cachedArt == null && coverUri.isNotBlank()) {
-            artScope.launch {
+            val cachedArt = loadLocalCoverFast(appContext, songId, coverUri)
+            isExitMiniShowing = true
+            postExitMiniInternal(appContext, title, artist, livePlayingSnapshot, cachedArt)
+
+            if (cachedArt == null && coverUri.isNotBlank()) {
                 val remoteArt = runCatching {
                     com.bumptech.glide.Glide.with(appContext)
                         .asBitmap()
@@ -163,12 +163,8 @@ object MediaNotificationAdapter {
                         .get()
                 }.getOrNull()
                 if (remoteArt != null && isExitMiniShowing) {
-                    kotlinx.coroutines.withContext(Dispatchers.Main) {
-                        if (isExitMiniShowing) {
-                            val livePlaying = SongPlayer.isPlaying() || SpotifyWebPlayer.isPlaying
-                            postExitMiniInternal(appContext, title, artist, livePlaying, remoteArt)
-                        }
-                    }
+                    val livePlaying = isPlayingOverride ?: (SongPlayer.isPlaying() || SpotifyWebPlayer.isPlaying)
+                    postExitMiniInternal(appContext, title, artist, livePlaying, remoteArt)
                 }
             }
         }

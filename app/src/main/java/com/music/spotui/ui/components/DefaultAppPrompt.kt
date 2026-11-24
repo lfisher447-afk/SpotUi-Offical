@@ -35,6 +35,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +51,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.music.spotui.util.DefaultLinkHelper
 import com.music.spotui.util.HandlerAppInfo
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val SpotifyGreen = Color(0xFF1DB954)
 private val SpotifyDarkBg = Color(0xFF121212)
@@ -63,24 +67,27 @@ fun DefaultAppPrompt(
     forceShow: Boolean = false,
     onDismiss: () -> Unit = {}
 ) {
-    val context = LocalContext.current
-    var showDialog by remember(forceShow) {
-        mutableStateOf(forceShow || DefaultLinkHelper.shouldShowPrompt(context))
-    }
+    val appContext = context.applicationContext
+    var showDialog by remember(forceShow) { mutableStateOf(false) }
     var currentHandlerApp by remember { mutableStateOf<HandlerAppInfo?>(null) }
-    val officialSpotifyInstalled = remember(context, showDialog) {
-        if (showDialog) DefaultLinkHelper.isOfficialSpotifyInstalled(context) else false
-    }
-
-    androidx.compose.runtime.LaunchedEffect(showDialog) {
-        if (showDialog && currentHandlerApp == null) {
-            currentHandlerApp = DefaultLinkHelper.getCurrentDefaultHandlerApp(context)
-        }
-    }
+    var officialSpotifyInstalled by remember { mutableStateOf(false) }
+    val checkScope = rememberCoroutineScope()
 
     fun dismiss() {
         showDialog = false
         onDismiss()
+    }
+
+    androidx.compose.runtime.LaunchedEffect(forceShow) {
+        val (shouldShow, spotifyInstalled, handler) = withContext(Dispatchers.IO) {
+            val show = forceShow || DefaultLinkHelper.shouldShowPrompt(appContext)
+            val spotify = if (show) DefaultLinkHelper.isOfficialSpotifyInstalled(appContext) else false
+            val defaultHandler = if (show) DefaultLinkHelper.getCurrentDefaultHandlerApp(appContext) else null
+            Triple(show, spotify, defaultHandler)
+        }
+        officialSpotifyInstalled = spotifyInstalled
+        currentHandlerApp = handler
+        showDialog = shouldShow
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -88,13 +95,22 @@ fun DefaultAppPrompt(
     DisposableEffect(lifecycleOwner, forceShow) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                if (DefaultLinkHelper.isAppDefaultLinkHandler(context)) {
-                    dismiss()
-                } else {
-                    val shouldShow = forceShow || DefaultLinkHelper.shouldShowPrompt(context)
-                    showDialog = shouldShow
-                    if (shouldShow) {
-                        currentHandlerApp = DefaultLinkHelper.getCurrentDefaultHandlerApp(context)
+                checkScope.launch {
+                    val isDefault = withContext(Dispatchers.IO) {
+                        DefaultLinkHelper.isAppDefaultLinkHandler(appContext)
+                    }
+                    if (isDefault) {
+                        dismiss()
+                    } else {
+                        val (shouldShow, spotifyInstalled, handler) = withContext(Dispatchers.IO) {
+                            val show = forceShow || DefaultLinkHelper.shouldShowPrompt(appContext)
+                            val spotify = if (show) DefaultLinkHelper.isOfficialSpotifyInstalled(appContext) else false
+                            val defaultHandler = if (show) DefaultLinkHelper.getCurrentDefaultHandlerApp(appContext) else null
+                            Triple(show, spotify, defaultHandler)
+                        }
+                        officialSpotifyInstalled = spotifyInstalled
+                        currentHandlerApp = handler
+                        showDialog = shouldShow
                     }
                 }
             }
