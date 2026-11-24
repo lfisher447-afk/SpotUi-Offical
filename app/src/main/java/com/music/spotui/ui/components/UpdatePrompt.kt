@@ -97,7 +97,9 @@ fun UpdatePrompt() {
     ) {
         if (UpdateDownloader.canRequestPackageInstalls(context)) {
             installPermissionNeeded = false
-            val completed = downloadState as? UpdateDownloader.DownloadState.Completed
+            val completed = (downloadState as? UpdateDownloader.DownloadState.Completed)
+                ?: (downloadState as? UpdateDownloader.DownloadState.Failed)?.fallbackCompleted
+                ?: UpdateDownloader.peekLatestCompleted()
             if (completed != null) {
                 when (val res = UpdateDownloader.installApk(context, completed)) {
                     is UpdateDownloader.InstallLaunchResult.Launched -> installerErrorMessage = null
@@ -120,6 +122,24 @@ fun UpdatePrompt() {
             is UpdateDownloader.InstallLaunchResult.PermissionRequired -> {
                 installPermissionNeeded = true
                 installerErrorMessage = null
+            }
+            is UpdateDownloader.InstallLaunchResult.Failed -> {
+                installerErrorMessage = res.reason
+            }
+        }
+    }
+
+    fun launchSystemFallbackInstaller(completed: UpdateDownloader.DownloadState.Completed) {
+        when (val res = UpdateDownloader.openFileProviderFallbackInstaller(context, completed)) {
+            is UpdateDownloader.InstallLaunchResult.Launched -> {
+                installPermissionNeeded = false
+                installerErrorMessage = null
+            }
+            is UpdateDownloader.InstallLaunchResult.PermissionRequired -> {
+                installPermissionNeeded = true
+                unknownSourcesLauncher.launch(
+                    UpdateDownloader.buildUnknownAppSourcesIntent(context, newTask = false),
+                )
             }
             is UpdateDownloader.InstallLaunchResult.Failed -> {
                 installerErrorMessage = res.reason
@@ -333,7 +353,16 @@ fun UpdatePrompt() {
                     }
                 }
                 is UpdateDownloader.DownloadState.Installing if st.version == info.version -> {
-                    TextButton(onClick = {}, enabled = false) {
+                    val readyFallback = UpdateDownloader.peekLatestCompleted()
+                    if (readyFallback != null && !readyFallback.signatureMismatch && !readyFallback.downgradeBlocked) {
+                        TextButton(
+                            onClick = { launchSystemFallbackInstaller(readyFallback) },
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) {
+                            Text("System Installer", color = Color(0xFF9ED4FF), fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    TextButton(onClick = {}, enabled = false, modifier = Modifier.heightIn(min = 48.dp)) {
                         Text("Installing…", color = Color(0xFF1DB954), fontWeight = FontWeight.Bold)
                     }
                 }
@@ -368,16 +397,16 @@ fun UpdatePrompt() {
                                 containerColor = Color(0xFFFFB74D),
                                 contentColor = Color.Black,
                             ),
-                            modifier = Modifier.heightIn(min = 48.dp),
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("update_uninstall_old_button"),
                         ) {
                             Text("Uninstall Old App", fontWeight = FontWeight.Bold)
                         }
                     } else {
                         if (fallback != null) {
                             TextButton(
-                                onClick = {
-                                    UpdateDownloader.openFileProviderFallbackInstaller(context, fallback)
-                                },
+                                onClick = { launchSystemFallbackInstaller(fallback) },
                                 modifier = Modifier.heightIn(min = 48.dp),
                             ) {
                                 Text("System Fallback", color = Color(0xFF9ED4FF), fontWeight = FontWeight.SemiBold)
@@ -388,7 +417,13 @@ fun UpdatePrompt() {
                                 com.music.spotui.audio.UiSoundEngine.playTapChime(context)
                                 autoOpenedInstallerVersion = null
                                 if (fallback != null) {
-                                    triggerPackageInstaller(fallback, ignoreCompatCheck = true)
+                                    if (!UpdateDownloader.canRequestPackageInstalls(context)) {
+                                        unknownSourcesLauncher.launch(
+                                            UpdateDownloader.buildUnknownAppSourcesIntent(context, newTask = false),
+                                        )
+                                    } else {
+                                        triggerPackageInstaller(fallback, ignoreCompatCheck = false)
+                                    }
                                 } else {
                                     UpdateDownloader.startDownload(context, info, force = true)
                                 }
@@ -403,6 +438,7 @@ fun UpdatePrompt() {
                         ) {
                             Text(
                                 text = when {
+                                    fallback != null && installPermissionNeeded -> "Allow & Install"
                                     fallback != null -> "Retry Installer"
                                     failedSt != null -> "Retry In-App"
                                     else -> "Download & Install"
@@ -576,6 +612,21 @@ private fun InAppUpdateStatusCard(
                 }
                 is UpdateDownloader.DownloadState.Failed -> {
                     Text("Update step failed: ${state.reason}", color = Color(0xFFFF7A59), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    if (installPermissionNeeded) {
+                        Text(
+                            text = "Tap 'Allow & Install' and enable 'Allow from this source' once — Android Package Installer will open immediately on return.",
+                            color = Color(0xFFFFD54F),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    if (!installerErrorMessage.isNullOrBlank()) {
+                        Text(
+                            text = installerErrorMessage,
+                            color = Color(0xFFFF7A59),
+                            fontSize = 11.sp,
+                        )
+                    }
                 }
                 else -> Unit
             }

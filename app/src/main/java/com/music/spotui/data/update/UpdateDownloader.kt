@@ -161,11 +161,14 @@ object UpdateDownloader {
     @Volatile
     private var activeSessionId: Int = -1
 
-    fun consumePendingConfirmIntent(): Intent? {
+    fun consumePendingConfirmIntent(): Intent? = synchronized(this) {
         val current = _pendingConfirmIntent.value ?: return null
         _pendingConfirmIntent.value = null
-        return current
+        current
     }
+
+    fun peekLatestCompleted(): DownloadState.Completed? =
+        (_state.value as? DownloadState.Completed) ?: lastCompleted
 
     fun canRequestPackageInstalls(context: Context): Boolean =
         runCatching { context.packageManager.canRequestPackageInstalls() }.getOrDefault(false)
@@ -857,7 +860,13 @@ object UpdateDownloader {
             return raw
         }
         val repoBase = raw.substringBefore("/releases/").takeIf { it.startsWith("http") } ?: return null
-        val expandedUrl = "$repoBase/releases/expanded_assets/v${info.version}"
+        val tagSegment = info.releasePageUrl
+            .substringAfter("/releases/tag/", "")
+            .substringBefore("?")
+            .substringBefore("#")
+            .trim()
+            .ifBlank { "v${info.version}" }
+        val expandedUrl = "$repoBase/releases/expanded_assets/$tagSegment"
         return runCatching {
             val req = Request.Builder()
                 .url(expandedUrl)

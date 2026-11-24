@@ -13,6 +13,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -367,13 +369,33 @@ fun SettingsScreen(navController: NavController) {
     ) {
         if (UpdateDownloader.canRequestPackageInstalls(context)) {
             settingsInstallPermNeeded = false
-            val completed = updateDownloadState as? UpdateDownloader.DownloadState.Completed
+            val completed = (updateDownloadState as? UpdateDownloader.DownloadState.Completed)
+                ?: (updateDownloadState as? UpdateDownloader.DownloadState.Failed)?.fallbackCompleted
+                ?: UpdateDownloader.peekLatestCompleted()
             if (completed != null) {
                 when (val res = UpdateDownloader.installApk(context, completed)) {
                     is UpdateDownloader.InstallLaunchResult.Launched -> settingsInstallError = null
                     is UpdateDownloader.InstallLaunchResult.PermissionRequired -> settingsInstallPermNeeded = true
                     is UpdateDownloader.InstallLaunchResult.Failed -> settingsInstallError = res.reason
                 }
+            }
+        }
+    }
+
+    fun launchSettingsSystemFallback(completed: UpdateDownloader.DownloadState.Completed) {
+        when (val res = UpdateDownloader.openFileProviderFallbackInstaller(context, completed)) {
+            is UpdateDownloader.InstallLaunchResult.Launched -> {
+                settingsInstallPermNeeded = false
+                settingsInstallError = null
+            }
+            is UpdateDownloader.InstallLaunchResult.PermissionRequired -> {
+                settingsInstallPermNeeded = true
+                settingsUnknownSourcesLauncher.launch(
+                    UpdateDownloader.buildUnknownAppSourcesIntent(context, newTask = false),
+                )
+            }
+            is UpdateDownloader.InstallLaunchResult.Failed -> {
+                settingsInstallError = res.reason
             }
         }
     }
@@ -619,7 +641,7 @@ fun SettingsScreen(navController: NavController) {
                 title = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("SpotUI Studio Settings", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
-                        Text("v2.5.4 · ${activeSideTab.title}", color = AppPalette, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Text("v${BuildConfig.VERSION_NAME} · ${activeSideTab.title}", color = AppPalette, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     }
                 },
                 navigationIcon = {
@@ -3224,7 +3246,13 @@ fun SettingsScreen(navController: NavController) {
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    if (manualUpdateStatus.isNotBlank()) {
+                    val showHeaderStatusRow = manualUpdateStatus.isNotBlank() && (
+                        manualUpdateInfo == null ||
+                            updateDownloadState is UpdateDownloader.DownloadState.Idle ||
+                            updateDownloadState is UpdateDownloader.DownloadState.Cancelled ||
+                            updateDownloadState is UpdateDownloader.DownloadState.Downloading
+                        )
+                    if (showHeaderStatusRow) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
@@ -3239,22 +3267,27 @@ fun SettingsScreen(navController: NavController) {
                             manualUpdateInfo?.let { info ->
                                 val isDownloadingThis = updateDownloadState is UpdateDownloader.DownloadState.Downloading &&
                                     (updateDownloadState as UpdateDownloader.DownloadState.Downloading).version == info.version
-                                TextButton(
-                                    modifier = Modifier.heightIn(min = 48.dp),
-                                    onClick = {
-                                        UiSoundEngine.playTapChime(context)
-                                        if (isDownloadingThis) {
-                                            UpdateDownloader.cancelDownload(context)
-                                        } else {
-                                            UpdateDownloader.startDownload(context, info, force = true)
-                                        }
-                                    },
-                                ) {
-                                    Text(
-                                        if (isDownloadingThis) "Cancel" else "Download In-App",
-                                        color = if (isDownloadingThis) Color(0xFFFF7A59) else AppPalette,
-                                        fontWeight = FontWeight.Bold,
-                                    )
+                                val canTriggerInAppDownload = isDownloadingThis ||
+                                    updateDownloadState is UpdateDownloader.DownloadState.Idle ||
+                                    updateDownloadState is UpdateDownloader.DownloadState.Cancelled
+                                if (canTriggerInAppDownload) {
+                                    TextButton(
+                                        modifier = Modifier.heightIn(min = 48.dp),
+                                        onClick = {
+                                            UiSoundEngine.playTapChime(context)
+                                            if (isDownloadingThis) {
+                                                UpdateDownloader.cancelDownload(context)
+                                            } else {
+                                                UpdateDownloader.startDownload(context, info, force = true)
+                                            }
+                                        },
+                                    ) {
+                                        Text(
+                                            if (isDownloadingThis) "Cancel" else "Download In-App",
+                                            color = if (isDownloadingThis) Color(0xFFFF7A59) else AppPalette,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -3334,51 +3367,76 @@ fun SettingsScreen(navController: NavController) {
                                     fontSize = 11.sp,
                                 )
                             }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                if (dlState.signatureMismatch || dlState.downgradeBlocked) {
-                                    TextButton(
-                                        modifier = Modifier.heightIn(min = 48.dp),
-                                        onClick = {
-                                            UiSoundEngine.playTapChime(context)
-                                            UpdateDownloader.triggerUninstallCurrentApp(context)
-                                        },
-                                    ) {
-                                        Text("Uninstall Old App", color = Color(0xFFFFB74D), fontWeight = FontWeight.Bold)
-                                    }
-                                } else {
-                                    TextButton(
-                                        modifier = Modifier.heightIn(min = 48.dp),
-                                        onClick = {
-                                            UiSoundEngine.playTapChime(context)
-                                            if (!UpdateDownloader.canRequestPackageInstalls(context)) {
-                                                settingsUnknownSourcesLauncher.launch(
-                                                    UpdateDownloader.buildUnknownAppSourcesIntent(context, newTask = false),
-                                                )
-                                            } else {
-                                                when (val res = UpdateDownloader.installApk(context, dlState)) {
-                                                    is UpdateDownloader.InstallLaunchResult.Launched -> {
-                                                        settingsInstallPermNeeded = false
-                                                        settingsInstallError = null
-                                                    }
-                                                    is UpdateDownloader.InstallLaunchResult.PermissionRequired -> {
-                                                        settingsInstallPermNeeded = true
-                                                    }
-                                                    is UpdateDownloader.InstallLaunchResult.Failed -> {
-                                                        settingsInstallError = res.reason
-                                                    }
+                            if (dlState.signatureMismatch || dlState.downgradeBlocked) {
+                                Button(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp)
+                                        .testTag("settings_update_uninstall_old_button"),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFFFFB74D),
+                                        contentColor = Color.Black,
+                                    ),
+                                    onClick = {
+                                        UiSoundEngine.playTapChime(context)
+                                        UpdateDownloader.triggerUninstallCurrentApp(context)
+                                    },
+                                ) {
+                                    Text("Uninstall Old App", fontWeight = FontWeight.Bold)
+                                }
+                            } else {
+                                Button(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp)
+                                        .testTag("settings_update_install_button"),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF1DB954),
+                                        contentColor = Color.Black,
+                                    ),
+                                    onClick = {
+                                        UiSoundEngine.playTapChime(context)
+                                        if (!UpdateDownloader.canRequestPackageInstalls(context)) {
+                                            settingsUnknownSourcesLauncher.launch(
+                                                UpdateDownloader.buildUnknownAppSourcesIntent(context, newTask = false),
+                                            )
+                                        } else {
+                                            when (val res = UpdateDownloader.installApk(context, dlState)) {
+                                                is UpdateDownloader.InstallLaunchResult.Launched -> {
+                                                    settingsInstallPermNeeded = false
+                                                    settingsInstallError = null
+                                                }
+                                                is UpdateDownloader.InstallLaunchResult.PermissionRequired -> {
+                                                    settingsInstallPermNeeded = true
+                                                }
+                                                is UpdateDownloader.InstallLaunchResult.Failed -> {
+                                                    settingsInstallError = res.reason
                                                 }
                                             }
+                                        }
+                                    },
+                                ) {
+                                    Text(
+                                        if (settingsInstallPermNeeded) "Allow & Install" else "Install Update",
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                            }
+                            @OptIn(ExperimentalLayoutApi::class)
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                if (!dlState.signatureMismatch && !dlState.downgradeBlocked) {
+                                    TextButton(
+                                        modifier = Modifier.heightIn(min = 48.dp),
+                                        onClick = {
+                                            UiSoundEngine.playTapChime(context)
+                                            launchSettingsSystemFallback(dlState)
                                         },
                                     ) {
-                                        Text(
-                                            if (settingsInstallPermNeeded) "Allow & Install" else "Install Update",
-                                            color = AppPalette,
-                                            fontWeight = FontWeight.Bold,
-                                        )
+                                        Text("System Installer", color = Color(0xFF9ED4FF), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                                     }
                                 }
                                 TextButton(
@@ -3394,11 +3452,14 @@ fun SettingsScreen(navController: NavController) {
                                     text = "SHA: ${dlState.computedSha256.take(12)}…",
                                     color = Color(0xFF9ED4FF),
                                     fontSize = 10.sp,
-                                    modifier = Modifier.clickable {
-                                        val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                        cm.setPrimaryClip(android.content.ClipData.newPlainText("SpotUI SHA256", dlState.computedSha256))
-                                        android.widget.Toast.makeText(context, "SHA-256 digest copied", android.widget.Toast.LENGTH_SHORT).show()
-                                    },
+                                    modifier = Modifier
+                                        .align(Alignment.CenterVertically)
+                                        .clickable {
+                                            val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                            cm.setPrimaryClip(android.content.ClipData.newPlainText("SpotUI SHA256", dlState.computedSha256))
+                                            android.widget.Toast.makeText(context, "SHA-256 digest copied", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                        .padding(vertical = 8.dp),
                                 )
                             }
                         }
@@ -3418,6 +3479,18 @@ fun SettingsScreen(navController: NavController) {
                                 trackColor = Color(0xFF2B2D36),
                             )
                             Text(dlState.statusMessage, color = Color(0xFFD0D6E0), fontSize = 11.sp)
+                            val readyFallback = UpdateDownloader.peekLatestCompleted()
+                            if (readyFallback != null && !readyFallback.signatureMismatch && !readyFallback.downgradeBlocked) {
+                                TextButton(
+                                    modifier = Modifier.heightIn(min = 48.dp),
+                                    onClick = {
+                                        UiSoundEngine.playTapChime(context)
+                                        launchSettingsSystemFallback(readyFallback)
+                                    },
+                                ) {
+                                    Text("Open System Installer", color = Color(0xFF9ED4FF), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
                         }
                         is UpdateDownloader.DownloadState.Installed -> {
                             Text(
@@ -3431,16 +3504,25 @@ fun SettingsScreen(navController: NavController) {
                             Text("Update failed: ${dlState.reason}", color = Color(0xFFFF7A59), fontSize = 11.sp)
                             val fallback = dlState.fallbackCompleted
                             if (fallback != null) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                @OptIn(ExperimentalLayoutApi::class)
+                                FlowRow(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
                                     if (fallback.signatureMismatch || fallback.downgradeBlocked) {
-                                        TextButton(
+                                        Button(
                                             modifier = Modifier.heightIn(min = 48.dp),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = Color(0xFFFFB74D),
+                                                contentColor = Color.Black,
+                                            ),
                                             onClick = {
                                                 UiSoundEngine.playTapChime(context)
                                                 UpdateDownloader.triggerUninstallCurrentApp(context)
                                             },
                                         ) {
-                                            Text("Uninstall Old App", color = Color(0xFFFFB74D), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            Text("Uninstall Old App", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                         }
                                         TextButton(
                                             modifier = Modifier.heightIn(min = 48.dp),
@@ -3449,8 +3531,12 @@ fun SettingsScreen(navController: NavController) {
                                             Text("Open Downloads", color = Color(0xFF9ED4FF), fontSize = 12.sp)
                                         }
                                     } else {
-                                        TextButton(
+                                        Button(
                                             modifier = Modifier.heightIn(min = 48.dp),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = Color(0xFF1DB954),
+                                                contentColor = Color.Black,
+                                            ),
                                             onClick = {
                                                 UiSoundEngine.playTapChime(context)
                                                 if (!UpdateDownloader.canRequestPackageInstalls(context)) {
@@ -3458,7 +3544,7 @@ fun SettingsScreen(navController: NavController) {
                                                         UpdateDownloader.buildUnknownAppSourcesIntent(context, newTask = false),
                                                     )
                                                 } else {
-                                                    when (val res = UpdateDownloader.installApk(context, fallback, ignoreCompatCheck = true)) {
+                                                    when (val res = UpdateDownloader.installApk(context, fallback, ignoreCompatCheck = false)) {
                                                         is UpdateDownloader.InstallLaunchResult.Launched -> {
                                                             settingsInstallPermNeeded = false
                                                             settingsInstallError = null
@@ -3473,15 +3559,33 @@ fun SettingsScreen(navController: NavController) {
                                                 }
                                             },
                                         ) {
-                                            Text("Retry PackageInstaller", color = AppPalette, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            Text(
+                                                if (settingsInstallPermNeeded) "Allow & Install" else "Retry Installer",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                            )
                                         }
                                         TextButton(
                                             modifier = Modifier.heightIn(min = 48.dp),
-                                            onClick = { UpdateDownloader.openFileProviderFallbackInstaller(context, fallback) },
+                                            onClick = { launchSettingsSystemFallback(fallback) },
                                         ) {
                                             Text("System Fallback", color = Color(0xFF9ED4FF), fontSize = 12.sp)
                                         }
                                     }
+                                }
+                            } else if (manualUpdateInfo != null) {
+                                Button(
+                                    modifier = Modifier.heightIn(min = 48.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = AppPalette,
+                                        contentColor = Color.Black,
+                                    ),
+                                    onClick = {
+                                        UiSoundEngine.playTapChime(context)
+                                        manualUpdateInfo?.let { UpdateDownloader.startDownload(context, it, force = true) }
+                                    },
+                                ) {
+                                    Text("Retry Download", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -3534,7 +3638,7 @@ fun SettingsScreen(navController: NavController) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Roadmap & Update Master Plan", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
-                    Text("View complete release history and version changelogs (including v2.5.4)", color = Color(0xFFB3B3B3), fontSize = 12.sp)
+                    Text("View complete release history and version changelogs (installed v${BuildConfig.VERSION_NAME})", color = Color(0xFFB3B3B3), fontSize = 12.sp)
                 }
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.OpenInNew,
