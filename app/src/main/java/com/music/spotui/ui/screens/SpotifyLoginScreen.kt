@@ -13,6 +13,7 @@ import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
+import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
@@ -78,6 +79,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import com.metrolist.spotify.SpotifyAuth
 import com.music.spotui.audio.UiSoundEngine
 import com.music.spotui.data.api.Api
@@ -121,7 +124,7 @@ fun SpotifyLoginScreen(navController: NavController) {
     LaunchedEffect(Unit) {
         val ready = SpotifyTokenProvider.syncAuthState(context)
         isAccountLinked = ready
-        DevConsoleManager.logAuth("Spotify Music Sync opened (linked=$ready, mode=EmbeddedAutoCaptureWebView)")
+        DevConsoleManager.logAuth("Spotify Music Sync opened (linked=$ready, mode=EmbeddedAntiBotWebView)")
     }
 
     val navigateToHome: () -> Unit = {
@@ -191,7 +194,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                 isSyncing || isProcessing -> statusMessage.ifBlank { "Importing Spotify playlists natively into SpotUI…" }
                 syncSummaryText.isNotBlank() -> syncSummaryText
                 effectiveLinked -> "Spotify session linked · Tap Done"
-                else -> "Sign in via embedded Spotify login (auto-captures sp_dc)"
+                else -> "Sign in via anti-bot embedded Spotify login (auto-captures sp_dc)"
             }
 
             // Top Bar
@@ -328,7 +331,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                     onClose = { showManualCookieInput = false },
                 )
             } else {
-                // Primary Embedded Auto-Capture WebView
+                // Primary Embedded Anti-Bot WebView
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -344,9 +347,10 @@ fun SpotifyLoginScreen(navController: NavController) {
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                 )
-                                val cm = CookieManager.getInstance()
-                                cm.setAcceptCookie(true)
-                                cm.setAcceptThirdPartyCookies(this, true)
+
+                                val cookieManager = CookieManager.getInstance()
+                                cookieManager.setAcceptCookie(true)
+                                cookieManager.setAcceptThirdPartyCookies(this, true)
 
                                 settings.apply {
                                     javaScriptEnabled = true
@@ -354,18 +358,16 @@ fun SpotifyLoginScreen(navController: NavController) {
                                     databaseEnabled = true
                                     setSupportMultipleWindows(true)
                                     javaScriptCanOpenWindowsAutomatically = true
-                                    userAgentString = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+                                    // Use clean mobile UA matching device's built-in WebView / Chromium engine
+                                    userAgentString = resolveLoginUserAgent(ctx, LoginUaProfile.CLEAN_MOBILE)
                                 }
+
 
                                 webViewClient = object : WebViewClient() {
                                     override fun onPageFinished(view: WebView?, url: String?) {
                                         super.onPageFinished(view, url)
                                         runCatching { CookieManager.getInstance().flush() }
                                         checkAndCaptureCookies(url)
-                                        view?.evaluateJavascript(
-                                            "(function(){try{Document.prototype.requestStorageAccess=function(){return Promise.resolve(true);};Object.defineProperty(navigator,'webdriver',{get:()=>undefined});}catch(e){}})();",
-                                            null,
-                                        )
                                     }
 
                                     override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
@@ -376,7 +378,13 @@ fun SpotifyLoginScreen(navController: NavController) {
                                     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                                         val reqUrl = request?.url?.toString().orEmpty()
                                         checkAndCaptureCookies(reqUrl)
-                                        return false
+                                        val host = Uri.parse(reqUrl).host.orEmpty()
+                                        val isAllowed = host.contains("spotify.com", ignoreCase = true) ||
+                                            host.contains("google.com", ignoreCase = true) ||
+                                            host.contains("apple.com", ignoreCase = true) ||
+                                            host.contains("cloudflare.com", ignoreCase = true) ||
+                                            host.contains("recaptcha", ignoreCase = true)
+                                        return !isAllowed && false // Allow loading all requested URLs inside WebView
                                     }
                                 }
 
@@ -388,6 +396,9 @@ fun SpotifyLoginScreen(navController: NavController) {
                                         resultMsg: Message?,
                                     ): Boolean {
                                         val newWebView = WebView(ctx).apply {
+                                            val ncm = CookieManager.getInstance()
+                                            ncm.setAcceptCookie(true)
+                                            ncm.setAcceptThirdPartyCookies(this, true)
                                             settings.javaScriptEnabled = true
                                             settings.domStorageEnabled = true
                                             settings.setSupportMultipleWindows(true)
@@ -397,10 +408,23 @@ fun SpotifyLoginScreen(navController: NavController) {
                                         resultMsg?.sendToTarget()
                                         return true
                                     }
+
+                                    override fun onCloseWindow(window: WebView?) {
+                                        super.onCloseWindow(window)
+                                        window?.destroy()
+                                    }
                                 }
 
                                 webViewInstance = this
-                                loadUrl(SPOTIFY_LOGIN_URL)
+
+                                // Wipe stale cookies and WebStorage before loading LOGIN_URL
+                                runCatching { WebStorage.getInstance().deleteAllData() }
+                                cookieManager.removeAllCookies {
+                                    cookieManager.flush()
+                                    cookieManager.setAcceptCookie(true)
+                                    cookieManager.setAcceptThirdPartyCookies(this, true)
+                                    loadUrl(SPOTIFY_LOGIN_URL)
+                                }
                             }
                         },
                         modifier = Modifier.fillMaxSize(),
