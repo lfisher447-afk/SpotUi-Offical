@@ -21,12 +21,11 @@ import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
 
 private const val LOGIN_TOKEN_ATTEMPTS = 3
-private const val LOGIN_RETRY_BASE_DELAY_MS = 400L
 private const val LOGIN_SYNC_TIMEOUT_MS = 120_000L
 private const val LOGIN_SUCCESS_NAV_DELAY_MS = 380L
 internal const val MIN_SP_DC_LENGTH = 16
 
-/** The four visible steps of "cookie in → library synced". */
+/** The four visible steps of "WebView cookie in -> Spotify.kt armed -> library synced". */
 internal enum class LoginStage(val label: String) {
     VERIFY("Cookie"),
     TOKEN("Session"),
@@ -57,7 +56,7 @@ internal fun launchLoginTask(block: suspend CoroutineScope.() -> Unit): Job =
     LoginPipelineScope.scope.launch(block = block)
 
 /**
- * Wires [Spotify.tokenRefresher] + [installSpotifyHashRecovery] onto the main `:spotify`
+ * Wires [Spotify.tokenRefresher] + [installSpotifyHashRecovery] onto the main [Spotify]
  * singleton so 401 token rotations and GraphQL persisted-query hashes heal transparently.
  */
 fun installSpotifyTokenAutoRefresh(context: Context) {
@@ -84,53 +83,39 @@ internal suspend fun runLoginPipeline(
 ): LoginOutcome {
     val app = context.applicationContext
     DevConsoleManager.logAuth(
-        "Verifying session via $source (sp_dc len=${spDc.length}, preToken=${preCapturedToken != null})",
+        "Spotify.loginWithWebViewSession via $source (sp_dc len=${spDc.length}, preToken=${preCapturedToken != null})",
     )
 
     onStage(LoginStage.VERIFY)
-    var token: SpotifyInternalToken? = preCapturedToken?.takeIf {
-        !it.isAnonymous && it.accessToken.isNotBlank()
-    }
-    val viaWebSession = token != null
-    var lastError: Throwable? = null
+    val loginResult = Spotify.loginWithWebViewSession(
+        spDc = spDc,
+        spKey = spKey,
+        preCapturedToken = preCapturedToken,
+        retryAttempts = LOGIN_TOKEN_ATTEMPTS,
+    )
 
-    if (token == null) {
-        var attempt = 0
-        while (token == null && attempt < LOGIN_TOKEN_ATTEMPTS) {
-            attempt++
-            val result = SpotifyAuth.fetchAccessToken(spDc, spKey)
-            token = result.getOrNull()
-            if (token != null) {
-                DevConsoleManager.logAuth("Login verified via $source on attempt $attempt")
-                break
-            }
-            val error = result.exceptionOrNull()
-            lastError = error
-            Timber.e(error, "Spotify token exchange failed (attempt $attempt)")
-            DevConsoleManager.logWarning("SpotifyLogin", "Attempt $attempt/$LOGIN_TOKEN_ATTEMPTS failed: ${error?.message}")
-            if (!SpotifyAuth.isRetryable(error)) break
-            if (attempt < LOGIN_TOKEN_ATTEMPTS) delay(LOGIN_RETRY_BASE_DELAY_MS * attempt * attempt)
-        }
-    } else {
-        DevConsoleManager.logAuth("Accepted verified #session token directly from $source")
-    }
-
-    val verifiedToken = token ?: run {
-        val message = SpotifyAuth.describeFailure(lastError)
-        DevConsoleManager.logError("SpotifyLogin", "Verification failed ($source): ${lastError?.message ?: message}", lastError)
-        return LoginOutcome.Failure(LoginStage.VERIFY, message, lastError)
+    val session = loginResult.getOrElse { err ->
+        Timber.e(err, "Spotify.loginWithWebViewSession failed")
+        val message = Spotify.describeLoginFailure(err)
+        DevConsoleManager.logError("SpotifyLogin", "Verification failed ($source): ${err.message ?: message}", err)
+        return LoginOutcome.Failure(LoginStage.VERIFY, message, err)
     }
 
     onStage(LoginStage.TOKEN)
-    SpotifySession.setSpDc(app, spDc, spKey)
-    SpotifyTokenProvider.seedVerifiedToken(verifiedToken.accessToken, verifiedToken.accessTokenExpirationTimestampMs)
+    SpotifySession.setSpDc(app, session.spDc, session.spKey)
+    SpotifyTokenProvider.seedVerifiedToken(
+        session.token.accessToken,
+        session.token.accessTokenExpirationTimestampMs,
+    )
     installSpotifyTokenAutoRefresh(app)
 
     onStage(LoginStage.PROFILE)
-    val accountName = Spotify.me().getOrNull()?.let { user ->
+    val accountName = session.user?.let { user ->
         user.displayName?.takeIf { it.isNotBlank() } ?: user.id.takeIf { it.isNotBlank() }
     }
-    DevConsoleManager.logAuth("Profile resolved=${accountName != null}")
+    DevConsoleManager.logAuth(
+        "Spotify armed cleanly (webSession=${session.capturedFromWebSession}, profile=${accountName != null})",
+    )
 
     var syncDetail: String? = null
     var syncWarning: String? = null
@@ -151,13 +136,13 @@ internal suspend fun runLoginPipeline(
                 syncWarning = "Library sync is still running — it will finish in the background."
             syncResult.isSuccess -> syncDetail = syncResult.getOrNull()?.detail
             else -> syncWarning =
-                "Signed in, but the library sync failed: ${SpotifyAuth.describeFailure(syncResult.exceptionOrNull())}"
+                "Signed in, but the library sync failed: ${Spotify.describeLoginFailure(syncResult.exceptionOrNull())}"
         }
     }
-    if (syncDetail.isNullOrBlank()) SpotifySync.notifyAuthStateChanged("Signed in!")
+    if (syncDetail.isNullOrBlank()) SpotifySync.notifyAuthStateChanged("Signed in via WebView!")
 
     return LoginOutcome.Success(
-        signInLabel = if (viaWebSession) "Signed in via WebView #session!" else "Signed in!",
+        signInLabel = if (session.capturedFromWebSession) "Signed in via WebView #session!" else "Signed in via WebView!",
         accountName = accountName,
         syncDetail = syncDetail,
         syncWarning = syncWarning,
@@ -168,7 +153,7 @@ internal fun processLoginSession(
     context: Context,
     spDc: String,
     spKey: String = "",
-    source: String = "Session",
+    source: String = "WebViewSession",
     preCapturedToken: SpotifyInternalToken? = null,
     autoSyncLibrary: Boolean = true,
     scope: CoroutineScope,
@@ -183,7 +168,7 @@ internal fun processLoginSession(
     val app = context.applicationContext
     setProcessing(true)
     setError(false)
-    setStatus("Verifying Spotify session…")
+    setStatus("Verifying Spotify WebView session…")
 
     fun onMain(block: () -> Unit) {
         scope.launch(Dispatchers.Main) { block() }
@@ -202,8 +187,8 @@ internal fun processLoginSession(
                     onStage(stage)
                     setStatus(
                         when (stage) {
-                            LoginStage.VERIFY -> "Verifying Spotify cookie & session…"
-                            LoginStage.TOKEN -> "Arming SpotUI web-player token…"
+                            LoginStage.VERIFY -> "Verifying Spotify WebView cookie…"
+                            LoginStage.TOKEN -> "Arming Spotify.accessToken…"
                             LoginStage.PROFILE -> "Loading your Spotify profile…"
                             LoginStage.LIBRARY -> "Importing playlists, liked songs & artists…"
                         },

@@ -10,6 +10,10 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -41,26 +45,24 @@ import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ContainedLoadingIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -91,7 +93,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
-import com.metrolist.spotify.SpotifyAuth
+import com.metrolist.spotify.Spotify
 import com.metrolist.spotify.models.SpotifyInternalToken
 import com.music.spotui.audio.UiSoundEngine
 import com.music.spotui.data.api.SpotifySession
@@ -106,10 +108,7 @@ import com.music.spotui.ui.screens.SpotifyLogin.helper.LOGIN_TEXT_SECONDARY
 import com.music.spotui.ui.screens.SpotifyLogin.helper.LoginDiagnosticsDialog
 import com.music.spotui.ui.screens.SpotifyLogin.helper.LoginTab
 import com.music.spotui.ui.screens.SpotifyLogin.helper.LoginUaProfile
-import com.music.spotui.ui.screens.SpotifyLogin.helper.SPOTIFY_BOOKMARKLET_JS
-import com.music.spotui.ui.screens.SpotifyLogin.helper.copyToClipboard
 import com.music.spotui.ui.screens.SpotifyLogin.helper.looksLikeSpotifyCookiePayload
-import com.music.spotui.ui.screens.SpotifyLogin.helper.openSpotifyInChromeCustomTab
 import com.music.spotui.ui.screens.SpotifyLogin.helper.parseSpotifyCookiesFromText
 import com.music.spotui.ui.screens.SpotifyLogin.helper.readClipboardText
 import com.music.spotui.ui.screens.SpotifyLogin.module.LoginStage
@@ -118,16 +117,15 @@ import com.music.spotui.ui.screens.SpotifyLogin.module.SpotifyEngineNavigationSt
 import com.music.spotui.ui.screens.SpotifyLogin.module.SpotifyEngineProcessState
 import com.music.spotui.ui.screens.SpotifyLogin.module.SpotifyEngineSecurityState
 import com.music.spotui.ui.screens.SpotifyLogin.module.SpotifyEngineShieldState
-import com.music.spotui.ui.screens.SpotifyLogin.module.SpotifyOAuth
 import com.music.spotui.ui.screens.SpotifyLogin.module.SpotifyWebViewAdapter
 import com.music.spotui.ui.screens.SpotifyLogin.module.launchLoginTask
 import com.music.spotui.ui.screens.SpotifyLogin.module.processLoginSession
-import com.music.spotui.ui.screens.SpotifyLogin.module.processOAuthLogin
 import com.music.spotui.util.DevConsoleManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun SpotifyLoginScreen(navController: NavController) {
     val context = LocalContext.current
@@ -153,6 +151,7 @@ fun SpotifyLoginScreen(navController: NavController) {
     var cookieText by remember { mutableStateOf("") }
     var showLogsDialog by remember { mutableStateOf(false) }
     var popupWebView by remember { mutableStateOf<WebView?>(null) }
+    var showToolbar by remember { mutableStateOf(true) }
 
     val tokenFetchStarted = remember { AtomicBoolean(false) }
 
@@ -164,6 +163,8 @@ fun SpotifyLoginScreen(navController: NavController) {
             }
         }
     }
+
+    var webAdapterRef by remember { mutableStateOf<SpotifyWebViewAdapter?>(null) }
 
     fun handleCapturedSession(
         spDc: String,
@@ -189,6 +190,7 @@ fun SpotifyLoginScreen(navController: NavController) {
             onComplete = { ok ->
                 if (!ok) {
                     tokenFetchStarted.set(false)
+                    webAdapterRef?.allowRecapture()
                 } else {
                     stage = null
                     isAccountLinked = true
@@ -212,7 +214,7 @@ fun SpotifyLoginScreen(navController: NavController) {
     val webAdapter = remember {
         SpotifyWebViewAdapter(
             isPrivate = false,
-            initialUaProfile = LoginUaProfile.CLEAN_MOBILE,
+            initialUaProfile = LoginUaProfile.SYSTEM_DEFAULT,
             onSessionCaptured = { spDc, spKey, preToken, source ->
                 handleCapturedSession(
                     spDc = spDc,
@@ -225,7 +227,10 @@ fun SpotifyLoginScreen(navController: NavController) {
             onPopupRequested = { popup ->
                 popupWebView = popup
             },
-        )
+        ).also { adapter ->
+            adapter.onScrollVisibilityListener = { visible -> showToolbar = visible }
+            webAdapterRef = adapter
+        }
     }
 
     val webNavState by webAdapter.navigationState.collectAsStateWithLifecycle()
@@ -238,7 +243,7 @@ fun SpotifyLoginScreen(navController: NavController) {
         val ready = SpotifyTokenProvider.syncAuthState(context)
         isAccountLinked = ready
         DevConsoleManager.logAuth(
-            "Spotify Music Sync initialized (linked=$ready, shield=HardenedWebViewAdapter)",
+            "Spotify WebView Sync ready (linked=$ready, engine=UnifiedSpotifyWebView)",
         )
     }
 
@@ -258,8 +263,8 @@ fun SpotifyLoginScreen(navController: NavController) {
         }
 
         val spDc = SpotifySession.spDc(context)
-        if (spDc.isBlank() && !SpotifyOAuth.isSignedIn(context)) {
-            statusMessage = "Sign in below first — SpotUI will capture your session and sync automatically."
+        if (spDc.isBlank()) {
+            statusMessage = "Sign in inside the WebView below — SpotUI captures sp_dc and syncs automatically."
             hasError = false
             Toast.makeText(context, "Sign in below first, then tap Sync All", Toast.LENGTH_SHORT).show()
             return
@@ -293,32 +298,6 @@ fun SpotifyLoginScreen(navController: NavController) {
         }
     }
 
-    fun startOAuthSignIn() {
-        if (isProcessing) return
-        processOAuthLogin(
-            context = context,
-            scope = scope,
-            setProcessing = { isProcessing = it },
-            setStatus = { statusMessage = it },
-            setError = { hasError = it },
-            onStage = { stage = it },
-            onAccount = { accountName = it },
-            onComplete = { ok ->
-                if (ok) {
-                    stage = null
-                    isAccountLinked = true
-                    SpotifySync.lastSyncDetail.takeIf { it.isNotBlank() }?.let { syncSummaryText = it }
-                }
-            },
-            onSuccess = { summary ->
-                if (!summary.isNullOrBlank()) syncSummaryText = summary
-                val who = accountName?.let { " as $it" }.orEmpty()
-                Toast.makeText(context, "Signed in$who with Spotify!", Toast.LENGTH_SHORT).show()
-                navigateToHome()
-            },
-        )
-    }
-
     BackHandler {
         when {
             popupWebView != null -> webAdapter.closePopup()
@@ -339,8 +318,8 @@ fun SpotifyLoginScreen(navController: NavController) {
             val headerSubtitle = when {
                 isSyncing || isProcessing -> statusMessage.ifBlank { "Importing Spotify playlists natively into SpotUI…" }
                 syncSummaryText.isNotBlank() -> syncSummaryText
-                effectiveLinked -> "Account linked · Tap Sync All to import playlists natively"
-                else -> "Sign in below to sync playlists, liked tracks & artists natively"
+                effectiveLinked -> "Account linked · Tap Sync All to refresh library"
+                else -> "WebView auto-capture · Sign in to sync Spotify natively"
             }
 
             Row(
@@ -348,7 +327,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                     .fillMaxWidth()
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color(0xFF1A1D28), Color(LOGIN_BACKGROUND_DARK)),
+                            listOf(Color(0xFF171D28), Color(LOGIN_BACKGROUND_DARK)),
                         ),
                     )
                     .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -357,17 +336,25 @@ fun SpotifyLoginScreen(navController: NavController) {
             ) {
                 Box(
                     modifier = Modifier
-                        .size(38.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(14.dp))
                         .background(Color(LOGIN_SPOTIFY_GREEN)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.MusicNote,
-                        contentDescription = "SpotUI Spotify Sync",
-                        tint = Color.Black,
-                        modifier = Modifier.size(21.dp),
-                    )
+                    if (isProcessing) {
+                        ContainedLoadingIndicator(
+                            modifier = Modifier.size(28.dp),
+                            containerColor = Color.Transparent,
+                            indicatorColor = Color.Black,
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.MusicNote,
+                            contentDescription = "SpotUI Spotify Sync",
+                            tint = Color.Black,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
                 }
 
                 Column(modifier = Modifier.weight(1f)) {
@@ -375,12 +362,12 @@ fun SpotifyLoginScreen(navController: NavController) {
                         text = "Spotify Music Sync",
                         color = Color.White,
                         fontSize = 15.5.sp,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.ExtraBold,
                         maxLines = 1,
                     )
                     Text(
                         text = headerSubtitle,
-                        color = if (hasError) Color(0xFFFF9EA6) else Color(0xFFB3B3C4),
+                        color = if (hasError) Color(0xFFFF9EA6) else Color(0xFFB3B8CA),
                         fontSize = 11.sp,
                         lineHeight = 14.sp,
                         maxLines = 2,
@@ -403,19 +390,11 @@ fun SpotifyLoginScreen(navController: NavController) {
                         .heightIn(min = 48.dp)
                         .testTag("spotify_sync_all_button"),
                 ) {
-                    if (isSyncing) {
-                        CircularProgressIndicator(
-                            color = Color.Black,
-                            modifier = Modifier.size(14.dp),
-                            strokeWidth = 2.dp,
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Sync,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Default.Sync,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
                     Spacer(Modifier.width(5.dp))
                     Text(
                         text = if (isSyncing) "Syncing…" else "Sync All",
@@ -458,7 +437,6 @@ fun SpotifyLoginScreen(navController: NavController) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
                     .padding(horizontal = 12.dp, vertical = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -467,7 +445,6 @@ fun SpotifyLoginScreen(navController: NavController) {
                     val selected = activeTab == tab
                     val icon = when (tab) {
                         LoginTab.WEBVIEW -> Icons.Default.Language
-                        LoginTab.OAUTH_PKCE -> Icons.Default.VpnKey
                         LoginTab.PASTE_COOKIE -> Icons.Default.Code
                     }
                     FilterChip(
@@ -492,7 +469,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                             )
                         },
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(16.dp),
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = Color(LOGIN_SPOTIFY_GREEN),
                             selectedLabelColor = Color.Black,
@@ -508,6 +485,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                             selectedBorderColor = Color(LOGIN_SPOTIFY_GREEN),
                         ),
                         modifier = Modifier
+                            .weight(1f)
                             .heightIn(min = 48.dp)
                             .testTag("login_tab_${tab.name.lowercase()}"),
                     )
@@ -521,7 +499,7 @@ fun SpotifyLoginScreen(navController: NavController) {
             AnimatedVisibility(visible = statusMessage.isNotBlank()) {
                 Surface(
                     color = if (hasError) Color(0xFF2B161A) else Color(0xFF14271D),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 4.dp),
@@ -531,13 +509,6 @@ fun SpotifyLoginScreen(navController: NavController) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        if (isProcessing) {
-                            CircularProgressIndicator(
-                                color = Color(LOGIN_SPOTIFY_GREEN),
-                                modifier = Modifier.size(15.dp),
-                                strokeWidth = 2.dp,
-                            )
-                        }
                         Text(
                             text = statusMessage,
                             color = if (hasError) Color(0xFFFF9EA6) else Color(0xFFA7F3D0),
@@ -557,19 +528,12 @@ fun SpotifyLoginScreen(navController: NavController) {
                         shieldState = webShieldState,
                         processState = webProcessState,
                         uaProfile = uaProfile,
-                        startUrl = if (initialSessionLinked) "https://open.spotify.com/" else SpotifyAuth.LOGIN_URL,
+                        showToolbar = showToolbar,
+                        startUrl = if (initialSessionLinked) "https://open.spotify.com/" else Spotify.LOGIN_URL,
                         clearPreviousSession = !initialSessionLinked,
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f),
-                    )
-                }
-                LoginTab.OAUTH_PKCE -> {
-                    OAuthSignInPane(
-                        isProcessing = isProcessing,
-                        onSignIn = { startOAuthSignIn() },
-                        onClose = { if (!isProcessing) activeTab = LoginTab.WEBVIEW },
-                        modifier = Modifier.weight(1f),
                     )
                 }
                 LoginTab.PASTE_COOKIE -> {
@@ -630,7 +594,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                             modifier = Modifier.size(16.dp),
                         )
                         Text(
-                            text = "Protected OAuth Sign-In Window",
+                            text = "Protected Spotify Sign-In Window",
                             color = Color.White,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
@@ -638,7 +602,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                     }
                     IconButton(
                         onClick = { webAdapter.closePopup() },
-                        modifier = Modifier.size(48.dp).testTag("close_oauth_popup_button"),
+                        modifier = Modifier.size(48.dp).testTag("close_sso_popup_button"),
                     ) {
                         Icon(Icons.Default.Close, contentDescription = "Close Popup", tint = Color.White)
                     }
@@ -670,6 +634,7 @@ fun SpotifyLoginScreen(navController: NavController) {
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun HardenedWebViewLoginBody(
     adapter: SpotifyWebViewAdapter,
@@ -678,6 +643,7 @@ private fun HardenedWebViewLoginBody(
     shieldState: SpotifyEngineShieldState,
     processState: SpotifyEngineProcessState,
     uaProfile: LoginUaProfile,
+    showToolbar: Boolean,
     startUrl: String,
     clearPreviousSession: Boolean,
     modifier: Modifier = Modifier,
@@ -689,123 +655,120 @@ private fun HardenedWebViewLoginBody(
             animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         ),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 10.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        AnimatedVisibility(
+            visible = showToolbar,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut(),
         ) {
-            IconButton(
-                onClick = { adapter.goBack() },
-                enabled = navState.canGoBack,
-                modifier = Modifier.size(48.dp).testTag("login_web_back"),
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 10.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = if (navState.canGoBack) Color.White else Color(0xFF555B6E),
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-            IconButton(
-                onClick = { adapter.goForward() },
-                enabled = navState.canGoForward,
-                modifier = Modifier.size(48.dp).testTag("login_web_forward"),
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = "Forward",
-                    tint = if (navState.canGoForward) Color.White else Color(0xFF555B6E),
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-            IconButton(
-                onClick = { adapter.reload() },
-                modifier = Modifier.size(48.dp).testTag("login_web_reload"),
-            ) {
-                Icon(Icons.Default.Refresh, contentDescription = "Reload", tint = Color.White, modifier = Modifier.size(18.dp))
-            }
-            IconButton(
-                onClick = {
-                    UiSoundEngine.playTapChime(context)
-                    adapter.resetSessionAndLoad()
-                },
-                modifier = Modifier.size(48.dp).testTag("login_web_reset_cookies"),
-            ) {
-                Icon(Icons.Default.DeleteSweep, contentDescription = "Reset Session", tint = Color(0xFFFFB74D), modifier = Modifier.size(18.dp))
-            }
-            IconButton(
-                onClick = {
-                    UiSoundEngine.playTapChime(context)
-                    openSpotifyInChromeCustomTab(context, SpotifyAuth.LOGIN_URL)
-                },
-                modifier = Modifier.size(48.dp).testTag("login_open_browser"),
-            ) {
-                Icon(Icons.Default.OpenInBrowser, contentDescription = "Open in Chrome Custom Tab", tint = Color(0xFF9ED4FF), modifier = Modifier.size(18.dp))
-            }
-
-            Surface(
-                color = Color(0xFF14241C),
-                shape = CircleShape,
-                border = BorderStroke(1.dp, Color(LOGIN_SPOTIFY_GREEN).copy(alpha = 0.35f)),
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                IconButton(
+                    onClick = { adapter.goBack() },
+                    enabled = navState.canGoBack,
+                    modifier = Modifier.size(48.dp).testTag("login_web_back"),
                 ) {
                     Icon(
-                        imageVector = if (securityState.isHttps) Icons.Default.Shield else Icons.Default.Lock,
-                        contentDescription = "WebView Shield Active",
-                        tint = if (securityState.certificateErrorHost != null) Color(0xFFFF6B6B) else Color(LOGIN_SPOTIFY_GREEN),
-                        modifier = Modifier.size(13.dp),
-                    )
-                    Text(
-                        text = "${shieldState.totalBlocked} blocked",
-                        color = Color(0xFFD5F5E3),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = if (navState.canGoBack) Color.White else Color(0xFF555B6E),
+                        modifier = Modifier.size(18.dp),
                     )
                 }
-            }
-
-            Surface(
-                onClick = {
-                    UiSoundEngine.playTapChime(context)
-                    val next = when (uaProfile) {
-                        LoginUaProfile.CLEAN_MOBILE -> LoginUaProfile.DESKTOP_CHROME
-                        LoginUaProfile.DESKTOP_CHROME -> LoginUaProfile.SYSTEM_DEFAULT
-                        LoginUaProfile.SYSTEM_DEFAULT -> LoginUaProfile.CLEAN_MOBILE
-                    }
-                    adapter.switchUaProfile(context, next)
-                },
-                color = Color(LOGIN_CARD_DARK),
-                shape = CircleShape,
-                border = BorderStroke(1.dp, Color(0xFF34384A)),
-                modifier = Modifier.heightIn(min = 48.dp).testTag("login_ua_cycle"),
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                IconButton(
+                    onClick = { adapter.goForward() },
+                    enabled = navState.canGoForward,
+                    modifier = Modifier.size(48.dp).testTag("login_web_forward"),
                 ) {
-                    Text(
-                        text = "UA: ${uaProfile.label}",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = "Forward",
+                        tint = if (navState.canGoForward) Color.White else Color(0xFF555B6E),
+                        modifier = Modifier.size(18.dp),
                     )
+                }
+                IconButton(
+                    onClick = { adapter.reload() },
+                    modifier = Modifier.size(48.dp).testTag("login_web_reload"),
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Reload", tint = Color.White, modifier = Modifier.size(18.dp))
+                }
+                IconButton(
+                    onClick = {
+                        UiSoundEngine.playTapChime(context)
+                        adapter.resetSessionAndLoad()
+                    },
+                    modifier = Modifier.size(48.dp).testTag("login_web_reset_cookies"),
+                ) {
+                    Icon(Icons.Default.DeleteSweep, contentDescription = "Reset Session", tint = Color(0xFFFFB74D), modifier = Modifier.size(18.dp))
+                }
+
+                Surface(
+                    color = Color(0xFF14241C),
+                    shape = CircleShape,
+                    border = BorderStroke(1.dp, Color(LOGIN_SPOTIFY_GREEN).copy(alpha = 0.35f)),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (securityState.isHttps) Icons.Default.Shield else Icons.Default.Lock,
+                            contentDescription = "WebView Shield Active",
+                            tint = if (securityState.certificateErrorHost != null) Color(0xFFFF6B6B) else Color(LOGIN_SPOTIFY_GREEN),
+                            modifier = Modifier.size(13.dp),
+                        )
+                        Text(
+                            text = "${shieldState.totalBlocked} blocked",
+                            color = Color(0xFFD5F5E3),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+
+                Surface(
+                    onClick = {
+                        UiSoundEngine.playTapChime(context)
+                        val next = when (uaProfile) {
+                            LoginUaProfile.SYSTEM_DEFAULT -> LoginUaProfile.MOBILE_CHROME
+                            LoginUaProfile.MOBILE_CHROME -> LoginUaProfile.DESKTOP_CHROME
+                            LoginUaProfile.DESKTOP_CHROME -> LoginUaProfile.SYSTEM_DEFAULT
+                        }
+                        adapter.switchUaProfile(context, next)
+                    },
+                    color = Color(LOGIN_CARD_DARK),
+                    shape = CircleShape,
+                    border = BorderStroke(1.dp, Color(0xFF34384A)),
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("login_ua_cycle"),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "UA: ${uaProfile.label}",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                 }
             }
         }
 
         if (navState.isLoading) {
-            LinearProgressIndicator(
+            LinearWavyProgressIndicator(
                 progress = { (navState.progress.coerceIn(5, 100) / 100f) },
                 color = Color(LOGIN_SPOTIFY_GREEN),
                 trackColor = Color(0xFF1A1E2A),
-                modifier = Modifier.fillMaxWidth().height(2.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp),
             )
         }
 
@@ -813,7 +776,7 @@ private fun HardenedWebViewLoginBody(
         AnimatedVisibility(visible = !hint.isNullOrBlank()) {
             Surface(
                 color = Color(0xFF281B18),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(18.dp),
                 border = BorderStroke(1.dp, Color(0xFFFFB74D).copy(alpha = 0.45f)),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -840,7 +803,7 @@ private fun HardenedWebViewLoginBody(
                                 containerColor = Color(LOGIN_SPOTIFY_GREEN),
                                 contentColor = Color.Black,
                             ),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("login_auto_recover_button"),
                         ) {
                             Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -850,14 +813,14 @@ private fun HardenedWebViewLoginBody(
                         OutlinedButton(
                             onClick = {
                                 UiSoundEngine.playTapChime(context)
-                                openSpotifyInChromeCustomTab(context, SpotifyAuth.LOGIN_URL)
+                                adapter.resetSessionAndLoad()
                             },
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("login_recover_chrome_button"),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("login_reset_retry_button"),
                         ) {
-                            Icon(Icons.Default.OpenInBrowser, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(5.dp))
-                            Text("Use Chrome", color = Color.White, fontSize = 12.sp)
+                            Text("Wipe & Retry", color = Color.White, fontSize = 12.sp)
                         }
                     }
                 }
@@ -869,8 +832,8 @@ private fun HardenedWebViewLoginBody(
                 .fillMaxWidth()
                 .weight(1f)
                 .padding(horizontal = 10.dp, vertical = 6.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .border(1.dp, Color(0xFF2F3446), RoundedCornerShape(18.dp)),
+                .clip(RoundedCornerShape(22.dp))
+                .border(1.dp, Color(0xFF2F3446), RoundedCornerShape(22.dp)),
         ) {
             AndroidView(
                 factory = { ctx ->
@@ -906,8 +869,8 @@ private fun LoginStageRow(current: LoginStage?, hasError: Boolean) {
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(12.dp))
-                    .border(1.dp, tint, RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(14.dp))
+                    .border(1.dp, tint, RoundedCornerShape(14.dp))
                     .padding(horizontal = 6.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
@@ -929,129 +892,6 @@ private fun LoginStageRow(current: LoginStage?, hasError: Boolean) {
 }
 
 @Composable
-private fun OAuthSignInPane(
-    isProcessing: Boolean,
-    onSignIn: () -> Unit,
-    onClose: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val context = LocalContext.current
-    var clientId by remember { mutableStateOf(SpotifyOAuth.clientId(context)) }
-    var signedIn by remember { mutableStateOf(SpotifyOAuth.isSignedIn(context)) }
-    val valid = SpotifyOAuth.isValidClientId(clientId)
-
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Official Spotify Sign-In (OAuth PKCE)", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            TextButton(onClick = onClose, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text("WebView", color = Color(LOGIN_SPOTIFY_GREEN))
-            }
-        }
-
-        Text(
-            text = "Runs Spotify's official OAuth 2.0 + PKCE consent page in Chrome Custom Tabs with a local loopback redirect — zero cookies needed. Add the Redirect URI below in developer.spotify.com/dashboard and paste your Client ID.",
-            color = Color(LOGIN_TEXT_SECONDARY),
-            fontSize = 12.sp,
-            lineHeight = 17.sp,
-        )
-
-        OutlinedTextField(
-            value = clientId,
-            onValueChange = { input ->
-                clientId = input.trim()
-                if (SpotifyOAuth.isValidClientId(clientId)) SpotifyOAuth.saveClientId(context, clientId)
-            },
-            label = { Text("Spotify Client ID (32 hex chars)", color = Color(LOGIN_TEXT_SECONDARY)) },
-            isError = clientId.isNotEmpty() && !valid,
-            supportingText = {
-                if (clientId.isNotEmpty() && !valid) {
-                    Text("A Client ID is 32 hexadecimal characters.", color = Color(0xFFFF9EA6), fontSize = 11.sp)
-                }
-            },
-            singleLine = true,
-            textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
-            shape = RoundedCornerShape(16.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
-                focusedBorderColor = Color(LOGIN_SPOTIFY_GREEN),
-                unfocusedBorderColor = Color(0xFF34384A),
-                focusedContainerColor = Color(0xFF10121A),
-                unfocusedContainerColor = Color(0xFF10121A),
-            ),
-            modifier = Modifier.fillMaxWidth().testTag("oauth_client_id_input"),
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Redirect URI to register", color = Color(LOGIN_TEXT_SECONDARY), fontSize = 11.sp)
-                Text(
-                    SpotifyOAuth.REGISTERED_REDIRECT_URI,
-                    color = Color.White,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
-                )
-            }
-            OutlinedButton(
-                onClick = { copyToClipboard(context, "Redirect URI", SpotifyOAuth.REGISTERED_REDIRECT_URI) },
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.heightIn(min = 48.dp),
-            ) {
-                Icon(Icons.Default.ContentCopy, contentDescription = "Copy redirect URI", tint = Color.White, modifier = Modifier.size(16.dp))
-            }
-        }
-
-        if (isProcessing) {
-            OutlinedButton(
-                onClick = { SpotifyOAuth.cancelLogin() },
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("oauth_cancel_button"),
-            ) {
-                Text("Cancel sign-in", color = Color.White)
-            }
-        } else {
-            Button(
-                enabled = valid,
-                onClick = onSignIn,
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(LOGIN_SPOTIFY_GREEN), contentColor = Color.Black),
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("oauth_sign_in_button"),
-            ) {
-                Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(if (signedIn) "Sign in again & re-import" else "Sign in with Spotify", fontWeight = FontWeight.ExtraBold)
-            }
-        }
-
-        if (signedIn && !isProcessing) {
-            TextButton(
-                onClick = {
-                    SpotifyOAuth.signOut(context)
-                    signedIn = false
-                },
-                modifier = Modifier.heightIn(min = 48.dp),
-            ) {
-                Text("Sign out of official Spotify session", color = Color(0xFFFFB74D))
-            }
-        }
-    }
-}
-
-@Composable
 private fun ManualCookiePane(
     cookieText: String,
     onCookieTextChange: (String) -> Unit,
@@ -1061,7 +901,6 @@ private fun ManualCookiePane(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
     val (detectedDc, detectedKey) = remember(cookieText) { parseSpotifyCookiesFromText(cookieText) }
 
     Column(
@@ -1077,18 +916,18 @@ private fun ManualCookiePane(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "Paste sp_dc Cookie / Export",
+                text = "Import sp_dc Cookie",
                 color = Color.White,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
             )
             TextButton(onClick = onClose, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text("WebView", color = Color(LOGIN_SPOTIFY_GREEN))
+                Text("Back to WebView", color = Color(LOGIN_SPOTIFY_GREEN))
             }
         }
 
         Text(
-            text = "Supports raw sp_dc strings, HTTP Cookie headers, cURL snippets, Netscape cookies.txt, or Cookie-Editor JSON.",
+            text = "Optional backup: paste raw sp_dc strings, HTTP Cookie headers, cURL snippets, Netscape cookies.txt, or Cookie-Editor JSON.",
             color = Color(LOGIN_TEXT_SECONDARY),
             fontSize = 12.sp,
             lineHeight = 17.sp,
@@ -1101,7 +940,7 @@ private fun ManualCookiePane(
             minLines = 4,
             maxLines = 6,
             textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(18.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedTextColor = Color.White,
                 unfocusedTextColor = Color.White,
@@ -1135,27 +974,6 @@ private fun ManualCookiePane(
                 modifier = Modifier.weight(1.4f).heightIn(min = 48.dp).testTag("connect_cookie_button"),
             ) {
                 Text("Connect & Sync All", fontWeight = FontWeight.ExtraBold)
-            }
-        }
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(
-                onClick = { openSpotifyInChromeCustomTab(context, "https://open.spotify.com/") },
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-            ) {
-                Icon(Icons.Default.OpenInBrowser, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Open Chrome", color = Color.White, fontSize = 12.sp)
-            }
-            OutlinedButton(
-                onClick = { copyToClipboard(context, "Bookmarklet", SPOTIFY_BOOKMARKLET_JS) },
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-            ) {
-                Icon(Icons.Default.ContentCopy, contentDescription = null, tint = Color(LOGIN_SPOTIFY_GREEN), modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Copy Helper JS", color = Color(LOGIN_SPOTIFY_GREEN), fontSize = 12.sp)
             }
         }
     }

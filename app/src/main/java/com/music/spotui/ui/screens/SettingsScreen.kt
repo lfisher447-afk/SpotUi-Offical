@@ -97,6 +97,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavController
+import com.music.spotui.ui.screens.SpotifyLogin.page.YouTubeMusicWebActivity
 import com.music.spotui.data.BatteryOptimizationHelper
 import com.music.spotui.data.preferences.CROSSFADE_MAX_MS
 import com.music.spotui.data.preferences.StreamQuality
@@ -2734,7 +2735,7 @@ fun SettingsScreen(navController: NavController) {
             if (youtubeMusicWeb) {
                 Row(
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color(0xFF1A1A20))
-                        .clickable { context.startActivity(Intent(context, com.music.spotui.ui.screens.YouTubeMusicWebActivity::class.java)) }
+                        .clickable { context.startActivity(Intent(context, YouTubeMusicWebActivity::class.java)) }
                         .padding(horizontal = 12.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -2758,7 +2759,7 @@ fun SettingsScreen(navController: NavController) {
                         enabled = !youtubeSyncBusy,
                         onClick = {
                             if (!youtubeSyncStatus.sessionReady && !youtubeSyncStatus.connected) {
-                                context.startActivity(Intent(context, com.music.spotui.ui.screens.YouTubeMusicWebActivity::class.java))
+                                context.startActivity(Intent(context, YouTubeMusicWebActivity::class.java))
                             } else {
                                 youtubeSyncBusy = true
                                 scope.launch {

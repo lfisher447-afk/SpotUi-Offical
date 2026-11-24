@@ -1,19 +1,14 @@
 package com.music.spotui.ui.screens.SpotifyLogin.helper
 
-import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import android.webkit.CookieManager
 import android.webkit.WebSettings
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.widget.Toast
-import androidx.browser.customtabs.CustomTabColorSchemeParams
-import androidx.browser.customtabs.CustomTabsClient
-import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -46,7 +41,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.metrolist.spotify.SpotifyAuth
+import androidx.webkit.WebViewCompat
 import com.music.spotui.util.DevConsoleManager
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -54,48 +49,48 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 internal const val LOGIN_SPOTIFY_GREEN = 0xFF1ED760
-internal const val LOGIN_BACKGROUND_DARK = 0xFF0E1016
-internal const val LOGIN_CARD_DARK = 0xFF171923
+internal const val LOGIN_BACKGROUND_DARK = 0xFF0B0E14
+internal const val LOGIN_CARD_DARK = 0xFF151924
 internal const val LOGIN_TEXT_SECONDARY = 0xFFAAB2C4
-
-internal const val SPOTIFY_BOOKMARKLET_JS =
-    "javascript:prompt('sp_dc', document.cookie.match(/sp_dc=([^;]+)/)?.[1] || 'Not found')"
 
 private const val MAX_CLIPBOARD_PAYLOAD_CHARS = 20_000
 private val RAW_SP_DC_VALUE = Regex("^AQ[A-Za-z0-9_-]{50,}$")
 
 internal enum class LoginTab(val label: String) {
     WEBVIEW("WebView Sign-In"),
-    OAUTH_PKCE("OAuth PKCE"),
-    PASTE_COOKIE("Paste Cookie"),
+    PASTE_COOKIE("Backup Cookie"),
 }
 
 internal enum class LoginUaProfile(val label: String) {
-    CLEAN_MOBILE("Chrome Mobile"),
+    SYSTEM_DEFAULT("Native WebView"),
+    MOBILE_CHROME("Chrome Mobile"),
     DESKTOP_CHROME("Desktop Chrome"),
-    SYSTEM_DEFAULT("System Default"),
 }
-
-private const val DESKTOP_CHROME_UA_STRING =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
 
 private val looseCookieJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
 /**
- * Resolves a User-Agent string for the login WebView.
+ * Resolves a User-Agent aligned with the device's actual installed Chromium WebView package
+ * so `User-Agent` and `Sec-CH-UA` Client Hints match without triggering Spotify anti-bot errors.
  *
- * By default ([LoginUaProfile.CLEAN_MOBILE]), strips `; wv` and `Version/x.x` tokens from
- * Android WebView's default UA so `accounts.spotify.com` does not classify the session as a
- * restricted embedded WebView (`HTTP 400` on `/login/code/send` or `"Oops! Something went wrong"`).
+ * - [LoginUaProfile.SYSTEM_DEFAULT]: Uses exact system WebView UA (100% Client Hints alignment).
+ * - [LoginUaProfile.MOBILE_CHROME]: Strips `; wv` / `Version/x.x` while keeping the exact installed Chromium version.
+ * - [LoginUaProfile.DESKTOP_CHROME]: Uses Desktop header with the exact installed Chromium major version.
  */
 internal fun resolveLoginUserAgent(context: Context, profile: LoginUaProfile): String {
     val defaultUa = runCatching { WebSettings.getDefaultUserAgent(context) }.getOrNull().orEmpty()
+    val installedVersion = runCatching {
+        WebViewCompat.getCurrentWebViewPackage(context)?.versionName
+    }.getOrNull().orEmpty()
+    val chromeMajor = installedVersion.substringBefore('.').toIntOrNull()?.takeIf { it >= 90 }
+        ?: Regex("""Chrome/(\d+)""").find(defaultUa)?.groupValues?.getOrNull(1)?.toIntOrNull()
+        ?: 136
+
     return when (profile) {
         LoginUaProfile.SYSTEM_DEFAULT -> defaultUa
-        LoginUaProfile.DESKTOP_CHROME -> DESKTOP_CHROME_UA_STRING
-        LoginUaProfile.CLEAN_MOBILE -> {
+        LoginUaProfile.MOBILE_CHROME -> {
             if (defaultUa.isBlank()) {
-                "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36"
+                "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$chromeMajor.0.0.0 Mobile Safari/537.36"
             } else {
                 defaultUa
                     .replace(Regex(";\\s*wv\\b", RegexOption.IGNORE_CASE), "")
@@ -105,70 +100,9 @@ internal fun resolveLoginUserAgent(context: Context, profile: LoginUaProfile): S
                     .trim()
             }
         }
-    }
-}
-
-/**
- * Launches Spotify authentication in Chrome Custom Tabs (`androidx.browser:browser`) so
- * `document.requestStorageAccess()`, Google/Apple SSO, passkeys, and reCAPTCHA run natively
- * inside the real browser engine without WebView's `HTTP 400` block.
- * Safely falls back to `Intent.ACTION_VIEW` if no Custom Tabs provider is installed.
- */
-internal fun openSpotifyInChromeCustomTab(
-    context: Context,
-    url: String = SpotifyAuth.LOGIN_URL,
-): Boolean {
-    val uri = Uri.parse(url)
-    val darkToolbar = (0xFF0E1016).toInt()
-    val customTabLaunched = runCatching {
-        val colorScheme = CustomTabColorSchemeParams.Builder()
-            .setToolbarColor(darkToolbar)
-            .setNavigationBarColor(darkToolbar)
-            .build()
-        val builder = CustomTabsIntent.Builder()
-            .setDefaultColorSchemeParams(colorScheme)
-            .setShowTitle(true)
-            .setUrlBarHidingEnabled(false)
-            .setShareState(CustomTabsIntent.SHARE_STATE_ON)
-        val customTabsIntent = builder.build()
-        val customTabsPackage = runCatching {
-            CustomTabsClient.getPackageName(
-                context,
-                listOf(
-                    "com.android.chrome",
-                    "com.chrome.beta",
-                    "com.chrome.dev",
-                    "com.sec.android.app.sbrowser",
-                    "com.microsoft.emmx",
-                    "org.mozilla.firefox",
-                ),
-                false,
-            )
-        }.getOrNull()
-        if (!customTabsPackage.isNullOrBlank()) {
-            customTabsIntent.intent.setPackage(customTabsPackage)
+        LoginUaProfile.DESKTOP_CHROME -> {
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$chromeMajor.0.0.0 Safari/537.36"
         }
-        if (context !is Activity) {
-            customTabsIntent.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        customTabsIntent.launchUrl(context, uri)
-        DevConsoleManager.logAuth("Launched Chrome Custom Tabs for Spotify login")
-        true
-    }.getOrDefault(false)
-
-    if (customTabLaunched) return true
-
-    return runCatching {
-        val viewIntent = Intent(Intent.ACTION_VIEW, uri).apply {
-            if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(viewIntent)
-        DevConsoleManager.logAuth("Launched external browser fallback for Spotify login")
-        true
-    }.getOrElse { err ->
-        DevConsoleManager.logError("SpotifyLogin", "No browser available for Spotify login", err)
-        Toast.makeText(context, "Unable to open Chrome or browser", Toast.LENGTH_SHORT).show()
-        false
     }
 }
 
@@ -290,8 +224,12 @@ internal fun resetSpotifyWebSession(webView: WebView?, onDone: () -> Unit) {
         }
         val cm = CookieManager.getInstance()
         cm.removeAllCookies {
-            runCatching { cm.flush() }
-            DevConsoleManager.logAuth("Cleared WebView cookies, storage & cache")
+            runCatching {
+                cm.flush()
+                cm.setAcceptCookie(true)
+                webView?.let { cm.setAcceptThirdPartyCookies(it, true) }
+            }
+            DevConsoleManager.logAuth("Cleared WebView cookies, WebStorage & cache cleanly")
             onDone()
         }
     }.onFailure {

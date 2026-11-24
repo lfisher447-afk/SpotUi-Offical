@@ -161,6 +161,7 @@ interface FloaterCallbacks {
     fun onBubbleWidthChange(widthDp: Float)
     fun onBubbleTextSizeChange(sizeSp: Float)
     fun onBubbleOpacityChange(opacity: Float)
+    fun onResetBubblePosition()
     fun onClearTranslationHistory()
 }
 

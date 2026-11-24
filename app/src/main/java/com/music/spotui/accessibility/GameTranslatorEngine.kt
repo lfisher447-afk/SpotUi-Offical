@@ -190,15 +190,21 @@ internal object GameTranslatorEngine {
     }
 
     /**
-     * Evaluates the foreground window's package from [AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED].
-     * Ignores transient OS chrome (SystemUI, IME keyboards, SpotUI itself, launchers, volume dialogs)
+     * Evaluates the foreground window's package & activity class from
+     * [AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED]. Ignores transient OS chrome
+     * (SystemUI, IME keyboards, volume/permission dialogs, OEM game overlay chrome)
      * so switching into a game reliably activates Game Mode and leaving to non-game apps hides it.
      */
-    fun updateForegroundPackage(context: Context, rawPackage: CharSequence?) {
+    fun updateForegroundPackage(
+        context: Context,
+        rawPackage: CharSequence?,
+        rawClassName: CharSequence? = null,
+    ) {
         val pkg = rawPackage?.toString()?.trim().orEmpty()
         if (pkg.isEmpty() || isTransientSystemUi(context, pkg)) return
 
-        val (isGame, appLabel) = inspectGamePackage(context, pkg)
+        val cls = rawClassName?.toString()?.trim().orEmpty()
+        val (isGame, appLabel) = inspectGamePackage(context, pkg, cls)
         val prevPackage = _activeGamePackage.value
         val prevIsGame = _isGameActive.value
 
@@ -212,7 +218,7 @@ internal object GameTranslatorEngine {
             DevConsoleManager.log(
                 DevConsoleManager.LogLevel.INFO,
                 TAG,
-                if (isGame) "Game detected: $appLabel ($pkg) — Translation tab unlocked"
+                if (isGame) "Game detected: $appLabel ($pkg / $cls) — Translation tab unlocked"
                 else "Non-game app foreground ($pkg) — Translation tab hidden",
             )
         }
@@ -233,14 +239,21 @@ internal object GameTranslatorEngine {
             lower.contains("honeyboard") ||
             lower.contains("swiftkey") ||
             lower.contains("permissioncontroller") ||
-            lower.contains("packageinstaller")
+            lower.contains("packageinstaller") ||
+            lower.contains("gametools") ||
+            lower.contains("gamebooster") ||
+            lower.contains("samsung.android.game.gos")
         ) {
             return true
         }
         return false
     }
 
-    private fun inspectGamePackage(context: Context, pkg: String): Pair<Boolean, String> {
+    private fun inspectGamePackage(
+        context: Context,
+        pkg: String,
+        className: String,
+    ): Pair<Boolean, String> {
         val pm = context.packageManager
         val info = runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -253,22 +266,43 @@ internal object GameTranslatorEngine {
 
         val label = info?.let {
             runCatching { pm.getApplicationLabel(it)?.toString() }.getOrNull()
-        }?.takeIf { !it.isNullOrBlank() } ?: pkg
+        }?.takeIf { !it.isNullOrBlank() } ?: inferFriendlyAppLabel(pkg)
 
-        if (info == null) return false to label
-
-        if (info.category == ApplicationInfo.CATEGORY_GAME) {
-            return true to label
+        if (info != null) {
+            if (info.category == ApplicationInfo.CATEGORY_GAME) {
+                return true to label
+            }
+            @Suppress("DEPRECATION")
+            if ((info.flags and ApplicationInfo.FLAG_IS_GAME) != 0) {
+                return true to label
+            }
+            // Explicit non-game Android categories (Audio, Video, Social, Maps, Productivity, News, Image)
+            if (info.category != ApplicationInfo.CATEGORY_UNDEFINED) {
+                return false to label
+            }
         }
 
-        @Suppress("DEPRECATION")
-        if ((info.flags and ApplicationInfo.FLAG_IS_GAME) != 0) {
-            return true to label
+        val lowerPkg = pkg.lowercase(Locale.US)
+        val lowerCls = className.lowercase(Locale.US)
+
+        if (NON_GAME_EXCLUSIONS.any { lowerPkg.startsWith(it) }) {
+            return false to label
         }
 
+        val matchesKnownGamePkg = KNOWN_GAME_PACKAGES.any { lowerPkg.startsWith(it) } ||
+            GAME_PACKAGE_KEYWORDS.any { lowerPkg.contains(it) }
+        val matchesGameEngineClass = GAME_ENGINE_CLASS_HINTS.any { lowerCls.contains(it) }
+
+        return (matchesKnownGamePkg || matchesGameEngineClass) to label
+    }
+
+    private fun inferFriendlyAppLabel(pkg: String): String {
         val lower = pkg.lowercase(Locale.US)
-        val knownGamePrefix = KNOWN_GAME_PACKAGES.any { lower.startsWith(it) }
-        return (knownGamePrefix && info.category == ApplicationInfo.CATEGORY_UNDEFINED) to label
+        KNOWN_GAME_FRIENDLY_NAMES.entries.firstOrNull { lower.startsWith(it.key) }?.let { return it.value }
+        val parts = pkg.split('.').filter { it.isNotBlank() && it !in setOf("com", "org", "net", "io", "gp", "android", "app", "mobile", "games", "game") }
+        val raw = (parts.lastOrNull() ?: pkg.substringAfterLast('.')).replace('_', ' ')
+        return raw.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.US) else it.toString() }
+            .ifBlank { pkg }
     }
 
     fun startListening(context: Context) {
@@ -457,18 +491,23 @@ internal object GameTranslatorEngine {
 
     private val KNOWN_GAME_PACKAGES = listOf(
         "com.tencent.ig",
+        "com.tencent.tmgp",
         "com.pubg.",
-        "com.activision.callofduty",
+        "com.rekoo.pubgm",
+        "com.vng.pubgmobile",
+        "com.activision.",
         "com.garena.",
         "com.mobile.legends",
         "com.supercell.",
         "com.riotgames.",
         "com.mihoyo.",
         "com.hoyoverse.",
+        "com.kurogame.",
         "com.epicgames.",
         "com.roblox.",
         "com.innersloth.",
         "com.ea.gp.",
+        "com.ea.game.",
         "com.gameloft.",
         "com.mojang.",
         "com.dts.freefire",
@@ -477,5 +516,143 @@ internal object GameTranslatorEngine {
         "com.kiloo.",
         "com.king.",
         "com.nianticlabs.",
+        "com.netmarble.",
+        "com.netease.",
+        "com.nexon.",
+        "com.krafton.",
+        "com.bandainamco",
+        "com.sega.",
+        "com.capcom.",
+        "com.square_enix",
+        "com.zynga.",
+        "com.rovio.",
+        "com.halfbrick.",
+        "com.miniclip.",
+        "com.outfit7.",
+        "com.devsisters.",
+        "com.lilithgame",
+        "com.yostar.",
+        "com.bhvr.",
+        "com.playrix.",
+        "com.fingersoft.",
+        "com.nekki.",
+        "com.madfingergames.",
+        "com.axlebolt.",
+        "com.criticalforce",
+        "com.firsttouchgames.",
+        "com.konami.",
+        "com.pearlabyss.",
+        "com.gravity.",
+        "com.kakaogames.",
+        "com.smilegate.",
+        "com.com2us.",
+        "com.ncsoft.",
+        "com.rockstargames.",
+        "com.ubisoft.",
+        "com.bethsoft.",
+        "com.valvesoftware.",
+        "com.ngame.",
+        "com.plarium.",
+        "com.igg.",
+        "com.scopely.",
+        "com.jamcity.",
+        "com.kabam.",
+        "com.machinezone.",
+        "com.playdemic.",
+        "com.tocaboca.",
+        "com.habby.",
+        "com.tap4fun.",
+        "com.lilith.",
+        "com.sunborn.",
+        "com.hypergryph.",
+        "com.papegames.",
+        "jp.co.ponos.",
+    )
+
+    private val GAME_PACKAGE_KEYWORDS = listOf(
+        ".game.",
+        ".games.",
+        "pubgm",
+        "freefire",
+        "callofduty",
+        "mobilelegends",
+        "brawlstars",
+        "clashroyale",
+        "clashofclans",
+        "genshin",
+        "honkai",
+        "valorant",
+        "minecraft",
+        "fortnite",
+        "brawl",
+        "standoff2",
+        "efootball",
+        "fc24",
+        "fifamobile",
+        "apexlegends",
+        "arenabreakout",
+        "deltaforce",
+    )
+
+    private val GAME_ENGINE_CLASS_HINTS = listOf(
+        "unity3d.player",
+        "unityplayer",
+        "gameactivity",
+        "sdlactivity",
+        "unrealengine",
+        "ue4",
+        "godotengine",
+        "cocos2dx",
+        "libgdx",
+        "nativeactivity",
+        "epicgames",
+        "roblox",
+        "krafton",
+        "pubg",
+        "freefire",
+    )
+
+    private val NON_GAME_EXCLUSIONS = listOf(
+        "com.android.",
+        "com.google.android.",
+        "com.samsung.android.",
+        "com.sec.android.",
+        "com.miui.",
+        "com.oneplus.",
+        "com.oppo.",
+        "com.vivo.",
+        "com.spotify.",
+        "com.whatsapp",
+        "com.discord",
+        "org.telegram.",
+        "com.instagram.",
+        "com.zhiliaoapp.musically",
+        "com.ss.android.ugc.",
+        "com.netflix.",
+        "com.amazon.",
+        "com.reddit.",
+        "com.twitter.",
+        "com.facebook.",
+        "com.music.spotui",
+    )
+
+    private val KNOWN_GAME_FRIENDLY_NAMES = mapOf(
+        "com.tencent.ig" to "PUBG Mobile",
+        "com.pubg." to "PUBG Mobile",
+        "com.activision.callofduty" to "Call of Duty: Mobile",
+        "com.dts.freefire" to "Free Fire",
+        "com.mobile.legends" to "Mobile Legends",
+        "com.riotgames.league.wildrift" to "Wild Rift",
+        "com.riotgames.league.teamfighttactics" to "TFT",
+        "com.hoyoverse." to "HoYoverse Game",
+        "com.mihoyo.genshinimpact" to "Genshin Impact",
+        "com.roblox." to "Roblox",
+        "com.epicgames." to "Fortnite / Epic",
+        "com.mojang.minecraft" to "Minecraft",
+        "com.supercell.brawlstars" to "Brawl Stars",
+        "com.supercell.clashroyale" to "Clash Royale",
+        "com.supercell.clashofclans" to "Clash of Clans",
+        "com.innersloth.spacemafia" to "Among Us",
+        "com.axlebolt.standoff2" to "Standoff 2",
     )
 }

@@ -2,11 +2,11 @@ package com.music.spotui
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
-import com.music.spotui.ui.screens.LoginUaProfile
-import com.music.spotui.ui.screens.looksLikeSpotifyCookiePayload
-import com.music.spotui.ui.screens.parseSpotifyCookiesFromText
-import com.music.spotui.ui.screens.redactSecrets
-import com.music.spotui.ui.screens.resolveLoginUserAgent
+import com.music.spotui.ui.screens.SpotifyLogin.helper.LoginUaProfile
+import com.music.spotui.ui.screens.SpotifyLogin.helper.looksLikeSpotifyCookiePayload
+import com.music.spotui.ui.screens.SpotifyLogin.helper.parseSpotifyCookiesFromText
+import com.music.spotui.ui.screens.SpotifyLogin.helper.redactSecrets
+import com.music.spotui.ui.screens.SpotifyLogin.helper.resolveLoginUserAgent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

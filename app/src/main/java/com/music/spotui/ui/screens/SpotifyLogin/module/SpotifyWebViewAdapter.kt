@@ -25,7 +25,9 @@ import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.annotation.RequiresApi
-import com.metrolist.spotify.SpotifyAuth
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
+import com.metrolist.spotify.Spotify
 import com.metrolist.spotify.models.SpotifyInternalToken
 import com.music.spotui.ui.screens.SpotifyLogin.helper.LoginUaProfile
 import com.music.spotui.ui.screens.SpotifyLogin.helper.resetSpotifyWebSession
@@ -50,8 +52,8 @@ internal enum class SpotifyMediaCapabilityStatus {
 }
 
 internal data class SpotifyEngineNavigationState(
-    val currentUrl: String = SpotifyAuth.LOGIN_URL,
-    val title: String = "Spotify Sign-In",
+    val currentUrl: String = Spotify.LOGIN_URL,
+    val title: String = "Spotify WebView Sign-In",
     val progress: Int = 0,
     val isLoading: Boolean = false,
     val canGoBack: Boolean = false,
@@ -64,6 +66,7 @@ internal data class SpotifyEngineSecurityState(
     val tlsStrictMode: Boolean = true,
     val certificateErrorHost: String? = null,
     val sslCancelledCount: Int = 0,
+    val requestedWithStripped: Boolean = false,
 )
 
 internal data class SpotifyEngineShieldState(
@@ -89,25 +92,27 @@ internal data class SpotifyMediaCapabilityState(
     val isDesktopMode: Boolean = false,
     val isPrivateMode: Boolean = false,
     val isAutoplayAllowed: Boolean = true,
-    val cookiePolicy: String = "Accept Spotify Auth & Isolate Trackers",
+    val cookiePolicy: String = "First-Party + SSO Storage Enabled",
     val deviceDrmProvider: String = "System WebView (Protected Media Isolated)",
     val engineDetails: String = "SpotUI Hardened WebView · Android ${Build.VERSION.RELEASE}",
 )
 
 /**
- * Integrated hardened Chromium WebView Engine + Privacy Shield for SpotUI Spotify Auth & Web Sync.
+ * Unified, hardened Chromium WebView Engine + Privacy Shield for SpotUI Spotify Auth & Web Sync.
  *
- * Absorbs and completes all [WebViewAdapter] security, shielding, and process-resilience capabilities:
- * - Cancels invalid TLS certificates unconditionally (`handler?.cancel()`, zero `proceed()`).
- * - Disables dangerous `file://` and `content://` WebView access and forbids native `@JavascriptInterface` bridges.
- * - Neutralizes Spotify ad-logic / analytics endpoints with anti-freeze empty `{}` JSON responses & blocks third-party trackers + VAST/VMAP ads.
- * - Handles renderer process death (`onRenderProcessGone`) gracefully without crash loops.
- * - Strips `; wv` & `Version/x.x` from User-Agent (`CLEAN_MOBILE` / `DESKTOP_CHROME`) to bypass `HTTP 400` / `requestStorageAccess` blocks.
- * - Supports OAuth popup windows (`onCreateWindow`) inside the same shielded sandbox and auto-extracts `sp_dc` + `<script id="session">` tokens.
+ * Designed directly from `com.musify.browser.engine.WebViewAdapter` with full anti-bot hardening:
+ * 1. Strips `X-Requested-With` app package leak via [WebViewCompat.setRequestedWithHeaderOriginAllowList].
+ * 2. Defaults to [LoginUaProfile.SYSTEM_DEFAULT] so `User-Agent` & `Sec-CH-UA` Client Hints match
+ *    100% — zero `navigator` or `Document.prototype` JS overrides that trip reCAPTCHA Enterprise.
+ * 3. Wipes stale cookies & [WebStorage] cleanly before loading [Spotify.LOGIN_URL].
+ * 4. Neutralizes Spotify ad-logic/analytics (`{}` 200 OK JSON anti-freeze) & VAST/VMAP + 3P trackers,
+ *    while preserving all auth/SSO/reCAPTCHA endpoints untouched.
+ * 5. Enforces strict TLS (`handler?.cancel()`), sandboxed local storage (`allowFileAccess=false`),
+ *    renderer crash recovery (`onRenderProcessGone`), and in-app multi-window SSO popups.
  */
 internal class SpotifyWebViewAdapter(
     val isPrivate: Boolean = false,
-    private val initialUaProfile: LoginUaProfile = LoginUaProfile.CLEAN_MOBILE,
+    private val initialUaProfile: LoginUaProfile = LoginUaProfile.SYSTEM_DEFAULT,
     private val onSessionCaptured: (spDc: String, spKey: String, sessionToken: SpotifyInternalToken?, source: String) -> Unit,
     private val onPopupRequested: (WebView?) -> Unit,
 ) {
@@ -146,15 +151,27 @@ internal class SpotifyWebViewAdapter(
     private var popupWebView: WebView? = null
 
     @Volatile
-    private var isInitialized = false
+    private var sessionWipedThisRun = false
 
     @Volatile
-    private var sessionWipedThisRun = false
+    private var sessionReported = false
 
     var onScrollVisibilityListener: ((Boolean) -> Unit)? = null
 
+    private val authSafeHosts = listOf(
+        "accounts.spotify.com",
+        "challenge.spotify.com",
+        "recaptcha.net",
+        "www.google.com/recaptcha",
+        "www.gstatic.com",
+        "accounts.google.com",
+        "appleid.apple.com",
+        "apis.google.com",
+        "facebook.com",
+        "fbcdn.net",
+    )
+
     private val blockedTrackerKeywords = listOf(
-        "google-analytics.com",
         "doubleclick.net",
         "googlesyndication.com",
         "analytics.twitter.com",
@@ -167,7 +184,6 @@ internal class SpotifyWebViewAdapter(
         "pagead2.googlesyndication.com",
         "adservice.google.com",
         "s0.2mdn.net",
-        "googletagmanager.com",
         "segment.io",
         "branch.io",
         "app.adjust.com",
@@ -178,9 +194,6 @@ internal class SpotifyWebViewAdapter(
         "adeventtracker.spotify.com",
         "adstudio.spotify.com",
         "ads.spotify.com",
-        "pixel.spotify.com",
-        "analytics.spotify.com",
-        "log.spotify.com/v1/events",
         "gew1-spclient.spotify.com/ad-logic",
         "spclient.wg.spotify.com/ad-logic",
         "spclient.wg.spotify.com/ads",
@@ -199,7 +212,8 @@ internal class SpotifyWebViewAdapter(
         "imasdk.googleapis.com",
     )
 
-    private val scriptletAnnoyanceGuardJs = """
+    // Cosmetic annoyance CSS only injected on open.spotify.com (never on accounts.spotify.com login/challenge pages!)
+    private val openPlayerAnnoyanceCssJs = """
         (function() {
           try {
             if (!document.getElementById('spotui-shield-css')) {
@@ -215,7 +229,7 @@ internal class SpotifyWebViewAdapter(
     @SuppressLint("SetJavaScriptEnabled")
     fun createView(
         context: Context,
-        startUrl: String = SpotifyAuth.LOGIN_URL,
+        startUrl: String = Spotify.LOGIN_URL,
         clearPreviousSession: Boolean = false,
     ): WebView {
         val wv = WebView(context).apply {
@@ -224,7 +238,7 @@ internal class SpotifyWebViewAdapter(
                 ViewGroup.LayoutParams.MATCH_PARENT,
             )
 
-            // 60/120Hz hardware compositing
+            // 60/120Hz hardware compositing & crisp scroll telemetry
             setLayerType(View.LAYER_TYPE_HARDWARE, null)
             isVerticalScrollBarEnabled = true
             isHorizontalScrollBarEnabled = false
@@ -236,6 +250,7 @@ internal class SpotifyWebViewAdapter(
                 else if (dy < -16 || scrollY <= 4) onScrollVisibilityListener?.invoke(true)
             }
 
+            stripRequestedWithHeader(this)
             configureHardenedSettings(context, settings, _uaProfile.value, isPrivate)
 
             val cm = CookieManager.getInstance()
@@ -247,7 +262,6 @@ internal class SpotifyWebViewAdapter(
         }
 
         primaryWebView = wv
-        isInitialized = true
 
         if (clearPreviousSession && !sessionWipedThisRun) {
             sessionWipedThisRun = true
@@ -258,6 +272,19 @@ internal class SpotifyWebViewAdapter(
         return wv
     }
 
+    private fun stripRequestedWithHeader(webView: WebView) {
+        val supported = runCatching {
+            WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)
+        }.getOrDefault(false)
+        if (supported) {
+            val ok = runCatching {
+                WebViewCompat.setRequestedWithHeaderOriginAllowList(webView, emptySet())
+                true
+            }.getOrDefault(false)
+            _securityState.value = _securityState.value.copy(requestedWithStripped = ok)
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun configureHardenedSettings(
         context: Context,
@@ -265,7 +292,6 @@ internal class SpotifyWebViewAdapter(
         profile: LoginUaProfile,
         privateMode: Boolean,
     ) {
-        val ua = resolveLoginUserAgent(context, profile)
         settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = !privateMode
@@ -275,7 +301,7 @@ internal class SpotifyWebViewAdapter(
             javaScriptCanOpenWindowsAutomatically = true
             mediaPlaybackRequiresUserGesture = false
 
-            // Strict sandbox: prevent arbitrary local filesystem & content URI reads
+            // Strict sandbox: block arbitrary filesystem / content URI reads
             allowFileAccess = false
             allowContentAccess = false
             @Suppress("DEPRECATION")
@@ -283,14 +309,17 @@ internal class SpotifyWebViewAdapter(
             @Suppress("DEPRECATION")
             allowUniversalAccessFromFileURLs = false
 
-            // Adaptive zooming & desktop/mobile layout fidelity
             useWideViewPort = true
             loadWithOverviewMode = true
             builtInZoomControls = true
             displayZoomControls = false
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             cacheMode = if (privateMode) WebSettings.LOAD_NO_CACHE else WebSettings.LOAD_DEFAULT
-            userAgentString = ua
+
+            // Only override userAgentString when leaving SYSTEM_DEFAULT so Client Hints match naturally
+            if (profile != LoginUaProfile.SYSTEM_DEFAULT) {
+                userAgentString = resolveLoginUserAgent(context, profile)
+            }
         }
     }
 
@@ -303,6 +332,11 @@ internal class SpotifyWebViewAdapter(
                 val url = request?.url?.toString() ?: return null
                 if (!_shieldState.value.enabled) return super.shouldInterceptRequest(view, request)
                 val lower = url.lowercase(Locale.US)
+
+                // Never interfere with login/SSO/reCAPTCHA/challenge requests
+                if (authSafeHosts.any { lower.contains(it) }) {
+                    return super.shouldInterceptRequest(view, request)
+                }
 
                 if (spotifyAdKeywords.any { lower.contains(it) }) {
                     recordBlockedRequest(url, kind = BlockKind.SPOTIFY_AD)
@@ -346,7 +380,7 @@ internal class SpotifyWebViewAdapter(
                     DevConsoleManager.logWarning("SpotifyWebView", "Blocked non-HTTP scheme redirect: $scheme")
                     return true
                 }
-                captureCookiesFromManager(view, url, source = if (isPopup) "OAuthPopup" else "HardenedWebView")
+                captureCookiesFromManager(view, url, source = if (isPopup) "WebViewPopup" else "WebViewRedirect")
                 return false
             }
 
@@ -368,9 +402,12 @@ internal class SpotifyWebViewAdapter(
                     lastFailureMessage = null,
                     autoRecoverHint = null,
                 )
-                if (current.contains("accounts.spotify.com", ignoreCase = true)) {
+                if (current.contains("accounts.spotify.com", ignoreCase = true) ||
+                    current.contains("open.spotify.com", ignoreCase = true)
+                ) {
                     DevConsoleManager.logAuth("Loading ${redactUrlQuery(current)} [UA=${_uaProfile.value.label}]")
                 }
+                captureCookiesFromManager(view, current, source = if (isPopup) "WebViewPopupStart" else "WebViewStart")
             }
 
             override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
@@ -390,10 +427,13 @@ internal class SpotifyWebViewAdapter(
                     canGoForward = view?.canGoForward() == true,
                 )
                 runCatching { CookieManager.getInstance().flush() }
-                runCatching { view?.evaluateJavascript(scriptletAnnoyanceGuardJs, null) }
+
+                if (current.contains("open.spotify.com", ignoreCase = true)) {
+                    runCatching { view?.evaluateJavascript(openPlayerAnnoyanceCssJs, null) }
+                }
 
                 inspectPageForAuthOrRejection(view, current)
-                captureCookiesFromManager(view, current, source = if (isPopup) "OAuthPopupFinished" else "WebPageFinished")
+                captureCookiesFromManager(view, current, source = if (isPopup) "WebViewPopupFinished" else "WebPageFinished")
             }
 
             override fun onReceivedSslError(
@@ -401,7 +441,6 @@ internal class SpotifyWebViewAdapter(
                 handler: SslErrorHandler?,
                 error: SslError?,
             ) {
-                // Zero tolerance: never call handler.proceed()
                 handler?.cancel()
                 val badHost = runCatching { Uri.parse(error?.url.orEmpty()).host }.getOrNull() ?: "unknown"
                 _securityState.value = _securityState.value.copy(
@@ -411,7 +450,7 @@ internal class SpotifyWebViewAdapter(
                 )
                 _processState.value = _processState.value.copy(
                     lastFailureMessage = "TLS certificate validation failed for $badHost (blocked safely).",
-                    autoRecoverHint = "Reload or switch to Official Chrome Custom Tab.",
+                    autoRecoverHint = "Check device date/time or network, then tap Reset & Retry.",
                 )
                 DevConsoleManager.logError(
                     "SpotifyWebTLS",
@@ -436,21 +475,11 @@ internal class SpotifyWebViewAdapter(
                         "SpotifyWebHTTP",
                         "HTTP $status on $hostPath (mainFrame=${request?.isForMainFrame == true}, UA=${_uaProfile.value.label})",
                     )
-                    if (status == 400 || status == 402 || status == 403) {
-                        val hint = if (reqUrl.contains("/login/code/send")) {
-                            "Spotify rejected WebView Email Code (HTTP $status). Tap Switch UA / Auto-Recover or open in Chrome."
-                        } else {
-                            "Spotify returned HTTP $status on $hostPath. Tap Auto-Recover or Chrome Custom Tab."
-                        }
+                    if (status == 400 || status == 403) {
+                        val hint = "Spotify returned HTTP $status on $hostPath. Tap Auto-Recover (resets cookies & toggles UA) or switch to Backup Cookie."
                         _processState.value = _processState.value.copy(
                             lastFailureMessage = "HTTP $status from Spotify ($hostPath)",
                             autoRecoverHint = hint,
-                        )
-                        DevConsoleManager.reportComponentFault(
-                            component = "SpotifyLogin",
-                            action = "HTTP_$status",
-                            reason = "HTTP $status on $hostPath (mainFrame=${request?.isForMainFrame == true}) [UA=${_uaProfile.value.label}]",
-                            autoFixHint = hint,
                         )
                     }
                 }
@@ -479,7 +508,7 @@ internal class SpotifyWebViewAdapter(
                 val crashes = _processState.value.crashCount + 1
                 DevConsoleManager.logWarning(
                     "SpotifyWebRenderer",
-                    "Renderer process exited (didCrash=${detail?.didCrash()}, count=$crashes) — recovering without loop",
+                    "Renderer exited (didCrash=${detail?.didCrash()}, count=$crashes) — recovering",
                 )
                 _processState.value = _processState.value.copy(
                     isAlive = false,
@@ -487,7 +516,7 @@ internal class SpotifyWebViewAdapter(
                     recoveredFromCrash = true,
                     lastFailureMessage = "Web renderer restarted cleanly",
                 )
-                val resumeUrl = _navigationState.value.currentUrl.ifBlank { SpotifyAuth.LOGIN_URL }
+                val resumeUrl = _navigationState.value.currentUrl.ifBlank { Spotify.LOGIN_URL }
                 (view?.parent as? ViewGroup)?.removeView(view)
                 runCatching { view?.destroy() }
                 if (view === popupWebView) {
@@ -542,7 +571,7 @@ internal class SpotifyWebViewAdapter(
                     DevConsoleManager.logWarning("SpotifyWebJS", msg)
                     if (msg.contains("requestStorageAccess", ignoreCase = true)) {
                         _processState.value = _processState.value.copy(
-                            autoRecoverHint = "WebView storage-access denied. Switch UA to Desktop Chrome or use Chrome Custom Tab.",
+                            autoRecoverHint = "WebView storage access blocked. Tap Auto-Recover to reset cookies or switch UA.",
                         )
                     }
                 }
@@ -557,13 +586,14 @@ internal class SpotifyWebViewAdapter(
                 resultMsg: Message?,
             ): Boolean {
                 val transport = resultMsg?.obj as? WebView.WebViewTransport ?: return false
-                DevConsoleManager.logAuth("Opening sandboxed OAuth popup window")
+                DevConsoleManager.logAuth("Opening sandboxed SSO popup window")
                 val popup = WebView(context).apply {
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT,
                     )
                     setLayerType(View.LAYER_TYPE_HARDWARE, null)
+                    stripRequestedWithHeader(this)
                     configureHardenedSettings(context, settings, _uaProfile.value, isPrivate)
                     val cm = CookieManager.getInstance()
                     cm.setAcceptCookie(true)
@@ -584,7 +614,7 @@ internal class SpotifyWebViewAdapter(
                 if (window === popupWebView || isPopup) {
                     closePopup()
                     runCatching { CookieManager.getInstance().flush() }
-                    captureCookiesFromManager(primaryWebView, SpotifyAuth.LOGIN_URL, source = "OAuthPopupClosed")
+                    captureCookiesFromManager(primaryWebView, Spotify.LOGIN_URL, source = "SSOPopupClosed")
                 }
             }
         }
@@ -597,16 +627,16 @@ internal class SpotifyWebViewAdapter(
             view.evaluateJavascript(
                 "(function(){var el=document.getElementById('session');return el?el.textContent:'';})();",
             ) { rawJson ->
-                val token = SpotifyAuth.parseSessionScriptJson(rawJson.orEmpty())
+                val token = Spotify.parseWebViewSessionScript(rawJson.orEmpty())
                 val sweep = sweepSpotifyCookies(currentUrl)
                 val dc = sweep.spDc
-                if (!dc.isNullOrBlank() && dc.length >= 16) {
-                    onSessionCaptured(dc, sweep.spKey, token, "WebViewSessionDOM")
+                if (!dc.isNullOrBlank() && dc.length >= MIN_SP_DC_LENGTH) {
+                    reportCapturedSession(dc, sweep.spKey, token, "WebViewSessionDOM")
                 } else if (token != null && !token.isAnonymous && token.accessToken.isNotBlank()) {
                     runCatching { CookieManager.getInstance().flush() }
                     val secondSweep = sweepSpotifyCookies("https://open.spotify.com/")
-                    if (!secondSweep.spDc.isNullOrBlank() && secondSweep.spDc.length >= 16) {
-                        onSessionCaptured(secondSweep.spDc, secondSweep.spKey, token, "WebViewSessionFlush")
+                    if (!secondSweep.spDc.isNullOrBlank() && secondSweep.spDc.length >= MIN_SP_DC_LENGTH) {
+                        reportCapturedSession(secondSweep.spDc, secondSweep.spKey, token, "WebViewSessionFlush")
                     }
                 }
             }
@@ -618,9 +648,9 @@ internal class SpotifyWebViewAdapter(
                 if (text.contains("Oops! Something went wrong", ignoreCase = true) ||
                     text.contains("Something went wrong", ignoreCase = true)
                 ) {
-                    val hint = "Spotify displayed 'Oops! Something went wrong'. Tap Auto-Recover, Switch UA, or Chrome Custom Tab."
+                    val hint = "Spotify rejected challenge state. Tap Auto-Recover to wipe stale cookies & retry cleanly."
                     _processState.value = _processState.value.copy(
-                        lastFailureMessage = "Spotify rejected login attempt in WebView",
+                        lastFailureMessage = "Spotify displayed 'Oops! Something went wrong'",
                         autoRecoverHint = hint,
                     )
                     DevConsoleManager.reportComponentFault(
@@ -634,19 +664,34 @@ internal class SpotifyWebViewAdapter(
         }
     }
 
+    private fun reportCapturedSession(
+        spDc: String,
+        spKey: String,
+        token: SpotifyInternalToken?,
+        source: String,
+    ) {
+        if (sessionReported) return
+        sessionReported = true
+        onSessionCaptured(spDc, spKey, token, source)
+    }
+
+    fun allowRecapture() {
+        sessionReported = false
+    }
+
     private fun captureCookiesFromManager(view: WebView?, url: String?, source: String) {
         val sweep = sweepSpotifyCookies(url)
         val dc = sweep.spDc
-        if (dc.isNullOrBlank() || dc.length < 16) return
+        if (dc.isNullOrBlank() || dc.length < MIN_SP_DC_LENGTH) return
         if (view != null && url?.contains("open.spotify.com", ignoreCase = true) == true) {
             view.evaluateJavascript(
                 "(function(){var el=document.getElementById('session');return el?el.textContent:'';})();",
             ) { rawJson ->
-                val token = SpotifyAuth.parseSessionScriptJson(rawJson.orEmpty())
-                onSessionCaptured(dc, sweep.spKey, token, source)
+                val token = Spotify.parseWebViewSessionScript(rawJson.orEmpty())
+                reportCapturedSession(dc, sweep.spKey, token, source)
             }
         } else {
-            onSessionCaptured(dc, sweep.spKey, null, source)
+            reportCapturedSession(dc, sweep.spKey, null, source)
         }
     }
 
@@ -654,15 +699,12 @@ internal class SpotifyWebViewAdapter(
         val url = _navigationState.value.currentUrl
         val sweep = sweepSpotifyCookies(url)
         val dc = sweep.spDc
-        if (!dc.isNullOrBlank() && dc.length >= 16) {
+        if (!dc.isNullOrBlank() && dc.length >= MIN_SP_DC_LENGTH) {
+            sessionReported = false
             captureCookiesFromManager(primaryWebView, url, source)
             return true
         }
         return false
-    }
-
-    fun loadUrl(url: String) {
-        primaryWebView?.loadUrl(url)
     }
 
     fun reload() {
@@ -699,37 +741,32 @@ internal class SpotifyWebViewAdapter(
         _processState.value = _processState.value.copy(lastFailureMessage = null, autoRecoverHint = null)
 
         val wv = primaryWebView ?: return
-        wv.settings.userAgentString = resolveLoginUserAgent(context, nextProfile)
-        DevConsoleManager.logAuth("Switched hardened WebView UA -> ${nextProfile.label}")
-        wv.loadUrl(reloadTarget ?: _navigationState.value.currentUrl.ifBlank { SpotifyAuth.LOGIN_URL })
+        wv.settings.userAgentString = if (nextProfile == LoginUaProfile.SYSTEM_DEFAULT) {
+            WebSettings.getDefaultUserAgent(context)
+        } else {
+            resolveLoginUserAgent(context, nextProfile)
+        }
+        DevConsoleManager.logAuth("Switched WebView UA -> ${nextProfile.label}")
+        wv.loadUrl(reloadTarget ?: _navigationState.value.currentUrl.ifBlank { Spotify.LOGIN_URL })
     }
 
     fun autoRecover(context: Context) {
         val nextProfile = when (_uaProfile.value) {
-            LoginUaProfile.CLEAN_MOBILE -> LoginUaProfile.DESKTOP_CHROME
-            LoginUaProfile.DESKTOP_CHROME -> LoginUaProfile.CLEAN_MOBILE
-            LoginUaProfile.SYSTEM_DEFAULT -> LoginUaProfile.CLEAN_MOBILE
+            LoginUaProfile.SYSTEM_DEFAULT -> LoginUaProfile.MOBILE_CHROME
+            LoginUaProfile.MOBILE_CHROME -> LoginUaProfile.DESKTOP_CHROME
+            LoginUaProfile.DESKTOP_CHROME -> LoginUaProfile.SYSTEM_DEFAULT
         }
+        sessionReported = false
         val wv = primaryWebView
         resetSpotifyWebSession(wv) {
-            switchUaProfile(context, nextProfile, SpotifyAuth.LOGIN_URL)
+            switchUaProfile(context, nextProfile, Spotify.LOGIN_URL)
         }
     }
 
-    fun resetSessionAndLoad(wv: WebView? = primaryWebView, targetUrl: String = SpotifyAuth.LOGIN_URL) {
+    fun resetSessionAndLoad(wv: WebView? = primaryWebView, targetUrl: String = Spotify.LOGIN_URL) {
+        sessionReported = false
         _processState.value = _processState.value.copy(lastFailureMessage = null, autoRecoverHint = null)
-        runCatching { WebStorage.getInstance().deleteAllData() }
-        val cm = CookieManager.getInstance()
-        cm.removeAllCookies {
-            runCatching {
-                cm.flush()
-                cm.setAcceptCookie(true)
-                wv?.let { cm.setAcceptThirdPartyCookies(it, true) }
-                wv?.clearCache(true)
-                wv?.clearFormData()
-                wv?.clearHistory()
-            }
-            DevConsoleManager.logAuth("Cleared WebView session & restarted login cleanly")
+        resetSpotifyWebSession(wv) {
             wv?.loadUrl(targetUrl)
         }
     }
@@ -750,7 +787,6 @@ internal class SpotifyWebViewAdapter(
             }
         }
         primaryWebView = null
-        isInitialized = false
     }
 
     private enum class BlockKind {

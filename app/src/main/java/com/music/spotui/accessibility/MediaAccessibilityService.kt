@@ -189,7 +189,20 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            GameTranslatorEngine.updateForegroundPackage(applicationContext, event.packageName)
+            GameTranslatorEngine.updateForegroundPackage(
+                context = applicationContext,
+                rawPackage = event.packageName,
+                rawClassName = event.className,
+            )
+            if (!GameTranslatorEngine.isGameActiveFlow.value && activeTab == FloaterTab.TRANSLATE) {
+                activeTab = FloaterTab.PLAYER
+                val v = overlayView
+                val p = overlayParams
+                if (v != null && p != null) {
+                    updateWindowFocusableMode(p)
+                    runCatching { if (v.isAttachedToWindow) windowManager?.updateViewLayout(v, p) }
+                }
+            }
             refreshUiState()
         }
     }
@@ -232,8 +245,17 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
             combine(
                 GameTranslatorEngine.isGameActiveFlow,
                 GameTranslatorEngine.bubbleEnabledFlow,
-            ) { isGame, bubbleOn -> isGame && bubbleOn }
-                .collectLatest { shouldShowBubble ->
+            ) { isGame, bubbleOn -> isGame to (isGame && bubbleOn) }
+                .collectLatest { (isGame, shouldShowBubble) ->
+                    if (!isGame && activeTab == FloaterTab.TRANSLATE) {
+                        activeTab = FloaterTab.PLAYER
+                        val v = overlayView
+                        val p = overlayParams
+                        if (v != null && p != null) {
+                            updateWindowFocusableMode(p)
+                            runCatching { if (v.isAttachedToWindow) windowManager?.updateViewLayout(v, p) }
+                        }
+                    }
                     if (shouldShowBubble) {
                         showTranslationBubble()
                     } else {
@@ -435,6 +457,10 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
                             val density = resources.displayMetrics.density.coerceAtLeast(1f)
                             val currentDp = GameTranslatorEngine.bubbleWidthDpFlow.value
                             GameTranslatorEngine.setBubbleWidthDp(applicationContext, currentDp + (dx / density))
+                        },
+                        onBubbleTextSizeDelta = { deltaSp ->
+                            val currentSp = GameTranslatorEngine.bubbleTextSizeSpFlow.value
+                            GameTranslatorEngine.setBubbleTextSizeSp(applicationContext, currentSp + deltaSp)
                         },
                         onDismissBubble = {
                             GameTranslatorEngine.setBubbleEnabled(applicationContext, false)
@@ -1040,6 +1066,22 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
     override fun onBubbleOpacityChange(opacity: Float) {
         resetAutoDismissTimer()
         GameTranslatorEngine.setBubbleOpacity(applicationContext, opacity)
+    }
+
+    override fun onResetBubblePosition() {
+        resetAutoDismissTimer()
+        val topLeftX = dpToPx(10)
+        val topLeftY = dpToPx(24)
+        prefs.edit().putInt(KEY_BUBBLE_X, topLeftX).putInt(KEY_BUBBLE_Y, topLeftY).apply()
+        val v = bubbleView
+        val p = bubbleParams
+        if (v != null && p != null) {
+            p.gravity = Gravity.TOP or Gravity.START
+            p.x = topLeftX
+            p.y = topLeftY
+            runCatching { if (v.isAttachedToWindow) windowManager?.updateViewLayout(v, p) }
+        }
+        GameTranslatorEngine.setBubbleEnabled(applicationContext, true)
     }
 
     override fun onClearTranslationHistory() {

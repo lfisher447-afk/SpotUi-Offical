@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode as AnimRepeatMode
 import androidx.compose.animation.core.Spring
@@ -19,6 +20,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
@@ -57,6 +60,7 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material.icons.rounded.MenuOpen
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -69,9 +73,12 @@ import androidx.compose.material.icons.rounded.SpatialAudio
 import androidx.compose.material.icons.rounded.SportsEsports
 import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material3.ContainedLoadingIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -83,6 +90,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -104,6 +112,7 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 import kotlin.math.roundToInt
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun FloaterExpressiveConsole(
     state: FloaterUiModel,
@@ -136,23 +145,37 @@ internal fun FloaterExpressiveConsole(
         }
     }
 
+    val auraColor = if (state.isGameActive) cs.tertiary else cs.primary
+
     Surface(
-        shape = RoundedCornerShape(28.dp),
+        shape = RoundedCornerShape(32.dp),
         color = cs.surfaceContainerLow,
-        tonalElevation = 6.dp,
-        shadowElevation = 14.dp,
-        border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.55f)),
+        tonalElevation = 8.dp,
+        shadowElevation = 18.dp,
+        border = BorderStroke(1.dp, auraColor.copy(alpha = 0.28f)),
         modifier = Modifier
             .fillMaxWidth()
             .then(if (state.isDrawerExpanded) Modifier.fillMaxHeight() else Modifier),
     ) {
-        Box(modifier = Modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            auraColor.copy(alpha = 0.14f),
+                            cs.secondary.copy(alpha = 0.05f),
+                            Color.Transparent,
+                        ),
+                    ),
+                ),
+        ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .then(if (state.isDrawerExpanded) Modifier.fillMaxHeight() else Modifier)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 // ── 1. Expressive Header + Drag Handle ───────────────────────────────────
                 Row(
@@ -172,29 +195,37 @@ internal fun FloaterExpressiveConsole(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
+                    val badgeContainer by animateColorAsState(
+                        targetValue = if (state.isGameActive) cs.tertiaryContainer else cs.primaryContainer,
+                        label = "headerBadgeBg",
+                    )
+                    val badgeOnContainer by animateColorAsState(
+                        targetValue = if (state.isGameActive) cs.onTertiaryContainer else cs.onPrimaryContainer,
+                        label = "headerBadgeFg",
+                    )
                     Surface(
-                        color = if (state.isGameActive) cs.tertiaryContainer else cs.primaryContainer,
+                        color = badgeContainer,
                         shape = CircleShape,
-                        modifier = Modifier.height(30.dp),
+                        modifier = Modifier.height(32.dp),
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp),
+                            modifier = Modifier.padding(horizontal = 11.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             Icon(
                                 imageVector = if (state.isGameActive) Icons.Rounded.SportsEsports else Icons.Rounded.GraphicEq,
                                 contentDescription = null,
-                                tint = if (state.isGameActive) cs.onTertiaryContainer else cs.onPrimaryContainer,
-                                modifier = Modifier.size(14.dp),
+                                tint = badgeOnContainer,
+                                modifier = Modifier.size(15.dp),
                             )
                             Text(
                                 text = if (state.isGameActive) {
-                                    state.activeGameLabel?.take(14) ?: "GAME BOOSTER"
+                                    state.activeGameLabel?.take(14) ?: "GAME MODE"
                                 } else {
                                     "SPOTUI STUDIO"
                                 },
-                                color = if (state.isGameActive) cs.onTertiaryContainer else cs.onPrimaryContainer,
+                                color = badgeOnContainer,
                                 fontSize = 10.5.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 maxLines = 1,
@@ -212,28 +243,36 @@ internal fun FloaterExpressiveConsole(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Box(
                                 modifier = Modifier
-                                    .width(34.dp)
+                                    .width(36.dp)
                                     .height(4.dp)
                                     .clip(CircleShape)
                                     .background(cs.onSurfaceVariant.copy(alpha = 0.45f)),
                             )
                             Text(
                                 text = "${state.widthDp}×${state.heightDp}",
-                                color = cs.onSurfaceVariant.copy(alpha = 0.7f),
+                                color = cs.onSurfaceVariant.copy(alpha = 0.72f),
                                 fontSize = 8.5.sp,
-                                fontWeight = FontWeight.Medium,
+                                fontWeight = FontWeight.SemiBold,
                             )
                         }
                     }
 
+                    val likeScale by animateFloatAsState(
+                        targetValue = if (state.isLiked) 1.15f else 1.0f,
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy),
+                        label = "likeScale",
+                    )
                     IconButton(
                         onClick = { callbacks.onHaptic(true); callbacks.onToggleLike() },
-                        modifier = Modifier.size(48.dp).testTag("floater_like_button"),
+                        modifier = Modifier
+                            .size(48.dp)
+                            .scale(likeScale)
+                            .testTag("floater_like_button"),
                     ) {
                         Icon(
                             imageVector = if (state.isLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                             contentDescription = "Favorite Track",
-                            tint = if (state.isLiked) Color(0xFFFF5E7E) else cs.onSurfaceVariant,
+                            tint = if (state.isLiked) cs.tertiary else cs.onSurfaceVariant,
                             modifier = Modifier.size(20.dp),
                         )
                     }
@@ -251,16 +290,20 @@ internal fun FloaterExpressiveConsole(
                     }
 
                     if (state.floaterEq3dEnabled) {
-                        IconButton(
+                        Surface(
                             onClick = { callbacks.onHaptic(true); callbacks.onToggleExpand() },
+                            color = if (state.isDrawerExpanded) cs.primaryContainer else cs.surfaceContainerHigh,
+                            shape = CircleShape,
                             modifier = Modifier.size(48.dp).testTag("floater_expand_button"),
                         ) {
-                            Icon(
-                                imageVector = if (state.isDrawerExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                                contentDescription = if (state.isDrawerExpanded) "Collapse Studio" else "Expand Studio",
-                                tint = cs.primary,
-                                modifier = Modifier.size(22.dp),
-                            )
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = if (state.isDrawerExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                                    contentDescription = if (state.isDrawerExpanded) "Collapse Studio" else "Expand Studio",
+                                    tint = if (state.isDrawerExpanded) cs.onPrimaryContainer else cs.primary,
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            }
                         }
                     }
 
@@ -277,24 +320,25 @@ internal fun FloaterExpressiveConsole(
                     }
                 }
 
-                // ── 2. Expressive Now-Playing Hero Card ──────────────────────────────────
+                // ── 2. Expressive Now-Playing Hero Card + LinearWavyProgressIndicator ────
                 Surface(
                     color = cs.surfaceContainerHigh,
-                    shape = RoundedCornerShape(22.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.35f)),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Column(
-                        modifier = Modifier.padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(50.dp)
-                                    .clip(RoundedCornerShape(15.dp))
+                                    .size(54.dp)
+                                    .clip(RoundedCornerShape(18.dp))
                                     .background(
                                         Brush.linearGradient(listOf(cs.primaryContainer, cs.tertiaryContainer)),
                                     ),
@@ -316,13 +360,23 @@ internal fun FloaterExpressiveConsole(
                                         modifier = Modifier.size(28.dp),
                                     )
                                 }
+                                if (state.isResolving) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(cs.scrim.copy(alpha = 0.45f)),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        ContainedLoadingIndicator(modifier = Modifier.size(28.dp))
+                                    }
+                                }
                             }
 
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = state.title.ifBlank { "SpotUI Ready" },
                                     color = cs.onSurface,
-                                    fontSize = 14.sp,
+                                    fontSize = 14.5.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
@@ -335,7 +389,7 @@ internal fun FloaterExpressiveConsole(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
-                                Spacer(Modifier.height(2.dp))
+                                Spacer(Modifier.height(4.dp))
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -349,8 +403,32 @@ internal fun FloaterExpressiveConsole(
                                             color = cs.onSecondaryContainer,
                                             fontSize = 9.5.sp,
                                             fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                                         )
+                                    }
+                                    Surface(
+                                        color = cs.surfaceContainerHighest,
+                                        shape = CircleShape,
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Headphones,
+                                                contentDescription = null,
+                                                tint = cs.primary,
+                                                modifier = Modifier.size(10.dp),
+                                            )
+                                            Text(
+                                                text = state.audioRouteLabel,
+                                                color = cs.onSurfaceVariant,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                maxLines = 1,
+                                            )
+                                        }
                                     }
                                     if (state.isPlaying) {
                                         ExpressivePlayingEqualizer(color = cs.primary)
@@ -364,20 +442,19 @@ internal fun FloaterExpressiveConsole(
                         } else {
                             0f
                         }
-                        LinearProgressIndicator(
+                        LinearWavyProgressIndicator(
                             progress = { progress },
                             color = cs.primary,
                             trackColor = cs.surfaceContainerLowest,
-                            strokeCap = StrokeCap.Round,
+                            amplitude = { if (state.isPlaying) 1f else 0f },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(4.dp)
-                                .clip(CircleShape),
+                                .testTag("floater_wavy_progress"),
                         )
                     }
                 }
 
-                // ── 3. Morphing Transport Controls Row ───────────────────────────────────
+                // ── 3. Morphing Expressive Transport Controls Row ────────────────────────
                 val playCornerRadius by animateDpAsState(
                     targetValue = if (state.isPlaying) 16.dp else 28.dp,
                     animationSpec = spring(
@@ -386,10 +463,10 @@ internal fun FloaterExpressiveConsole(
                     ),
                     label = "playCorner",
                 )
-                val playScale by animateFloatAsState(
-                    targetValue = if (state.isPlaying) 1.04f else 1.0f,
-                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-                    label = "playScale",
+                val playWidth by animateDpAsState(
+                    targetValue = if (state.isPlaying) 74.dp else 64.dp,
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy),
+                    label = "playWidth",
                 )
                 val playContainerColor by animateColorAsState(
                     targetValue = if (state.isPlaying) cs.primary else cs.primaryContainer,
@@ -405,22 +482,26 @@ internal fun FloaterExpressiveConsole(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(
+                    Surface(
                         onClick = { callbacks.onHaptic(true); callbacks.onToggleShuffle() },
+                        color = if (state.isShuffled) cs.secondaryContainer else Color.Transparent,
+                        shape = CircleShape,
                         modifier = Modifier.size(48.dp).testTag("floater_shuffle_button"),
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Shuffle,
-                            contentDescription = "Shuffle",
-                            tint = if (state.isShuffled) cs.primary else cs.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp),
-                        )
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Rounded.Shuffle,
+                                contentDescription = "Shuffle",
+                                tint = if (state.isShuffled) cs.onSecondaryContainer else cs.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
                     }
 
                     Surface(
                         onClick = { callbacks.onHaptic(false); callbacks.onPrevious() },
                         color = cs.surfaceContainerHigh,
-                        shape = CircleShape,
+                        shape = RoundedCornerShape(18.dp),
                         modifier = Modifier.size(48.dp).testTag("floater_prev_button"),
                     ) {
                         Box(contentAlignment = Alignment.Center) {
@@ -428,27 +509,31 @@ internal fun FloaterExpressiveConsole(
                         }
                     }
 
-                    // Expressive Morphing Squircle / Pill Hero Button
+                    // Expressive Morphing Squircle ↔ Pill Hero Button
                     Surface(
                         onClick = { callbacks.onHaptic(true); callbacks.onTogglePlayPause() },
                         color = playContainerColor,
                         shape = RoundedCornerShape(playCornerRadius),
+                        shadowElevation = 6.dp,
                         modifier = Modifier
-                            .width((64 * playScale).dp)
-                            .height(50.dp)
+                            .width(playWidth)
+                            .height(52.dp)
                             .testTag("floater_play_pause_button"),
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             AnimatedContent(
                                 targetState = state.isPlaying,
-                                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                                transitionSpec = {
+                                    (fadeIn() + scaleIn(initialScale = 0.8f)) togetherWith
+                                        (fadeOut() + scaleOut(targetScale = 0.8f))
+                                },
                                 label = "playIcon",
                             ) { playing ->
                                 Icon(
                                     imageVector = if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                                     contentDescription = if (playing) "Pause" else "Play",
                                     tint = playContentColor,
-                                    modifier = Modifier.size(28.dp),
+                                    modifier = Modifier.size(30.dp),
                                 )
                             }
                         }
@@ -457,7 +542,7 @@ internal fun FloaterExpressiveConsole(
                     Surface(
                         onClick = { callbacks.onHaptic(false); callbacks.onNext() },
                         color = cs.surfaceContainerHigh,
-                        shape = CircleShape,
+                        shape = RoundedCornerShape(18.dp),
                         modifier = Modifier.size(48.dp).testTag("floater_next_button"),
                     ) {
                         Box(contentAlignment = Alignment.Center) {
@@ -465,23 +550,27 @@ internal fun FloaterExpressiveConsole(
                         }
                     }
 
-                    IconButton(
+                    Surface(
                         onClick = { callbacks.onHaptic(true); callbacks.onCycleRepeat() },
+                        color = if (state.repeatMode != RepeatMode.OFF) cs.secondaryContainer else Color.Transparent,
+                        shape = CircleShape,
                         modifier = Modifier.size(48.dp).testTag("floater_repeat_button"),
                     ) {
-                        Icon(
-                            imageVector = if (state.repeatMode == RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-                            contentDescription = "Loop Mode",
-                            tint = if (state.repeatMode != RepeatMode.OFF) cs.primary else cs.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp),
-                        )
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (state.repeatMode == RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                                contentDescription = "Loop Mode",
+                                tint = if (state.repeatMode != RepeatMode.OFF) cs.onSecondaryContainer else cs.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
                     }
                 }
 
                 // ── 4. Dedicated In-App Volume Bar (OS Volume Never Mutated) ──────────────
                 Surface(
                     color = cs.surfaceContainer,
-                    shape = RoundedCornerShape(18.dp),
+                    shape = RoundedCornerShape(22.dp),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Row(
@@ -502,19 +591,24 @@ internal fun FloaterExpressiveConsole(
                                 modifier = Modifier.size(20.dp),
                             )
                         }
-                        Text(
-                            text = "-5",
-                            color = cs.onSurfaceVariant,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
+                        Box(
                             modifier = Modifier
+                                .heightIn(min = 48.dp)
                                 .clip(CircleShape)
                                 .clickable {
                                     callbacks.onHaptic(false)
                                     callbacks.onVolumeChange((state.inAppVolumePct - 5).coerceIn(0, 100))
                                 }
-                                .padding(horizontal = 6.dp, vertical = 8.dp),
-                        )
+                                .padding(horizontal = 8.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "-5",
+                                color = cs.onSurfaceVariant,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                         Slider(
                             value = (state.inAppVolumePct / 100f).coerceIn(0f, 1f),
                             onValueChange = { frac ->
@@ -530,26 +624,37 @@ internal fun FloaterExpressiveConsole(
                                 .weight(1f)
                                 .testTag("floater_vol_slider"),
                         )
-                        Text(
-                            text = "+5",
-                            color = cs.onSurfaceVariant,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
+                        Box(
                             modifier = Modifier
+                                .heightIn(min = 48.dp)
                                 .clip(CircleShape)
                                 .clickable {
                                     callbacks.onHaptic(false)
                                     callbacks.onVolumeChange((state.inAppVolumePct + 5).coerceIn(0, 100))
                                 }
-                                .padding(horizontal = 6.dp, vertical = 8.dp),
-                        )
-                        Text(
-                            text = "${state.inAppVolumePct}%",
-                            color = cs.primary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.ExtraBold,
+                                .padding(horizontal = 8.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "+5",
+                                color = cs.onSurfaceVariant,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                        Surface(
+                            color = cs.primaryContainer,
+                            shape = CircleShape,
                             modifier = Modifier.padding(end = 6.dp),
-                        )
+                        ) {
+                            Text(
+                                text = "${state.inAppVolumePct}%",
+                                color = cs.onPrimaryContainer,
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            )
+                        }
                     }
                 }
 
@@ -562,14 +667,14 @@ internal fun FloaterExpressiveConsole(
                 ) {
                     Surface(
                         color = cs.surfaceContainer,
-                        shape = RoundedCornerShape(22.dp),
+                        shape = RoundedCornerShape(24.dp),
                         border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.45f)),
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         Row(modifier = Modifier.fillMaxSize()) {
                             // Left Expressive Navigation Rail Sidebar
                             val railWidth by animateDpAsState(
-                                targetValue = if (state.isSidebarCompact) 54.dp else 78.dp,
+                                targetValue = if (state.isSidebarCompact) 56.dp else 82.dp,
                                 animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy),
                                 label = "railWidth",
                             )
@@ -579,7 +684,7 @@ internal fun FloaterExpressiveConsole(
                                     .fillMaxHeight()
                                     .background(cs.surfaceContainerLowest)
                                     .verticalScroll(rememberScrollState())
-                                    .padding(vertical = 6.dp, horizontal = 4.dp),
+                                    .padding(vertical = 8.dp, horizontal = 5.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
@@ -636,7 +741,7 @@ internal fun FloaterExpressiveConsole(
                                     onClick = { callbacks.onHaptic(true); callbacks.onSelectTab(FloaterTab.TOOLS) },
                                 )
 
-                                // ONLY shown when user is actively playing a Game!
+                                // ONLY shown when user is actively in a detected Game!
                                 if (state.isGameActive) {
                                     SidebarSectionHeader("GAME", state.isSidebarCompact)
                                     SidebarNavPill(
@@ -650,14 +755,22 @@ internal fun FloaterExpressiveConsole(
                                 }
                             }
 
-                            // Active Tab Body Content
-                            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                                val effectiveTab = if (state.activeTab == FloaterTab.TRANSLATE && !state.isGameActive) {
-                                    FloaterTab.PLAYER
-                                } else {
-                                    state.activeTab
-                                }
-                                when (effectiveTab) {
+                            // Active Tab Body Content with Expressive Transition
+                            val effectiveTab = if (state.activeTab == FloaterTab.TRANSLATE && !state.isGameActive) {
+                                FloaterTab.PLAYER
+                            } else {
+                                state.activeTab
+                            }
+                            AnimatedContent(
+                                targetState = effectiveTab,
+                                transitionSpec = {
+                                    (fadeIn(tween(180)) + scaleIn(initialScale = 0.96f)) togetherWith
+                                        fadeOut(tween(120))
+                                },
+                                label = "floaterTabBody",
+                                modifier = Modifier.weight(1f).fillMaxHeight(),
+                            ) { tab ->
+                                when (tab) {
                                     FloaterTab.PLAYER -> FloaterPlayerPanel(state, callbacks)
                                     FloaterTab.QUEUE -> FloaterQueuePanel(state, callbacks)
                                     FloaterTab.EQ -> FloaterEqPanel(state, callbacks)
@@ -686,10 +799,10 @@ internal fun FloaterExpressiveConsole(
             // Bottom-Left Corner Drag Resize Handle
             CornerResizeGrip(
                 isLeftCorner = true,
-                tint = cs.primary.copy(alpha = 0.72f),
+                tint = cs.primary.copy(alpha = 0.78f),
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .size(28.dp)
+                    .size(30.dp)
                     .pointerInput(Unit) {
                         detectDragGestures(
                             onDragStart = { callbacks.onHaptic(false) },
@@ -708,10 +821,10 @@ internal fun FloaterExpressiveConsole(
             // Bottom-Right Corner Drag Resize Handle
             CornerResizeGrip(
                 isLeftCorner = false,
-                tint = cs.primary.copy(alpha = 0.72f),
+                tint = cs.primary.copy(alpha = 0.78f),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .size(28.dp)
+                    .size(30.dp)
                     .pointerInput(Unit) {
                         detectDragGestures(
                             onDragStart = { callbacks.onHaptic(false) },
@@ -732,9 +845,10 @@ internal fun FloaterExpressiveConsole(
 
 /**
  * Top-Left Game Live Translation Overlay Bubble.
- * Shows teammate's auto-detected speech/chat translated into English, with direct drag-move
- * and corner width resize plus quick hide.
+ * Auto-detects teammate speech/chat (Spanish, Arabic, etc.), translates into English,
+ * and allows inline font-size adjustment (A-/A+), drag repositioning, and corner width resize.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun TranslationBubbleOverlayContent(
     bubble: TranslationBubbleState,
@@ -745,17 +859,28 @@ internal fun TranslationBubbleOverlayContent(
     onBubbleDrag: (Float, Float) -> Unit,
     onBubbleDragEnd: () -> Unit,
     onBubbleResizeWidthPx: (Float) -> Unit,
+    onBubbleTextSizeDelta: (Float) -> Unit,
     onDismissBubble: () -> Unit,
     onOpenTranslatorTab: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
+    val borderColor by animateColorAsState(
+        targetValue = when {
+            bubble.isTranslating -> cs.tertiary
+            bubble.isListening -> cs.primary
+            else -> cs.outlineVariant.copy(alpha = 0.7f)
+        },
+        label = "bubbleBorder",
+    )
+
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(22.dp),
         color = cs.surfaceContainerLowest.copy(alpha = opacity.coerceIn(0.55f, 0.98f)),
-        border = BorderStroke(1.dp, cs.primary.copy(alpha = 0.45f)),
-        shadowElevation = 10.dp,
+        border = BorderStroke(1.25.dp, borderColor.copy(alpha = 0.85f)),
+        shadowElevation = 14.dp,
         modifier = Modifier
             .width(widthDp.coerceIn(160f, 420f).dp)
+            .animateContentSize(spring(dampingRatio = Spring.DampingRatioLowBouncy))
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDrag = { change, dragAmount ->
@@ -773,13 +898,13 @@ internal fun TranslationBubbleOverlayContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(onClick = onOpenTranslatorTab)
-                    .padding(horizontal = 12.dp, vertical = 9.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                    .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Surface(
                         color = if (bubble.isListening) cs.primaryContainer else cs.secondaryContainer,
@@ -788,14 +913,21 @@ internal fun TranslationBubbleOverlayContent(
                         Row(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(7.dp)
-                                    .clip(CircleShape)
-                                    .background(if (bubble.isListening) Color(0xFF1ED760) else cs.primary),
-                            )
+                            if (bubble.isTranslating) {
+                                LoadingIndicator(
+                                    modifier = Modifier.size(11.dp),
+                                    color = cs.primary,
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(if (bubble.isListening) cs.tertiary else cs.primary),
+                                )
+                            }
                             Text(
                                 text = "${bubble.detectedLangCode.uppercase(Locale.US)} → EN",
                                 color = if (bubble.isListening) cs.onPrimaryContainer else cs.onSecondaryContainer,
@@ -809,15 +941,47 @@ internal fun TranslationBubbleOverlayContent(
                         text = gameLabel ?: "Live Translation",
                         color = cs.onSurfaceVariant,
                         fontSize = 9.5.sp,
+                        fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
 
+                    // Inline Quick Text-Size Step Pills
+                    Surface(
+                        onClick = { onBubbleTextSizeDelta(-1f) },
+                        color = cs.surfaceContainerHigh,
+                        shape = CircleShape,
+                        modifier = Modifier.testTag("bubble_text_smaller"),
+                    ) {
+                        Text(
+                            text = "A-",
+                            color = cs.onSurface,
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                        )
+                    }
+                    Surface(
+                        onClick = { onBubbleTextSizeDelta(1f) },
+                        color = cs.surfaceContainerHigh,
+                        shape = CircleShape,
+                        modifier = Modifier.testTag("bubble_text_larger"),
+                    ) {
+                        Text(
+                            text = "A+",
+                            color = cs.primary,
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                        )
+                    }
+
                     Box(
                         modifier = Modifier
-                            .size(28.dp)
+                            .size(26.dp)
                             .clip(CircleShape)
+                            .background(cs.surfaceContainerHigh)
                             .clickable(onClick = onDismissBubble)
                             .testTag("bubble_hide_button"),
                         contentAlignment = Alignment.Center,
@@ -852,10 +1016,10 @@ internal fun TranslationBubbleOverlayContent(
 
             CornerResizeGrip(
                 isLeftCorner = false,
-                tint = cs.primary.copy(alpha = 0.75f),
+                tint = cs.primary.copy(alpha = 0.85f),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .size(22.dp)
+                    .size(24.dp)
                     .pointerInput(Unit) {
                         detectDragGestures { change, dragAmount ->
                             change.consume()
@@ -876,10 +1040,10 @@ private fun SidebarSectionHeader(title: String, compact: Boolean) {
     }
     Text(
         text = title,
-        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f),
         fontSize = 8.5.sp,
         fontWeight = FontWeight.ExtraBold,
-        letterSpacing = 0.8.sp,
+        letterSpacing = 0.9.sp,
         modifier = Modifier.padding(top = 4.dp, bottom = 1.dp),
     )
 }
@@ -894,10 +1058,24 @@ private fun SidebarNavPill(
     onClick: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
+    val bgColor by animateColorAsState(
+        targetValue = if (selected) cs.primaryContainer else Color.Transparent,
+        label = "navPillBg",
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) cs.onPrimaryContainer else cs.onSurfaceVariant,
+        label = "navPillFg",
+    )
+    val cornerDp by animateDpAsState(
+        targetValue = if (selected) 16.dp else 12.dp,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy),
+        label = "navPillCorner",
+    )
+
     Surface(
         onClick = onClick,
-        color = if (selected) cs.primaryContainer else Color.Transparent,
-        shape = RoundedCornerShape(14.dp),
+        color = bgColor,
+        shape = RoundedCornerShape(cornerDp),
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
@@ -912,16 +1090,16 @@ private fun SidebarNavPill(
                 Icon(
                     imageVector = icon,
                     contentDescription = tab.label,
-                    tint = if (selected) cs.onPrimaryContainer else cs.onSurfaceVariant,
+                    tint = contentColor,
                     modifier = Modifier.size(18.dp),
                 )
                 if (accentBadge) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .size(6.dp)
+                            .size(7.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF1ED760)),
+                            .background(cs.tertiary),
                     )
                 }
             }
@@ -929,9 +1107,9 @@ private fun SidebarNavPill(
                 Spacer(Modifier.height(2.dp))
                 Text(
                     text = tab.label,
-                    color = if (selected) cs.onPrimaryContainer else cs.onSurfaceVariant,
+                    color = contentColor,
                     fontSize = 9.5.sp,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                    fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Medium,
                     maxLines = 1,
                 )
             }

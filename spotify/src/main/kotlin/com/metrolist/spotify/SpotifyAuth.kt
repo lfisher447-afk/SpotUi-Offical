@@ -242,10 +242,10 @@ object SpotifyAuth {
     private suspend fun leaseNuance(forceRefresh: Boolean): NuanceLease = nuanceLock.withLock {
         val now = System.currentTimeMillis()
         val cached = nuanceCache
-        val cacheIsFresh = cached != null && now - nuanceFetchedAtMs < NUANCE_TTL_MS
+        val cacheIsFresh = now - nuanceFetchedAtMs < NUANCE_TTL_MS
         val refreshAllowed = now - nuanceFetchedAtMs >= NUANCE_MIN_REFRESH_INTERVAL_MS
-        val reuseCache = cached != null && if (forceRefresh) !refreshAllowed else cacheIsFresh
-        if (reuseCache && cached != null) return@withLock NuanceLease(cached, wasCached = true)
+        val reuseCache = if (forceRefresh) !refreshAllowed else cacheIsFresh
+        if (cached != null && reuseCache) return@withLock NuanceLease(cached, wasCached = true)
 
         try {
             val fetched = fetchNuance()

@@ -3,6 +3,7 @@ package com.metrolist.spotify
 import com.metrolist.spotify.models.SpotifyAlbum
 import com.metrolist.spotify.models.SpotifyArtist
 import com.metrolist.spotify.models.SpotifyImage
+import com.metrolist.spotify.models.SpotifyInternalToken
 import com.metrolist.spotify.models.SpotifyPaging
 import com.metrolist.spotify.models.SpotifyPlaylist
 import com.metrolist.spotify.models.SpotifyPlaylistOwner
@@ -68,6 +69,75 @@ object Spotify {
      */
     @Volatile
     var tokenRefresher: (suspend () -> String?)? = null
+
+    const val LOGIN_URL: String = SpotifyAuth.LOGIN_URL
+    const val SIGNUP_URL: String = SpotifyAuth.SIGNUP_URL
+
+    data class SpotifyLoginSession(
+        val token: SpotifyInternalToken,
+        val user: SpotifyUser?,
+        val spDc: String,
+        val spKey: String,
+        val capturedFromWebSession: Boolean,
+    )
+
+    fun parseWebViewSessionScript(rawJson: String): SpotifyInternalToken? =
+        SpotifyAuth.parseSessionScriptJson(rawJson)
+
+    fun isLoginRetryable(error: Throwable?): Boolean = SpotifyAuth.isRetryable(error)
+
+    fun describeLoginFailure(error: Throwable?): String = SpotifyAuth.describeFailure(error)
+
+    fun clearAuthSession() {
+        accessToken = null
+    }
+
+    /**
+     * Unified WebView-first Spotify login entrypoint on [Spotify].
+     *
+     * Accepts either a pre-captured `<script id="session">` token from the embedded WebView
+     * or exchanges `sp_dc` (+ optional `sp_key`) via [SpotifyAuth.fetchAccessToken] with
+     * retry/backoff, arms [Spotify.accessToken], and resolves the signed-in [SpotifyUser] profile.
+     */
+    suspend fun loginWithWebViewSession(
+        spDc: String,
+        spKey: String = "",
+        preCapturedToken: SpotifyInternalToken? = null,
+        retryAttempts: Int = 3,
+    ): Result<SpotifyLoginSession> = runCatching {
+        val cleanDc = spDc.trim()
+        val cleanKey = spKey.trim()
+        if (cleanDc.isBlank()) throw SpotifyException(401, "No sp_dc cookie provided")
+
+        var token = preCapturedToken?.takeIf { !it.isAnonymous && it.accessToken.isNotBlank() }
+        val capturedFromWebSession = token != null
+        var lastError: Throwable? = null
+
+        if (token == null) {
+            var attempt = 0
+            while (token == null && attempt < retryAttempts.coerceAtLeast(1)) {
+                attempt++
+                val res = SpotifyAuth.fetchAccessToken(cleanDc, cleanKey)
+                token = res.getOrNull()?.takeIf { !it.isAnonymous && it.accessToken.isNotBlank() }
+                if (token != null) break
+                val err = res.exceptionOrNull()
+                lastError = err
+                if (!SpotifyAuth.isRetryable(err)) break
+                if (attempt < retryAttempts) delay(400L * attempt * attempt)
+            }
+        }
+
+        val verifiedToken = token ?: throw (lastError ?: SpotifyException(401, "Failed to verify Spotify WebView session"))
+        accessToken = verifiedToken.accessToken
+        val profile = me().getOrNull()
+        SpotifyLoginSession(
+            token = verifiedToken,
+            user = profile,
+            spDc = cleanDc,
+            spKey = cleanKey,
+            capturedFromWebSession = capturedFromWebSession,
+        )
+    }
 
     private val refreshMutex = Mutex()
 

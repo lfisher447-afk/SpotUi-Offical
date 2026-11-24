@@ -401,7 +401,7 @@ fun NewPlayerLayout(
                     val trackExplicit = com.music.spotui.util.ExplicitContentDetector.detectExplicit(
                         apiExplicit = currentTrack?.explicit == true,
                         title = songTitle,
-                        album = songAlbum,
+                        album = currentTrack?.album.orEmpty(),
                     )
                     if (trackExplicit) {
                         ExplicitBadge(size = 11.sp)

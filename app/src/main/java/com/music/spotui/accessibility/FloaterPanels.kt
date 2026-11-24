@@ -2,13 +2,22 @@
 
 package com.music.spotui.accessibility
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode as AnimRepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,15 +32,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.ClearAll
 import androidx.compose.material.icons.rounded.DeleteSweep
-import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MicOff
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.NorthWest
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Repeat
@@ -42,17 +51,15 @@ import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SpatialAudio
 import androidx.compose.material.icons.rounded.SportsEsports
 import androidx.compose.material.icons.rounded.Timer
-import androidx.compose.material.icons.rounded.Translate
-import androidx.compose.material.icons.rounded.Vibration
-import androidx.compose.material.icons.rounded.Visibility
-import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -72,7 +79,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -82,7 +95,11 @@ import androidx.compose.ui.unit.sp
 import com.music.spotui.audio.EqPresetCatalog
 import com.music.spotui.data.preferences.SpatialProfile
 import com.music.spotui.di.RepeatMode
+import java.util.Locale
+import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 @Composable
 internal fun FloaterPlayerPanel(
@@ -106,9 +123,23 @@ internal fun FloaterPlayerPanel(
         ExpressivePanelCard(title = "Active Output Route", accentColor = cs.primary) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                Surface(
+                    color = cs.primaryContainer,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.size(40.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Rounded.Headphones,
+                            contentDescription = null,
+                            tint = cs.onPrimaryContainer,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = state.audioDeviceName,
@@ -155,9 +186,9 @@ internal fun FloaterPlayerPanel(
             ) {
                 Text(
                     text = formatFloaterDuration(if (seeking) (dragPos * dur).toLong() else state.positionMs),
-                    color = cs.onSurfaceVariant,
+                    color = cs.primary,
                     fontSize = 10.5.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Bold,
                 )
                 Text(
                     text = formatFloaterDuration(state.durationMs),
@@ -169,11 +200,11 @@ internal fun FloaterPlayerPanel(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 FilledTonalButton(
                     onClick = { callbacks.onHaptic(false); callbacks.onSeekBy(-10_000L) },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp, topEnd = 10.dp, bottomEnd = 10.dp),
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("floater_rew10"),
                 ) {
                     Icon(Icons.Rounded.Replay10, contentDescription = "Rewind 10s", modifier = Modifier.size(16.dp))
@@ -182,7 +213,7 @@ internal fun FloaterPlayerPanel(
                 }
                 FilledTonalButton(
                     onClick = { callbacks.onHaptic(false); callbacks.onSeekBy(10_000L) },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(topStart = 10.dp, bottomStart = 10.dp, topEnd = 20.dp, bottomEnd = 20.dp),
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("floater_fwd10"),
                 ) {
                     Icon(Icons.Rounded.Forward10, contentDescription = "Forward 10s", modifier = Modifier.size(16.dp))
@@ -202,7 +233,7 @@ internal fun FloaterPlayerPanel(
                     onClick = { callbacks.onHaptic(true); callbacks.onToggleShuffle() },
                     leadingIcon = { Icon(Icons.Rounded.Shuffle, contentDescription = null, modifier = Modifier.size(15.dp)) },
                     label = { Text(if (state.isShuffled) "Shuffle On" else "Shuffle", fontSize = 11.5.sp) },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                 )
                 FilterChip(
@@ -225,7 +256,7 @@ internal fun FloaterPlayerPanel(
                             fontSize = 11.5.sp,
                         )
                     },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                 )
             }
@@ -256,12 +287,12 @@ internal fun FloaterQueuePanel(
                 text = "Up Next (${state.queue.size})",
                 color = cs.onSurface,
                 fontSize = 12.5.sp,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.ExtraBold,
                 modifier = Modifier.weight(1f),
             )
             FilledTonalButton(
                 onClick = { callbacks.onHaptic(false); callbacks.onShuffleUpcomingQueue() },
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.heightIn(min = 48.dp).testTag("floater_queue_shuffle"),
             ) {
                 Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle upcoming", modifier = Modifier.size(14.dp))
@@ -270,7 +301,7 @@ internal fun FloaterQueuePanel(
             }
             FilledTonalButton(
                 onClick = { callbacks.onHaptic(false); callbacks.onDeduplicateQueue() },
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.heightIn(min = 48.dp).testTag("floater_queue_dedupe"),
             ) {
                 Icon(Icons.Rounded.ClearAll, contentDescription = "Remove duplicates", modifier = Modifier.size(14.dp))
@@ -282,7 +313,7 @@ internal fun FloaterQueuePanel(
         if (state.queue.isEmpty()) {
             Surface(
                 color = cs.surfaceContainerHigh,
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(20.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(
@@ -301,13 +332,13 @@ internal fun FloaterQueuePanel(
                 val isCurrent = idx == state.activeQueueIndex
                 Surface(
                     onClick = { callbacks.onHaptic(true); callbacks.onPlayQueueIndex(idx) },
-                    color = if (isCurrent) cs.primaryContainer else cs.surfaceContainer,
-                    shape = RoundedCornerShape(14.dp),
-                    border = if (isCurrent) BorderStroke(1.dp, cs.primary.copy(alpha = 0.5f)) else null,
+                    color = if (isCurrent) cs.primaryContainer else cs.surfaceContainerHigh,
+                    shape = RoundedCornerShape(16.dp),
+                    border = if (isCurrent) BorderStroke(1.2.dp, cs.primary.copy(alpha = 0.65f)) else null,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("floater_queue_item_$idx"),
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
@@ -322,7 +353,7 @@ internal fun FloaterQueuePanel(
                                 text = song.title.ifBlank { "Unknown Track" },
                                 color = if (isCurrent) cs.onPrimaryContainer else cs.onSurface,
                                 fontSize = 12.sp,
-                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
+                                fontWeight = if (isCurrent) FontWeight.ExtraBold else FontWeight.Medium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -348,6 +379,16 @@ internal fun FloaterEqPanel(
     modifier: Modifier = Modifier,
 ) {
     val cs = MaterialTheme.colorScheme
+    val bandValues = listOf(
+        state.bandSubBass,
+        state.bandBass,
+        state.bandLowMid,
+        state.bandVocal,
+        state.bandHighMid,
+        state.bandTreble,
+        state.bandBrilliance,
+    )
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -363,6 +404,17 @@ internal fun FloaterEqPanel(
             testTag = "floater_eq_master_switch",
         )
 
+        // Interactive Live 7-Band Frequency Curve Visualizer
+        ExpressivePanelCard(title = "Frequency Response Curve", accentColor = cs.primary) {
+            EqResponseCurveCanvas(
+                bands = bandValues,
+                enabled = state.eqEnabled,
+                primary = cs.primary,
+                tertiary = cs.tertiary,
+                gridColor = cs.outlineVariant.copy(alpha = 0.4f),
+            )
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -375,7 +427,7 @@ internal fun FloaterEqPanel(
                     selected = selected,
                     onClick = { callbacks.onHaptic(true); callbacks.onSelectEqPreset(curve.name) },
                     label = { Text(curve.name, fontSize = 11.sp) },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.heightIn(min = 48.dp),
                 )
             }
@@ -411,7 +463,7 @@ internal fun FloaterEqPanel(
             )
             ExpressiveSliderRow(
                 label = "Preamp Gain",
-                valueText = String.format(java.util.Locale.US, "%+.1f dB", state.preampDb),
+                valueText = String.format(Locale.US, "%+.1f dB", state.preampDb),
                 value = ((state.preampDb + 12f) / 18f).coerceIn(0f, 1f),
                 onValueChange = { callbacks.onInteraction(); callbacks.onPreampChange(-12f + it * 18f) },
             )
@@ -429,7 +481,7 @@ internal fun FloaterEqPanel(
             )
             OutlinedButton(
                 onClick = { callbacks.onHaptic(true); callbacks.onResetEqFlat() },
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("floater_eq_reset_flat"),
             ) {
                 Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -462,6 +514,19 @@ internal fun FloaterSpatial3dPanel(
             testTag = "floater_spatial_master_switch",
         )
 
+        // Interactive 3D Binaural Soundstage Radar
+        ExpressivePanelCard(title = "Binaural Soundstage Radar", accentColor = cs.secondary) {
+            SpatialSoundstageRadarCanvas(
+                enabled = state.spatialEnabled,
+                orbit8dEnabled = state.orbit8dEnabled,
+                orbitSpeedHz = state.orbit8dSpeedHz,
+                strengthFraction = (state.spatialStrength / 1000f).coerceIn(0f, 1f),
+                primary = cs.primary,
+                tertiary = cs.tertiary,
+                gridColor = cs.outlineVariant.copy(alpha = 0.45f),
+            )
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -475,7 +540,7 @@ internal fun FloaterSpatial3dPanel(
                     onClick = { callbacks.onHaptic(true); callbacks.onSelectSpatialProfile(profile) },
                     leadingIcon = { Icon(Icons.Rounded.SpatialAudio, contentDescription = null, modifier = Modifier.size(14.dp)) },
                     label = { Text(profile.label, fontSize = 11.sp) },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.heightIn(min = 48.dp),
                 )
             }
@@ -513,7 +578,7 @@ internal fun FloaterSpatial3dPanel(
             if (state.orbit8dEnabled) {
                 ExpressiveSliderRow(
                     label = "Orbit Rotation Rate",
-                    valueText = String.format(java.util.Locale.US, "%.2f Hz", state.orbit8dSpeedHz),
+                    valueText = String.format(Locale.US, "%.2f Hz", state.orbit8dSpeedHz),
                     value = ((state.orbit8dSpeedHz - 0.10f) / 1.40f).coerceIn(0f, 1f),
                     onValueChange = { callbacks.onInteraction(); callbacks.onOrbitSpeedChange(0.10f + it * 1.40f) },
                 )
@@ -551,20 +616,20 @@ internal fun FloaterToolsPanel(
         ExpressivePanelCard(title = "Tempo & Pitch", accentColor = cs.primary) {
             ExpressiveSliderRow(
                 label = "Playback Speed",
-                valueText = String.format(java.util.Locale.US, "%.2fx", state.speed),
+                valueText = String.format(Locale.US, "%.2fx", state.speed),
                 value = ((state.speed - 0.5f) / 1.5f).coerceIn(0f, 1f),
                 onValueChange = { callbacks.onInteraction(); callbacks.onSpeedChange(0.5f + it * 1.5f) },
             )
             ExpressiveSliderRow(
                 label = "Vocal Pitch",
-                valueText = String.format(java.util.Locale.US, "%.2fx", state.pitch),
+                valueText = String.format(Locale.US, "%.2fx", state.pitch),
                 value = ((state.pitch - 0.75f) / 0.50f).coerceIn(0f, 1f),
                 onValueChange = { callbacks.onInteraction(); callbacks.onPitchChange(0.75f + it * 0.50f) },
             )
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 FilledTonalButton(
                     onClick = { callbacks.onHaptic(false); callbacks.onResetSpeedPitch() },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                 ) {
                     Text("Reset 1.0x", fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -573,7 +638,7 @@ internal fun FloaterToolsPanel(
                     selected = state.skipSilence,
                     onClick = { callbacks.onHaptic(false); callbacks.onToggleSkipSilence(!state.skipSilence) },
                     label = { Text("Skip Silence", fontSize = 11.sp) },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                 )
             }
@@ -591,7 +656,7 @@ internal fun FloaterToolsPanel(
                     FilledTonalButton(
                         onClick = { callbacks.onHaptic(true); callbacks.onSetSleepTimer(mins) },
                         shape = RoundedCornerShape(12.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                     ) {
                         Text(label, fontSize = 10.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
@@ -635,7 +700,7 @@ internal fun FloaterToolsPanel(
                 val hideLabel = if (state.autoHideMs == 0L) "Auto-Hide: Stay" else "Auto-Hide: ${state.autoHideMs / 1000L}s"
                 FilledTonalButton(
                     onClick = { callbacks.onHaptic(false); callbacks.onCycleAutoHide() },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                 ) {
                     Icon(Icons.Rounded.Timer, contentDescription = null, modifier = Modifier.size(15.dp))
@@ -644,7 +709,7 @@ internal fun FloaterToolsPanel(
                 }
                 OutlinedButton(
                     onClick = { callbacks.onHaptic(true); callbacks.onResetGeometry() },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                 ) {
                     Text("Reset Size", fontSize = 10.5.sp, maxLines = 1)
@@ -654,6 +719,7 @@ internal fun FloaterToolsPanel(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun FloaterGameTranslatePanel(
     state: FloaterUiModel,
@@ -681,27 +747,44 @@ internal fun FloaterGameTranslatePanel(
     ) {
         Surface(
             color = cs.tertiaryContainer,
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(20.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Icon(Icons.Rounded.SportsEsports, contentDescription = null, tint = cs.onTertiaryContainer)
+                Surface(
+                    color = cs.tertiary,
+                    shape = CircleShape,
+                    modifier = Modifier.size(34.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        if (translationBubble.isTranslating) {
+                            LoadingIndicator(modifier = Modifier.size(20.dp), color = cs.onTertiary)
+                        } else {
+                            Icon(
+                                imageVector = Icons.Rounded.SportsEsports,
+                                contentDescription = null,
+                                tint = cs.onTertiary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = state.activeGameLabel ?: "Game Detected",
                         color = cs.onTertiaryContainer,
                         fontSize = 12.5.sp,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.ExtraBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         text = translationBubble.statusHint,
-                        color = cs.onTertiaryContainer.copy(alpha = 0.8f),
+                        color = cs.onTertiaryContainer.copy(alpha = 0.85f),
                         fontSize = 10.5.sp,
                         maxLines = 2,
                     )
@@ -712,7 +795,7 @@ internal fun FloaterGameTranslatePanel(
         if (!hasMicPermission) {
             Surface(
                 color = cs.errorContainer,
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(18.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -730,7 +813,7 @@ internal fun FloaterGameTranslatePanel(
                     Button(
                         onClick = { callbacks.onHaptic(true); callbacks.onRequestMicPermission() },
                         colors = ButtonDefaults.buttonColors(containerColor = cs.error, contentColor = cs.onError),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(16.dp),
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("floater_grant_mic_button"),
                     ) {
                         Icon(Icons.Rounded.Mic, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -740,13 +823,18 @@ internal fun FloaterGameTranslatePanel(
                 }
             }
         } else {
+            val micBg by animateColorAsState(
+                targetValue = if (isListening) cs.error else cs.primary,
+                label = "micBtnBg",
+            )
+            val micFg by animateColorAsState(
+                targetValue = if (isListening) cs.onError else cs.onPrimary,
+                label = "micBtnFg",
+            )
             Button(
                 onClick = { callbacks.onHaptic(true); callbacks.onToggleListening() },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isListening) cs.error else cs.primary,
-                    contentColor = if (isListening) cs.onError else cs.onPrimary,
-                ),
-                shape = RoundedCornerShape(18.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = micBg, contentColor = micFg),
+                shape = RoundedCornerShape(20.dp),
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("floater_translate_mic_button"),
             ) {
                 Icon(
@@ -758,12 +846,12 @@ internal fun FloaterGameTranslatePanel(
                 Text(
                     text = if (isListening) "Stop Live Voice Translation" else "Start Live Voice Translation",
                     fontSize = 12.5.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.ExtraBold,
                 )
             }
         }
 
-        ExpressivePanelCard(title = "Source Language (→ English)", accentColor = cs.primary) {
+        ExpressivePanelCard(title = "Source Language (Auto-Detect → English)", accentColor = cs.primary) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -776,7 +864,7 @@ internal fun FloaterGameTranslatePanel(
                         selected = selected,
                         onClick = { callbacks.onHaptic(false); callbacks.onSelectTranslateSource(option.code) },
                         label = { Text("${option.shortLabel} · ${option.fullName}", fontSize = 11.sp) },
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(16.dp),
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = cs.primary,
                             selectedLabelColor = cs.onPrimary,
@@ -787,7 +875,7 @@ internal fun FloaterGameTranslatePanel(
             }
         }
 
-        ExpressivePanelCard(title = "Top-Left Bubble Controls", accentColor = cs.secondary) {
+        ExpressivePanelCard(title = "Top-Left Bubble Size & Width", accentColor = cs.secondary) {
             ExpressiveToggleCard(
                 title = "Show Top-Left Bubble",
                 subtitle = "Floating live English caption over game",
@@ -802,17 +890,26 @@ internal fun FloaterGameTranslatePanel(
                 onValueChange = { callbacks.onInteraction(); callbacks.onBubbleWidthChange(160f + it * (420f - 160f)) },
             )
             ExpressiveSliderRow(
-                label = "Text Size",
+                label = "Bubble Text Size",
                 valueText = "${bubbleTextSizeSp.roundToInt()} sp",
                 value = ((bubbleTextSizeSp - 11f) / (24f - 11f)).coerceIn(0f, 1f),
                 onValueChange = { callbacks.onInteraction(); callbacks.onBubbleTextSizeChange(11f + it * (24f - 11f)) },
             )
             ExpressiveSliderRow(
-                label = "Opacity",
+                label = "Bubble Opacity",
                 valueText = "${(bubbleOpacity * 100f).roundToInt()}%",
                 value = ((bubbleOpacity - 0.55f) / (0.98f - 0.55f)).coerceIn(0f, 1f),
                 onValueChange = { callbacks.onInteraction(); callbacks.onBubbleOpacityChange(0.55f + it * (0.98f - 0.55f)) },
             )
+            OutlinedButton(
+                onClick = { callbacks.onHaptic(true); callbacks.onResetBubblePosition() },
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("floater_bubble_snap_top_left"),
+            ) {
+                Icon(Icons.Rounded.NorthWest, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Snap Bubble to Top-Left", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+            }
         }
 
         ExpressivePanelCard(title = "Quick Teammate Text → EN", accentColor = cs.tertiary) {
@@ -827,7 +924,7 @@ internal fun FloaterGameTranslatePanel(
                     placeholder = { Text("Paste chat (Hola, يلا...)", fontSize = 11.sp) },
                     singleLine = true,
                     textStyle = TextStyle(fontSize = 12.sp),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(16.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = cs.primary,
                         unfocusedBorderColor = cs.outlineVariant,
@@ -858,7 +955,7 @@ internal fun FloaterGameTranslatePanel(
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     OutlinedButton(
                         onClick = { callbacks.onHaptic(false); callbacks.onClearTranslationHistory() },
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.heightIn(min = 48.dp),
                     ) {
                         Icon(Icons.Rounded.DeleteSweep, contentDescription = null, modifier = Modifier.size(15.dp))
@@ -869,12 +966,12 @@ internal fun FloaterGameTranslatePanel(
                 history.take(6).forEach { item ->
                     Surface(
                         color = cs.surfaceContainerHighest,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                text = "[${item.detectedLangCode.uppercase(java.util.Locale.US)} → EN] ${item.translatedEnglish}",
+                                text = "[${item.detectedLangCode.uppercase(Locale.US)} → EN] ${item.translatedEnglish}",
                                 color = cs.onSurface,
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Bold,
@@ -895,6 +992,165 @@ internal fun FloaterGameTranslatePanel(
 }
 
 @Composable
+private fun EqResponseCurveCanvas(
+    bands: List<Float>,
+    enabled: Boolean,
+    primary: Color,
+    tertiary: Color,
+    gridColor: Color,
+) {
+    val activeColor = if (enabled) primary else gridColor
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(74.dp)
+            .clip(RoundedCornerShape(14.dp)),
+    ) {
+        val w = size.width
+        val h = size.height
+        val padX = 12f
+        val padY = 12f
+        val plotW = (w - padX * 2f).coerceAtLeast(1f)
+        val plotH = (h - padY * 2f).coerceAtLeast(1f)
+        val midY = padY + plotH * 0.5f
+
+        // 0dB Center Dashed Guide
+        drawLine(
+            color = gridColor,
+            start = Offset(padX, midY),
+            end = Offset(w - padX, midY),
+            strokeWidth = 1.5f,
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f)),
+        )
+
+        val points = bands.mapIndexed { index, raw ->
+            val frac = index.toFloat() / (bands.size - 1).coerceAtLeast(1)
+            val normY = if (enabled) (raw / 100f).coerceIn(0f, 1f) else 0.5f
+            Offset(
+                x = padX + frac * plotW,
+                y = padY + (1f - normY) * plotH,
+            )
+        }
+
+        if (points.size >= 2) {
+            val curvePath = Path().apply {
+                moveTo(points.first().x, points.first().y)
+                for (i in 0 until points.lastIndex) {
+                    val p0 = points[i]
+                    val p1 = points[i + 1]
+                    val cx = (p0.x + p1.x) * 0.5f
+                    cubicTo(cx, p0.y, cx, p1.y, p1.x, p1.y)
+                }
+            }
+            val fillPath = Path().apply {
+                addPath(curvePath)
+                lineTo(points.last().x, h)
+                lineTo(points.first().x, h)
+                close()
+            }
+            drawPath(
+                path = fillPath,
+                brush = Brush.verticalGradient(
+                    colors = listOf(activeColor.copy(alpha = 0.34f), Color.Transparent),
+                ),
+            )
+            drawPath(
+                path = curvePath,
+                brush = Brush.horizontalGradient(listOf(activeColor, if (enabled) tertiary else gridColor)),
+                style = Stroke(width = 4.5f, cap = StrokeCap.Round),
+            )
+        }
+
+        points.forEach { pt ->
+            drawCircle(color = activeColor.copy(alpha = 0.32f), radius = 8f, center = pt)
+            drawCircle(color = activeColor, radius = 4.5f, center = pt)
+        }
+    }
+}
+
+@Composable
+private fun SpatialSoundstageRadarCanvas(
+    enabled: Boolean,
+    orbit8dEnabled: Boolean,
+    orbitSpeedHz: Float,
+    strengthFraction: Float,
+    primary: Color,
+    tertiary: Color,
+    gridColor: Color,
+) {
+    val transition = rememberInfiniteTransition(label = "spatialOrbit")
+    val durationMs = (1000f / orbitSpeedHz.coerceIn(0.10f, 1.50f)).roundToInt().coerceIn(650, 10_000)
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2f * PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = durationMs, easing = LinearEasing),
+            repeatMode = AnimRepeatMode.Restart,
+        ),
+        label = "orbitPhase",
+    )
+
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(92.dp),
+    ) {
+        val center = Offset(size.width * 0.5f, size.height * 0.5f)
+        val maxR = (size.minDimension * 0.44f).coerceAtLeast(16f)
+        val stageColor = if (enabled) primary else gridColor
+
+        // Concentric Soundstage Rings
+        listOf(0.4f, 0.72f, 1.0f).forEach { factor ->
+            drawCircle(
+                color = gridColor,
+                radius = maxR * factor,
+                center = center,
+                style = Stroke(width = 1.5f),
+            )
+        }
+
+        // Expanding Depth Aura
+        val spreadR = maxR * (0.28f + 0.70f * strengthFraction)
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(stageColor.copy(alpha = if (enabled) 0.28f else 0.08f), Color.Transparent),
+                center = center,
+                radius = spreadR,
+            ),
+            radius = spreadR,
+            center = center,
+        )
+
+        // Listener Center Anchor
+        drawCircle(color = stageColor, radius = 6f, center = center)
+
+        // 8D Orbiting Sound Source Orb
+        val angle = if (enabled && orbit8dEnabled) phase else (-PI / 3.0).toFloat()
+        val orbDist = spreadR * 0.85f
+        val orbCenter = Offset(
+            x = center.x + cos(angle) * orbDist,
+            y = center.y + sin(angle) * orbDist,
+        )
+        drawLine(
+            color = (if (enabled) tertiary else gridColor).copy(alpha = 0.5f),
+            start = center,
+            end = orbCenter,
+            strokeWidth = 2f,
+        )
+        drawCircle(
+            color = (if (enabled) tertiary else gridColor).copy(alpha = 0.30f),
+            radius = 11f,
+            center = orbCenter,
+        )
+        drawCircle(
+            color = if (enabled) tertiary else gridColor,
+            radius = 5.5f,
+            center = orbCenter,
+        )
+    }
+}
+
+@Composable
 private fun ExpressivePanelCard(
     title: String,
     accentColor: Color,
@@ -903,18 +1159,18 @@ private fun ExpressivePanelCard(
     val cs = MaterialTheme.colorScheme
     Surface(
         color = cs.surfaceContainerHigh,
-        shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.4f)),
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.38f)),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
-            modifier = Modifier.padding(10.dp),
+            modifier = Modifier.padding(11.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Box(
                     modifier = Modifier
-                        .size(7.dp)
+                        .size(8.dp)
                         .clip(CircleShape)
                         .background(accentColor),
                 )
@@ -939,9 +1195,13 @@ private fun ExpressiveToggleCard(
     testTag: String? = null,
 ) {
     val cs = MaterialTheme.colorScheme
+    val cardBg by animateColorAsState(
+        targetValue = if (checked) cs.primaryContainer.copy(alpha = 0.52f) else cs.surfaceContainer,
+        label = "toggleCardBg",
+    )
     Surface(
-        color = if (checked) cs.primaryContainer.copy(alpha = 0.45f) else cs.surfaceContainer,
-        shape = RoundedCornerShape(14.dp),
+        color = cardBg,
+        shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
@@ -980,7 +1240,7 @@ private fun ExpressiveSliderRow(
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(label, color = cs.onSurface, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-            Text(valueText, color = cs.primary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Text(valueText, color = cs.primary, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
         }
         Slider(
             value = value.coerceIn(0f, 1f),
@@ -997,5 +1257,5 @@ private fun ExpressiveSliderRow(
 
 private fun formatEqSliderDb(sliderVal: Float): String {
     val db = ((sliderVal - 50f) / 50f) * 12f
-    return String.format(java.util.Locale.US, "%+.1fdB", db)
+    return String.format(Locale.US, "%+.1fdB", db)
 }
