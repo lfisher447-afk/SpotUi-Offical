@@ -1,4 +1,4 @@
-package com.music.spotui.ui.screens
+package com.music.spotui.ui.screens.SpotifyLogin.helper
 
 import android.app.Activity
 import android.content.ClipData
@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.metrolist.spotify.SpotifyAuth
 import com.music.spotui.util.DevConsoleManager
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -60,9 +61,13 @@ internal const val LOGIN_TEXT_SECONDARY = 0xFFAAB2C4
 internal const val SPOTIFY_BOOKMARKLET_JS =
     "javascript:prompt('sp_dc', document.cookie.match(/sp_dc=([^;]+)/)?.[1] || 'Not found')"
 
-internal enum class LoginTab {
-    CHROME_COOKIE,
-    LEGACY_WEB,
+private const val MAX_CLIPBOARD_PAYLOAD_CHARS = 20_000
+private val RAW_SP_DC_VALUE = Regex("^AQ[A-Za-z0-9_-]{50,}$")
+
+internal enum class LoginTab(val label: String) {
+    WEBVIEW("WebView Sign-In"),
+    OAUTH_PKCE("OAuth PKCE"),
+    PASTE_COOKIE("Paste Cookie"),
 }
 
 internal enum class LoginUaProfile(val label: String) {
@@ -292,6 +297,25 @@ internal fun resetSpotifyWebSession(webView: WebView?, onDone: () -> Unit) {
     }.onFailure {
         onDone()
     }
+}
+
+internal fun looksLikeSpotifyCookiePayload(text: String): Boolean {
+    val trimmed = text.trim()
+    if (trimmed.isEmpty() || trimmed.length > MAX_CLIPBOARD_PAYLOAD_CHARS) return false
+    return trimmed.contains("sp_dc", ignoreCase = true) || RAW_SP_DC_VALUE.matches(trimmed)
+}
+
+internal fun readClipboardText(context: Context): String {
+    val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return ""
+    val clip = manager.primaryClip ?: return ""
+    if (clip.itemCount == 0) return ""
+    return runCatching { clip.getItemAt(0).coerceToText(context)?.toString().orEmpty() }.getOrDefault("")
+}
+
+internal fun copyToClipboard(context: Context, label: String, text: String) {
+    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    cm.setPrimaryClip(ClipData.newPlainText(label, text))
+    Toast.makeText(context, "Copied $label", Toast.LENGTH_SHORT).show()
 }
 
 private val SECRET_REDACTIONS: List<Regex> = listOf(

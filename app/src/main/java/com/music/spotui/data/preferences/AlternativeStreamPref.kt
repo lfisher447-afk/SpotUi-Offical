@@ -77,3 +77,54 @@ fun clearAlternativeStream(context: Context, key: String) {
         .remove(key)
         .apply()
 }
+
+/**
+ * Search filter preference for Alternative Stream resolution and YouTube picker.
+ */
+enum class AltStreamSearchMode(
+    val label: String,
+    val shortLabel: String,
+    val description: String,
+) {
+    AUTO(
+        label = "Auto (Music + Video fallback)",
+        shortLabel = "Auto",
+        description = "Searches Music first and automatically expands to Videos when sparse",
+    ),
+    MUSIC(
+        label = "Music only",
+        shortLabel = "Music",
+        description = "Searches official YouTube Music audio tracks only",
+    ),
+    VIDEO(
+        label = "Video only",
+        shortLabel = "Video",
+        description = "Searches YouTube music videos, live uploads, and lyric videos",
+    ),
+    BOTH(
+        label = "Both (Music + Video)",
+        shortLabel = "Both",
+        description = "Queries Music & Video catalogs simultaneously and merges results",
+    );
+
+    companion object {
+        fun fromName(raw: String?): AltStreamSearchMode =
+            entries.firstOrNull { it.name.equals(raw, ignoreCase = true) } ?: AUTO
+    }
+}
+
+private const val KEY_ALT_STREAM_SEARCH_MODE = "alt_stream_search_mode"
+
+fun getAltStreamSearchMode(context: Context): AltStreamSearchMode =
+    AltStreamSearchMode.fromName(
+        context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+            .getString(KEY_ALT_STREAM_SEARCH_MODE, AltStreamSearchMode.AUTO.name)
+    )
+
+fun setAltStreamSearchMode(context: Context, mode: AltStreamSearchMode) {
+    context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        .edit()
+        .putString(KEY_ALT_STREAM_SEARCH_MODE, mode.name)
+        .apply()
+}
+

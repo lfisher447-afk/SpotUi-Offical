@@ -101,7 +101,12 @@ fun Loader() {
 fun ExplicitBadge(
     modifier: Modifier = Modifier,
     size: androidx.compose.ui.unit.TextUnit = 9.sp,
+    respectPreference: Boolean = true,
 ) {
+    val context = LocalContext.current
+    if (respectPreference && !com.music.spotui.data.preferences.isExplicitBadgeVisible(context)) {
+        return
+    }
     Text(
         text = "E",
         color = Color(0xFFB3B3B3),
@@ -124,9 +129,12 @@ fun MiniPlayer(navController: NavHostController) {
     val songId by miniPlayerViewModel.currentSongId
     val songIndex by miniPlayerViewModel.currentSongIndex
     val songAlbum by miniPlayerViewModel.currentSongAlbum
-    val isCurrentSongExplicit by remember(songId) {
-        mutableStateOf(miniPlayerViewModel.queue.value.firstOrNull { it.id == songId }?.explicit == true)
-    }
+    val queueItemForId = miniPlayerViewModel.queue.value.firstOrNull { it.id == songId }
+    val isCurrentSongExplicit = com.music.spotui.util.ExplicitContentDetector.detectExplicit(
+        apiExplicit = queueItemForId?.explicit == true,
+        title = songTitle,
+        album = songAlbum,
+    )
 
     // Keep MiniPlayer playing state in sync with physical SongPlayer audio engine
     LaunchedEffect(Unit) {

@@ -1,4 +1,4 @@
-package com.music.spotui.ui.screens
+package com.music.spotui.ui.screens.SpotifyLogin.page
 
 import android.annotation.SuppressLint
 import android.app.Activity
@@ -20,10 +20,6 @@ import com.music.spotui.util.AppDiagnostics
 
 /**
  * Isolated user-facing Deezer sign-in WebView.
- *
- * When a Deezer ARL cookie becomes present on deezer.com after the user completes
- * sign-in, it is persisted locally so the lossless provider router can authenticate
- * compatible community/custom mirrors without exposing passwords.
  */
 class DeezerLoginActivity : Activity() {
     private var webView: WebView? = null

@@ -65,7 +65,7 @@ import com.music.spotui.data.preferences.setDeezerArl
 import com.music.spotui.data.preferences.setDeezerTier
 import com.music.spotui.deezer.DeezerSession
 import com.music.spotui.di.SongPlayer
-import com.music.spotui.ui.screens.DeezerLoginActivity
+import com.music.spotui.ui.screens.SpotifyLogin.page.DeezerLoginActivity
 import com.music.spotui.ui.theme.AppPalette
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

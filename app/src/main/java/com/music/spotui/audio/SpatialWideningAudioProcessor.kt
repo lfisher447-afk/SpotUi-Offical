@@ -48,6 +48,8 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
 
     @Volatile var activeDescription: String = "Bypassed"
         private set
+    @Volatile var spatialModeLabel: String = "Bypassed"
+        private set
     @Volatile var processedFrames: Long = 0L
         private set
     @Volatile var currentCorrelation: Float = 1f
@@ -79,27 +81,30 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
     private var apPos2 = 0
     private var apPos3 = 0
 
-    // Multi-band & acoustic one-pole filters
-    private var bassLpL = 0f
-    private var bassLpR = 0f
+    // 2-pole cascaded sub-110 Hz mono-bass anchor + air absorption LP
+    private var bassLp1L = 0f
+    private var bassLp2L = 0f
+    private var bassLp1R = 0f
+    private var bassLp2R = 0f
     private var airLpL = 0f
     private var airLpR = 0f
 
-    // Biquad head-shadow (contralateral ILD low-pass) & outer-ear Pinna elevation filters
+    // Biquad head-shadow (contralateral ILD low-pass), front outer-ear Pinna, & rear-hemisphere notch
     private val shadowFilterL = ScalarBiquad()
     private val shadowFilterR = ScalarBiquad()
     private val pinnaPeakL = ScalarBiquad()
     private val pinnaPeakR = ScalarBiquad()
     private val pinnaNotchL = ScalarBiquad()
     private val pinnaNotchR = ScalarBiquad()
+    private val rearPinnaNotchL = ScalarBiquad()
+    private val rearPinnaNotchR = ScalarBiquad()
 
     // Real-time stereo correlation estimator
     private var corrLR = 0f
     private var corrPower = 1e-6f
 
-    // 8D Binaural Orbit LFO phase (radians) & block coefficient update cadence
+    // 8D Binaural Orbit LFO phase (radians)
     private var orbitPhase = 0.0
-    private var biquadUpdateCounter = 0
     private var lastFilterSampleRate = 0
     private var lastFilterProfile: SpatialProfile? = null
     private var lastFilterElevation = -1f
@@ -111,6 +116,7 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
     private var smoothedBalance = 0f
     private var smoothedOrbit = 0f
     private var smoothedElevation = 0.70f
+    private var smoothedHeadphoneMode = 1f
 
     fun telemetrySummary(): String {
         val srKhz = if (sampleRate > 0) "${sampleRate / 1000}kHz" else "--"
@@ -149,6 +155,7 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
         val stillRamping = channelCount == 2 && (smoothedMix > 0.002f || smoothedCrossfeed > 0.002f || abs(smoothedBalance) > 0.002f)
 
         if (!targetActive && !stillRamping) {
+            spatialModeLabel = "Bypassed"
             activeDescription = if (channelCount == 2) "Stereo bypass" else "Bypass: ${channelCount}-channel source"
             val output = replaceOutputBuffer(bytes)
             copyBuffer(inputBuffer, output, bytes)
@@ -160,12 +167,22 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
             forceUpdateStaticBiquads()
         }
 
+        val isHeadphoneTarget = autoHeadphoneHrtf || headphoneCrossfeed || profile == SpatialProfile.BINAURAL_HEADPHONES
+        spatialModeLabel = when {
+            monoMix -> "Mono Mix"
+            enabled && isHeadphoneTarget -> "Headphone Binaural HRTF"
+            enabled -> "Speaker Stereo Stage"
+            headphoneCrossfeed -> "HRTF Crossfeed"
+            else -> "Stereo Balance"
+        }
+
         activeDescription = buildString {
             when {
                 monoMix -> append("Mono mix")
                 enabled -> {
                     val label = if (profile.label.contains("3D", ignoreCase = true)) profile.label else "${profile.label} 3D"
                     append("$label (${(width.coerceIn(0f, 1f) * 100).roundToInt()}%)")
+                    append(if (isHeadphoneTarget) " · Headphones HRTF" else " · Speaker Stage")
                     if (orbit8dEnabled) append(" · 8D Orbit")
                 }
                 headphoneCrossfeed -> append("HRTF Crossfeed")
@@ -178,26 +195,26 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
         }
 
         val targetMix = if (enabled && !monoMix) 1f else 0f
-        // Guarantee perceptible 3D floor even when slider is around 25-40%
         val targetWidth = width.coerceIn(0f, 1f)
-        // Crossfeed only narrows/blends when explicitly toggled (or gently as natural Binaural cross-ear anchor)
+        // Crossfeed only narrows/blends when explicitly toggled (or gently as natural Binaural headphone anchor)
         val targetCf = when {
             monoMix -> 0f
             headphoneCrossfeed -> 1f
-            enabled && profile == SpatialProfile.BINAURAL_HEADPHONES -> 0.35f
+            enabled && isHeadphoneTarget && profile == SpatialProfile.BINAURAL_HEADPHONES -> 0.35f
             else -> 0f
         }
         val targetBal = balance.coerceIn(-1f, 1f)
         val targetOrbit = if (enabled && !monoMix && orbit8dEnabled) 1f else 0f
         val targetElev = elevationDepth.coerceIn(0f, 1f)
+        val targetHpMode = if (isHeadphoneTarget) 1f else 0f
 
         inputBuffer.order(ByteOrder.nativeOrder())
         val output = replaceOutputBuffer(bytes).order(ByteOrder.nativeOrder())
         when (encoding) {
-            C.ENCODING_PCM_FLOAT -> processFloat(inputBuffer, output, targetMix, targetWidth, targetCf, targetBal, targetOrbit, targetElev)
-            C.ENCODING_PCM_16BIT -> processPcm16(inputBuffer, output, targetMix, targetWidth, targetCf, targetBal, targetOrbit, targetElev)
-            C.ENCODING_PCM_24BIT -> processPcm24(inputBuffer, output, targetMix, targetWidth, targetCf, targetBal, targetOrbit, targetElev)
-            C.ENCODING_PCM_32BIT -> processPcm32(inputBuffer, output, targetMix, targetWidth, targetCf, targetBal, targetOrbit, targetElev)
+            C.ENCODING_PCM_FLOAT -> processFloat(inputBuffer, output, targetMix, targetWidth, targetCf, targetBal, targetOrbit, targetElev, targetHpMode)
+            C.ENCODING_PCM_16BIT -> processPcm16(inputBuffer, output, targetMix, targetWidth, targetCf, targetBal, targetOrbit, targetElev, targetHpMode)
+            C.ENCODING_PCM_24BIT -> processPcm24(inputBuffer, output, targetMix, targetWidth, targetCf, targetBal, targetOrbit, targetElev, targetHpMode)
+            C.ENCODING_PCM_32BIT -> processPcm32(inputBuffer, output, targetMix, targetWidth, targetCf, targetBal, targetOrbit, targetElev, targetHpMode)
             else -> copyBuffer(inputBuffer, output, bytes)
         }
         output.flip()
@@ -212,9 +229,10 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
         targetBal: Float,
         targetOrbit: Float,
         targetElev: Float,
+        targetHpMode: Float,
     ) {
         while (input.remaining() >= 8) {
-            val (left, right) = transform(input.float, input.float, targetMix, targetWidth, targetCf, targetBal, targetOrbit, targetElev)
+            val (left, right) = transform(input.float, input.float, targetMix, targetWidth, targetCf, targetBal, targetOrbit, targetElev, targetHpMode)
             output.putFloat(left)
             output.putFloat(right)
             processedFrames++
@@ -230,11 +248,12 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
         targetBal: Float,
         targetOrbit: Float,
         targetElev: Float,
+        targetHpMode: Float,
     ) {
         while (input.remaining() >= 4) {
             val left = input.short.toFloat() / Short.MAX_VALUE
             val right = input.short.toFloat() / Short.MAX_VALUE
-            val (outLeft, outRight) = transform(left, right, targetMix, targetWidth, targetCf, targetBal, targetOrbit, targetElev)
+            val (outLeft, outRight) = transform(left, right, targetMix, targetWidth, targetCf, targetBal, targetOrbit, targetElev, targetHpMode)
             output.putShort(toPcm16(outLeft))
             output.putShort(toPcm16(outRight))
             processedFrames++
@@ -250,11 +269,12 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
         targetBal: Float,
         targetOrbit: Float,
         targetElev: Float,
+        targetHpMode: Float,
     ) {
         while (input.remaining() >= 6) {
             val left = readPcm24(input)
             val right = readPcm24(input)
-            val (outLeft, outRight) = transform(left, right, targetMix, targetWidth, targetCf, targetBal, targetOrbit, targetElev)
+            val (outLeft, outRight) = transform(left, right, targetMix, targetWidth, targetCf, targetBal, targetOrbit, targetElev, targetHpMode)
             writePcm24(output, outLeft)
             writePcm24(output, outRight)
             processedFrames++
@@ -270,11 +290,12 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
         targetBal: Float,
         targetOrbit: Float,
         targetElev: Float,
+        targetHpMode: Float,
     ) {
         while (input.remaining() >= 8) {
             val left = (input.int.toDouble() / 2147483647.0).toFloat()
             val right = (input.int.toDouble() / 2147483647.0).toFloat()
-            val (outLeft, outRight) = transform(left, right, targetMix, targetWidth, targetCf, targetBal, targetOrbit, targetElev)
+            val (outLeft, outRight) = transform(left, right, targetMix, targetWidth, targetCf, targetBal, targetOrbit, targetElev, targetHpMode)
             output.putInt((outLeft.coerceIn(-1f, 1f).toDouble() * 2147483647.0).roundToInt())
             output.putInt((outRight.coerceIn(-1f, 1f).toDouble() * 2147483647.0).roundToInt())
             processedFrames++
@@ -316,6 +337,7 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
         targetBal: Float,
         targetOrbit: Float,
         targetElev: Float,
+        targetHpMode: Float,
     ): Pair<Float, Float> {
         val left = if (rawLeft.isFinite()) rawLeft.coerceIn(-2f, 2f) else 0f
         val right = if (rawRight.isFinite()) rawRight.coerceIn(-2f, 2f) else 0f
@@ -328,6 +350,7 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
         smoothedBalance += (targetBal - smoothedBalance) * ctrlAlpha
         smoothedOrbit += (targetOrbit - smoothedOrbit) * ctrlAlpha
         smoothedElevation += (targetElev - smoothedElevation) * ctrlAlpha
+        smoothedHeadphoneMode += (targetHpMode - smoothedHeadphoneMode) * ctrlAlpha
 
         // Real-time stereo correlation tracker (~25ms window)
         val corrAlpha = (250f / sr).coerceIn(0.001f, 0.04f)
@@ -339,11 +362,13 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
         delayL[writePos] = left
         delayR[writePos] = right
 
-        // Sub-100 Hz bass anchor filter & air absorption LP
-        val bassAlpha = (640f / sr).coerceIn(0.003f, 0.13f)
+        // 2-pole cascaded sub-110 Hz mono-bass anchor + air absorption LP
+        val bassAlpha = ((2.0 * PI * 110.0) / sr).toFloat().coerceIn(0.002f, 0.16f)
         val airAlpha = (14500f / sr).coerceIn(0.08f, 0.65f)
-        bassLpL += (left - bassLpL) * bassAlpha
-        bassLpR += (right - bassLpR) * bassAlpha
+        bassLp1L += (left - bassLp1L) * bassAlpha
+        bassLp2L += (bassLp1L - bassLp2L) * bassAlpha
+        bassLp1R += (right - bassLp1R) * bassAlpha
+        bassLp2R += (bassLp1R - bassLp2R) * bassAlpha
 
         val shadowL = shadowFilterL.process(left)
         val shadowR = shadowFilterR.process(right)
@@ -358,11 +383,14 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
             l = left
             r = right
             if (smoothedMix > 0.0005f) {
+                val hpFactor = smoothedHeadphoneMode.coerceIn(0f, 1f)
+                val speakerSafetyScale = 0.78f + 0.22f * hpFactor
                 val widthCurve = (0.30f + 0.70f * smoothedWidth) * smoothedMix
-                val baseIntensity = (widthCurve * profileMultiplier(profile)).coerceIn(0f, 1.55f)
-                // Only restrain when source is genuinely out-of-phase (corr < -0.15)
-                val corrFactor = if (correlationGuard && instantCorr < -0.15f) {
-                    (1f + (instantCorr + 0.15f) * 0.65f).coerceIn(0.45f, 1f)
+                val baseIntensity = (widthCurve * profileMultiplier(profile) * speakerSafetyScale).coerceIn(0f, 1.55f)
+                // Tighter correlation floor on loudspeakers (+0.02) vs headphones (-0.15) to avoid phase cancellation
+                val corrThreshold = -0.15f + 0.17f * (1f - hpFactor)
+                val corrFactor = if (correlationGuard && instantCorr < corrThreshold) {
+                    (1f + (instantCorr - corrThreshold) * (0.65f + 0.25f * (1f - hpFactor))).coerceIn(0.40f, 1f)
                 } else {
                     1f
                 }
@@ -370,24 +398,24 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
 
                 val mid = (left + right) * 0.5f
                 val side = (left - right) * 0.5f
-                val lowMono = (bassLpL + bassLpR) * 0.5f
-                val lowSide = (bassLpL - bassLpR) * 0.5f
+                val lowMono = (bassLp2L + bassLp2R) * 0.5f
+                val lowSide = (bassLp2L - bassLp2R) * 0.5f
                 val sideHigh = side - lowSide
 
-                // 1. Bold M/S stage expansion + Haas stereo micro-delay externalization
+                // 1. M/S stage expansion + Haas stereo micro-delay (gentler Haas on speakers to prevent comb filtering)
                 val haasMs = profileHaasMs(profile) * (0.35f + 0.65f * smoothedWidth)
                 val haasDelaySamples = ((haasMs / 1000f) * sr).coerceIn(1f, 240f)
                 val delayedHighR = readDelayInterp(delayR, haasDelaySamples) - lowMono
                 val delayedHighL = readDelayInterp(delayL, haasDelaySamples * 1.18f) - lowMono
-                val haasInject = (0.28f * intensity).coerceIn(0f, 0.42f)
+                val haasInject = (0.28f * intensity * (0.42f + 0.58f * hpFactor)).coerceIn(0f, 0.42f)
 
                 val expandedSide = side + sideHigh * (intensity * 1.48f)
                 val centerFocusBoost = profileCenterFocus(profile) * intensity.coerceAtMost(1f)
 
                 var stageL = mid * (1f + centerFocusBoost * 0.08f) + expandedSide +
-                    (lowMono - bassLpL) * 0.42f * intensity - delayedHighR * haasInject
+                    (lowMono - bassLp2L) * 0.50f * intensity - delayedHighR * haasInject
                 var stageR = mid * (1f + centerFocusBoost * 0.08f) - expandedSide +
-                    (lowMono - bassLpR) * 0.42f * intensity - delayedHighL * haasInject
+                    (lowMono - bassLp2R) * 0.50f * intensity - delayedHighL * haasInject
 
                 // Write clean high-passed stage into early-reflection ring buffer
                 val reflInL = stageL - lowMono
@@ -395,7 +423,7 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
                 reflectBufL[writePos] = reflInL
                 reflectBufR[writePos] = reflInR
 
-                // 2. Audible Early Reflections + 3-Stage Schroeder Diffuser Tank (creates real physical room depth)
+                // 2. Audible Early Reflections + 3-Stage Schroeder Diffuser Tank
                 val srScale = sr / 48000f
                 val roomScale = (roomDelayMs / 12f).coerceIn(0.35f, 2.5f) * profileRoomFactor(profile)
                 val tap1L = readDelayInterp(reflectBufL, 336f * srScale * roomScale)
@@ -425,20 +453,27 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
                 airLpL += ((apOutL3 * 0.58f + earlyL * 0.42f) - airLpL) * airAlpha
                 airLpR += ((apOutR3 * 0.58f + earlyR * 0.42f) - airLpR) * airAlpha
 
-                val wetRoom = (profileReflectionAmount(profile) * (0.42f + 0.78f * smoothedElevation) * intensity).coerceIn(0f, 0.62f)
+                val wetRoom = (profileReflectionAmount(profile) * (0.42f + 0.78f * smoothedElevation) * intensity * (0.72f + 0.28f * hpFactor)).coerceIn(0f, 0.62f)
                 stageL = stageL * (1f - wetRoom * 0.16f) + (airLpL * 0.76f + airLpR * 0.24f) * wetRoom
                 stageR = stageR * (1f - wetRoom * 0.16f) + (airLpR * 0.76f + airLpL * 0.24f) * wetRoom
 
-                // 3. Outer-ear Pinna HRTF contour (+concha presence ~3.2 kHz + elevation notch ~7.6 kHz)
+                // 3. Outer-ear Pinna HRTF contour (full pinna notch only on headphones; speakers keep natural room pinna)
+                val conchaL = pinnaPeakL.process(stageL)
+                val conchaR = pinnaPeakR.process(stageR)
+                val fullPinnaL = pinnaNotchL.process(conchaL)
+                val fullPinnaR = pinnaNotchR.process(conchaR)
+                val rearPinnaL = rearPinnaNotchL.process(conchaL)
+                val rearPinnaR = rearPinnaNotchR.process(conchaR)
+
                 val pinnaMix = (smoothedElevation * (0.60f + 0.40f * smoothedMix)).coerceIn(0f, 1f)
                 if (pinnaMix > 0.02f) {
-                    val pL = pinnaNotchL.process(pinnaPeakL.process(stageL))
-                    val pR = pinnaNotchR.process(pinnaPeakR.process(stageR))
-                    stageL += (pL - stageL) * pinnaMix * 0.90f
-                    stageR += (pR - stageR) * pinnaMix * 0.90f
+                    val hpTargetL = fullPinnaL * hpFactor + conchaL * (1f - hpFactor) * 0.65f + stageL * (1f - hpFactor) * 0.35f
+                    val hpTargetR = fullPinnaR * hpFactor + conchaR * (1f - hpFactor) * 0.65f + stageR * (1f - hpFactor) * 0.35f
+                    stageL += (hpTargetL - stageL) * pinnaMix * 0.90f
+                    stageR += (hpTargetR - stageR) * pinnaMix * 0.90f
                 }
 
-                // 4. Deep 360° 8D Binaural Orbit LFO (unmistakable head-orbiting pan, ITD, and rear darkening)
+                // 4. Click-free 360° 8D Binaural Orbit LFO (smooth Woodworth ITD, constant-power pan & crossfaded rear HRTF)
                 if (smoothedOrbit > 0.002f) {
                     val hz = orbitSpeedHz.coerceIn(0.10f, 1.50f).toDouble()
                     orbitPhase += (2.0 * PI * hz) / sr.toDouble()
@@ -448,32 +483,31 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
                     val azCos = cos(orbitPhase).toFloat() // +1 (Front) .. -1 (Rear)
                     val orbitDepth = smoothedOrbit * (0.65f + 0.35f * smoothedWidth)
 
-                    // Pronounced Woodworth binaural ear delay (0 .. 0.95ms ITD)
-                    val maxItdSamples = (0.00095f * sr).coerceIn(3f, 160f)
+                    val maxItdSamples = (0.00095f * sr * (0.45f + 0.55f * hpFactor)).coerceIn(2f, 160f)
                     val delayLeftSamples = if (azSin > 0f) azSin * maxItdSamples * smoothedOrbit else 0f
                     val delayRightSamples = if (azSin < 0f) (-azSin) * maxItdSamples * smoothedOrbit else 0f
 
-                    // Constant-power circular azimuth pan law (deep ear-to-ear sweep)
                     val panShift = (azSin * 0.76f * orbitDepth).coerceIn(-0.82f, 0.82f)
                     val leftGain = sqrt((1f - panShift).coerceIn(0.14f, 1.85f))
                     val rightGain = sqrt((1f + panShift).coerceIn(0.14f, 1.85f))
-                    val rearShadow = ((1f - azCos) * 0.5f * 0.42f * smoothedOrbit).coerceIn(0f, 0.45f)
+                    val rearBias = ((1f - azCos) * 0.5f).coerceIn(0f, 1f)
+                    val rearShadow = (rearBias * 0.42f * smoothedOrbit).coerceIn(0f, 0.45f)
+
+                    // Smoothly crossfade front pinna contour -> rear-hemisphere dipped contour without biquad clicks
+                    val rearPinnaBlend = (rearBias * hpFactor * smoothedElevation * smoothedOrbit).coerceIn(0f, 0.85f)
+                    val contouredStageL = stageL + (rearPinnaL - stageL) * rearPinnaBlend * 0.55f
+                    val contouredStageR = stageR + (rearPinnaR - stageR) * rearPinnaBlend * 0.55f
 
                     val itdL = readDelayInterp(delayL, delayLeftSamples)
                     val itdR = readDelayInterp(delayR, delayRightSamples)
-                    val stageHighL = stageL - lowMono
-                    val stageHighR = stageR - lowMono
+                    val stageHighL = contouredStageL - lowMono
+                    val stageHighR = contouredStageR - lowMono
                     val itdBlend = 0.65f * smoothedOrbit
                     val orbL = (stageHighL * (1f - itdBlend) + (itdL - lowMono) * itdBlend) * leftGain
                     val orbR = (stageHighR * (1f - itdBlend) + (itdR - lowMono) * itdBlend) * rightGain
 
                     stageL = lowMono + orbL * (1f - rearShadow) + (shadowL - lowMono) * rearShadow
                     stageR = lowMono + orbR * (1f - rearShadow) + (shadowR - lowMono) * rearShadow
-
-                    if (++biquadUpdateCounter >= 96) {
-                        biquadUpdateCounter = 0
-                        updateDynamicOrbitPinna(sr, azCos, smoothedElevation)
-                    }
                 }
 
                 // Makeup gain preserving perceived punch when ambient room spreads energy
@@ -537,22 +571,21 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
         shadowFilterL.configureLowPass(sr, shadowHz, 0.707f)
         shadowFilterR.configureLowPass(sr, shadowHz, 0.707f)
 
+        val elev = elevationDepth.coerceIn(0f, 1f)
         // Pronounced outer-ear concha presence (+4.2 dB @ 3.2 kHz scaled by elevationDepth)
-        val peakGainDb = 4.2f * elevationDepth.coerceIn(0f, 1f)
+        val peakGainDb = 4.2f * elev
         pinnaPeakL.configurePeaking(sr, 3200f, 1.15f, peakGainDb)
         pinnaPeakR.configurePeaking(sr, 3200f, 1.15f, peakGainDb)
 
-        // Outer-ear Pinna elevation notch (-4.8 dB @ 7.6 kHz)
-        val notchDb = -4.8f * elevationDepth.coerceIn(0f, 1f)
+        // Front outer-ear Pinna elevation notch (-4.8 dB @ 7.6 kHz)
+        val notchDb = -4.8f * elev
         pinnaNotchL.configurePeaking(sr, 7600f, 1.85f, notchDb)
         pinnaNotchR.configurePeaking(sr, 7600f, 1.85f, notchDb)
-    }
 
-    private fun updateDynamicOrbitPinna(sr: Float, azCos: Float, elev: Float) {
-        val rearBias = ((1f - azCos) * 0.5f).coerceIn(0f, 1f)
-        val dynamicNotchDb = -(2.4f + 4.8f * rearBias) * elev
-        pinnaNotchL.configurePeaking(sr, 7600f - rearBias * 1200f, 1.8f, dynamicNotchDb)
-        pinnaNotchR.configurePeaking(sr, 7600f - rearBias * 1200f, 1.8f, dynamicNotchDb)
+        // Rear-hemisphere Pinna elevation dip (-7.2 dB @ 6.4 kHz, used for click-free 8D Orbit crossfades)
+        val rearNotchDb = -7.2f * elev
+        rearPinnaNotchL.configurePeaking(sr, 6400f, 1.80f, rearNotchDb)
+        rearPinnaNotchR.configurePeaking(sr, 6400f, 1.80f, rearNotchDb)
     }
 
     private fun softLimit(x: Float): Float {
@@ -629,11 +662,13 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
         apL3.fill(0f); apR3.fill(0f)
         writePos = 0
         apPos1 = 0; apPos2 = 0; apPos3 = 0
-        bassLpL = 0f; bassLpR = 0f
+        bassLp1L = 0f; bassLp2L = 0f
+        bassLp1R = 0f; bassLp2R = 0f
         airLpL = 0f; airLpR = 0f
         shadowFilterL.resetState(); shadowFilterR.resetState()
         pinnaPeakL.resetState(); pinnaPeakR.resetState()
         pinnaNotchL.resetState(); pinnaNotchR.resetState()
+        rearPinnaNotchL.resetState(); rearPinnaNotchR.resetState()
     }
 
     override fun onFlush() {

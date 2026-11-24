@@ -610,10 +610,13 @@ fun AudioDspSection(
                 Column(modifier = Modifier.weight(1f)) {
                     Text("3D Spatial Soundstage Engine", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     Text(
-                        if (routeInfo.isBluetooth) {
-                            "BT-Safe SW 3D active on ${routeInfo.deviceName} (Woodworth HRTF + All-Pass)"
-                        } else {
-                            "Cascaded Schroeder All-Pass, Mono-Bass Anchor (<120Hz) & Woodworth HRTF"
+                        when {
+                            routeInfo.isBluetooth ->
+                                "BT-Safe Headphone Binaural HRTF active on ${routeInfo.deviceName} (2-Pole <110Hz + All-Pass)"
+                            routeInfo.isPersonalListening ->
+                                "Headphone Binaural HRTF Mode (Outer-Ear Pinna + 2-Pole <110Hz Anchor)"
+                            else ->
+                                "Speaker Stereo-Stage Mode (Crosstalk-Safe M/S + 2-Pole <110Hz Anchor)"
                         },
                         color = if (routeInfo.isBluetooth) Color(0xFF81C784) else Color.Gray,
                         fontSize = 11.sp,
@@ -650,7 +653,13 @@ fun AudioDspSection(
                 )
                 Text(
                     text = buildString {
-                        append(if (routeInfo.isBluetooth) "BT Safe" else if (routeInfo.isPersonalListening) "HRTF" else "PCM")
+                        append(
+                            when {
+                                routeInfo.isBluetooth -> "BT Binaural HRTF"
+                                routeInfo.isPersonalListening || spatialProfile == SpatialProfile.BINAURAL_HEADPHONES -> "Binaural HRTF"
+                                else -> "Speaker Stage"
+                            },
+                        )
                         append(" · ")
                         append(capabilities.systemSpatializerLabel)
                     },

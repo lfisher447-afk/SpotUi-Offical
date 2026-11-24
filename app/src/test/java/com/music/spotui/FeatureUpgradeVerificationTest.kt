@@ -13,7 +13,7 @@ import com.music.spotui.data.preferences.setDeezerArl
 import com.music.spotui.data.preferences.setStableUpdatesOnly
 import com.music.spotui.data.update.UpdateChecker
 import com.music.spotui.data.youtube.YouTubeMusicSync
-import com.music.spotui.ui.screens.DeezerLoginActivity
+import com.music.spotui.ui.screens.SpotifyLogin.page.DeezerLoginActivity
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After

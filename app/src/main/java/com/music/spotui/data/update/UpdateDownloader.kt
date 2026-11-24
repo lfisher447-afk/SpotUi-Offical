@@ -67,6 +67,26 @@ object UpdateDownloader {
         data class Failed(val reason: String) : InstallLaunchResult()
     }
 
+    data class SigningCertInfo(
+        val sha256Hex: String,
+        val shortId: String,
+    )
+
+    enum class RemoteSigningCompatibility {
+        COMPATIBLE,
+        MISMATCH,
+        EPHEMERAL_RISK,
+        UNKNOWN,
+    }
+
+    data class RemoteSigningEvaluation(
+        val status: RemoteSigningCompatibility,
+        val installedShortId: String = "",
+        val remoteShortId: String = "",
+        val remoteSource: String = "",
+        val summary: String = "",
+    )
+
     sealed class DownloadState {
         data object Idle : DownloadState()
 
@@ -206,6 +226,13 @@ object UpdateDownloader {
             .let { if (it.endsWith(".apk", ignoreCase = true)) it else "$it.apk" }
 
         DevConsoleManager.logInfo(TAG, "Starting turbo HTTP/2 in-app APK download for v${info.version} ($resolvedName)")
+        AutoUpdaterLogger.log(
+            appCtx,
+            stage = "Download",
+            severity = AutoUpdaterLogger.Severity.INFO,
+            message = "Starting download for v${info.version} ($resolvedName)",
+            details = "size=${formatBytes(info.apkSizeBytes)} shaHint=${info.expectedSha256.take(12).ifBlank { "none" }}",
+        )
 
         activeJob = scope.launch {
             var stagingFile: File? = null
@@ -297,12 +324,33 @@ object UpdateDownloader {
                 val shaVerified: Boolean? = if (expectedSha.isNotBlank()) {
                     val matched = computedSha256.equals(expectedSha, ignoreCase = true)
                     if (!matched) {
+                        AutoUpdaterLogger.log(
+                            appCtx,
+                            stage = "Integrity",
+                            severity = AutoUpdaterLogger.Severity.ERROR,
+                            message = "SHA-256 mismatch for v${info.version}",
+                            details = "expected=${expectedSha.take(16)}… got=${computedSha256.take(16)}…",
+                        )
                         throw IllegalStateException(
                             "SHA-256 verification failed (expected ${expectedSha.take(12)}…, got ${computedSha256.take(12)}…)"
                         )
                     }
+                    AutoUpdaterLogger.log(
+                        appCtx,
+                        stage = "Integrity",
+                        severity = AutoUpdaterLogger.Severity.SUCCESS,
+                        message = "APK SHA-256 verified for v${info.version}",
+                        details = computedSha256.take(16) + "…",
+                    )
                     true
                 } else {
+                    AutoUpdaterLogger.log(
+                        appCtx,
+                        stage = "Integrity",
+                        severity = AutoUpdaterLogger.Severity.WARNING,
+                        message = "No upstream SHA-256 checksum provided; ZIP/APK magic bytes verified",
+                        details = "computed=${computedSha256.take(16)}…",
+                    )
                     null
                 }
 
@@ -326,6 +374,21 @@ object UpdateDownloader {
                 DevConsoleManager.logInfo(
                     TAG,
                     "Completed v${info.version} (${actualBytes}B, sha256Verified=$shaVerified, sigMismatch=${compat.signatureMismatch}) -> ${verifiedApk.absolutePath}",
+                )
+                AutoUpdaterLogger.log(
+                    appCtx,
+                    stage = "VerifyAPK",
+                    severity = if (compat.signatureMismatch || compat.downgradeBlocked) {
+                        AutoUpdaterLogger.Severity.CONFLICT
+                    } else {
+                        AutoUpdaterLogger.Severity.SUCCESS
+                    },
+                    message = if (compat.signatureMismatch || compat.downgradeBlocked) {
+                        "In-place update blocked pre-install for v${info.version}"
+                    } else {
+                        "APK v${info.version} passed signing & version checks; backup in ${saved.first}"
+                    },
+                    details = compat.reason.ifBlank { "size=${formatBytes(actualBytes)} shaVerified=$shaVerified" },
                 )
 
                 val completed = DownloadState.Completed(
@@ -353,11 +416,23 @@ object UpdateDownloader {
                 cancelProgressNotification(appCtx)
                 _state.value = DownloadState.Cancelled
                 DevConsoleManager.logInfo(TAG, "Cancelled in-app update download for v${info.version}")
+                AutoUpdaterLogger.log(
+                    appCtx,
+                    stage = "Download",
+                    severity = AutoUpdaterLogger.Severity.WARNING,
+                    message = "Download cancelled for v${info.version}",
+                )
             } catch (t: Throwable) {
                 stagingFile?.delete()
                 cancelProgressNotification(appCtx)
                 val msg = t.message ?: "Download failed"
                 DevConsoleManager.logError(TAG, "In-app download failed for v${info.version}: $msg", t)
+                AutoUpdaterLogger.log(
+                    appCtx,
+                    stage = "Download",
+                    severity = AutoUpdaterLogger.Severity.ERROR,
+                    message = "Download failed for v${info.version}: $msg",
+                )
                 _state.value = DownloadState.Failed(version = info.version, reason = msg)
             }
         }
@@ -407,6 +482,81 @@ object UpdateDownloader {
         return sigBytes.mapTo(HashSet()) { raw ->
             MessageDigest.getInstance("SHA-256").digest(raw).joinToString("") { "%02x".format(it) }
         }
+    }
+
+    @Suppress("DEPRECATION")
+    fun getInstalledSigningCertInfo(context: Context): SigningCertInfo? {
+        return runCatching {
+            val pm = context.packageManager
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                PackageManager.GET_SIGNING_CERTIFICATES
+            } else {
+                PackageManager.GET_SIGNATURES
+            }
+            val installedInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(flags.toLong()))
+            } else {
+                pm.getPackageInfo(context.packageName, flags)
+            }
+            val digests = extractSigningDigests(installedInfo)
+            val primary = digests.firstOrNull() ?: return null
+            SigningCertInfo(
+                sha256Hex = primary,
+                shortId = primary.take(10),
+            )
+        }.getOrNull()
+    }
+
+    fun evaluateRemoteSigningCompatibility(
+        context: Context,
+        info: UpdateChecker.UpdateInfo,
+    ): RemoteSigningEvaluation {
+        val installed = getInstalledSigningCertInfo(context)
+        val installedId = installed?.shortId.orEmpty()
+        val remoteId = info.remoteSigningKeyId.trim().lowercase()
+        val remoteSource = info.remoteSigningSource.trim().lowercase()
+
+        if (remoteId.isNotBlank() && installedId.isNotBlank()) {
+            return if (remoteId == installedId) {
+                RemoteSigningEvaluation(
+                    status = RemoteSigningCompatibility.COMPATIBLE,
+                    installedShortId = installedId,
+                    remoteShortId = remoteId,
+                    remoteSource = remoteSource,
+                    summary = "Signing Key ID matches ($installedId…). In-place update preserves your library & settings.",
+                )
+            } else {
+                RemoteSigningEvaluation(
+                    status = RemoteSigningCompatibility.MISMATCH,
+                    installedShortId = installedId,
+                    remoteShortId = remoteId,
+                    remoteSource = remoteSource,
+                    summary = "Installed key ($installedId…) differs from release key ($remoteId…, source=${remoteSource.ifBlank { "unknown" }}). Back up Settings → Backup, tap 'Uninstall Old App', and install from Downloads/SpotUI; future builds from a persistent CI keystore (SIGNING_KEYSTORE_BASE64 or debug.keystore.base64) update in-place.",
+                )
+            }
+        }
+
+        if (remoteSource == "ephemeral") {
+            return RemoteSigningEvaluation(
+                status = RemoteSigningCompatibility.EPHEMERAL_RISK,
+                installedShortId = installedId,
+                remoteShortId = remoteId,
+                remoteSource = remoteSource,
+                summary = "CI built this release with a one-time ephemeral keystore (SIGNING_KEYSTORE_BASE64 / debug.keystore.base64 missing on GitHub). Android will block in-place updates across ephemeral keys until a persistent keystore is configured.",
+            )
+        }
+
+        return RemoteSigningEvaluation(
+            status = RemoteSigningCompatibility.UNKNOWN,
+            installedShortId = installedId,
+            remoteShortId = remoteId,
+            remoteSource = remoteSource,
+            summary = if (installedId.isNotBlank()) {
+                "Installed Signing ID: $installedId…. Release certificate will be checked against this key before install."
+            } else {
+                "Release certificate will be verified against installed SpotUI before install."
+            },
+        )
     }
 
     @Suppress("DEPRECATION")
@@ -462,7 +612,7 @@ object UpdateDownloader {
                 val newShort = archiveCerts.first().take(10)
                 return ApkCompatCheck(
                     signatureMismatch = true,
-                    reason = "Signing key mismatch (installed $curShort… vs update $newShort…). Android blocks in-place updates across different keys (e.g., an older ephemeral CI key). Back up in Settings → Backup first, tap 'Uninstall Old App', then install the saved APK in Downloads/SpotUI — future builds using the same persistent keystore update in-place.",
+                    reason = "Signing key mismatch (installed $curShort… vs update $newShort…). Android blocks in-place updates across different keys (such as an ephemeral CI keystore without SIGNING_KEYSTORE_BASE64 / debug.keystore.base64). Back up in Settings → Backup first, tap 'Uninstall Old App', then install the saved APK in Downloads/SpotUI — builds signed with the same persistent keystore always update in-place.",
                 )
             }
             ApkCompatCheck()
@@ -470,12 +620,24 @@ object UpdateDownloader {
     }
 
     fun triggerUninstallCurrentApp(context: Context) {
+        AutoUpdaterLogger.log(
+            context,
+            stage = "Uninstall",
+            severity = AutoUpdaterLogger.Severity.WARNING,
+            message = "User opened Android uninstall flow for ${context.packageName} to resolve signing conflict",
+        )
         runCatching {
             val intent = Intent(Intent.ACTION_DELETE, Uri.parse("package:${context.packageName}")).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)
         }.onFailure { err ->
+            AutoUpdaterLogger.log(
+                context,
+                stage = "Uninstall",
+                severity = AutoUpdaterLogger.Severity.ERROR,
+                message = "Failed to open uninstall prompt: ${err.message}",
+            )
             Toast.makeText(context, err.message ?: "Could not open uninstall prompt", Toast.LENGTH_SHORT).show()
         }
     }
@@ -505,21 +667,47 @@ object UpdateDownloader {
         }
 
         if (!ignoreCompatCheck && (completed.signatureMismatch || completed.downgradeBlocked)) {
-            return InstallLaunchResult.Failed(
-                completed.compatWarning.ifBlank {
-                    "Installed SpotUI conflicts with this APK (different signing key or higher versionCode). Uninstall old SpotUI first, then install from Downloads/SpotUI."
-                },
+            val reason = completed.compatWarning.ifBlank {
+                "Installed SpotUI conflicts with this APK (different signing key or higher versionCode). Uninstall old SpotUI first, then install from Downloads/SpotUI."
+            }
+            AutoUpdaterLogger.log(
+                appCtx,
+                stage = "InstallGate",
+                severity = AutoUpdaterLogger.Severity.CONFLICT,
+                message = "Install prevented due to signature/version conflict for v${completed.version}",
+                details = reason,
             )
+            return InstallLaunchResult.Failed(reason)
         }
 
         if (!canRequestPackageInstalls(appCtx)) {
+            AutoUpdaterLogger.log(
+                appCtx,
+                stage = "Permission",
+                severity = AutoUpdaterLogger.Severity.WARNING,
+                message = "Install Unknown Apps permission missing — prompting user settings",
+            )
             return InstallLaunchResult.PermissionRequired
         }
 
         val apkFile = File(completed.installFilePath)
         if (!apkFile.exists() || apkFile.length() < 1024L) {
+            AutoUpdaterLogger.log(
+                appCtx,
+                stage = "InstallGate",
+                severity = AutoUpdaterLogger.Severity.ERROR,
+                message = "Cached update APK missing before PackageInstaller session",
+                details = completed.installFilePath,
+            )
             return InstallLaunchResult.Failed("Update APK file was cleared from cache — tap Download & Install again")
         }
+
+        AutoUpdaterLogger.log(
+            appCtx,
+            stage = "PackageInstaller",
+            severity = AutoUpdaterLogger.Severity.INFO,
+            message = "Starting in-place PackageInstaller session for v${completed.version}",
+        )
 
         _pendingConfirmIntent.value = null
         _state.value = DownloadState.Installing(
@@ -646,6 +834,12 @@ object UpdateDownloader {
                 )
 
                 DevConsoleManager.logInfo(TAG, "Committed PackageInstaller session #$sessionId for v${completed.version}")
+                AutoUpdaterLogger.log(
+                    appCtx,
+                    stage = "PackageInstaller",
+                    severity = AutoUpdaterLogger.Severity.INFO,
+                    message = "Committed PackageInstaller session #$sessionId for v${completed.version}",
+                )
                 session.commit(statusPendingIntent.intentSender)
                 session.close()
                 session = null
@@ -656,6 +850,12 @@ object UpdateDownloader {
                 activeSessionId = -1
                 val msg = t.message ?: "Could not start Android PackageInstaller session"
                 DevConsoleManager.logError(TAG, "PackageInstaller session failed: $msg", t)
+                AutoUpdaterLogger.log(
+                    appCtx,
+                    stage = "PackageInstaller",
+                    severity = AutoUpdaterLogger.Severity.ERROR,
+                    message = "PackageInstaller session exception: $msg",
+                )
                 _state.value = DownloadState.Failed(
                     version = completed.version,
                     reason = "PackageInstaller error: $msg",
@@ -684,6 +884,12 @@ object UpdateDownloader {
             statusMessage = "Confirm update in Android Package Installer…",
             sessionId = sessionId,
         )
+        AutoUpdaterLogger.log(
+            context,
+            stage = "PackageInstaller",
+            severity = AutoUpdaterLogger.Severity.INFO,
+            message = "Awaiting user confirmation for session #$sessionId (v$resolvedVersion)",
+        )
         if (confirmIntent != null) {
             // Hand off to foreground Compose UI first so Android 14-17 Background Activity Launch
             // restrictions never drop startActivity() called from a BroadcastReceiver context.
@@ -696,6 +902,12 @@ object UpdateDownloader {
                     DevConsoleManager.logInfo(TAG, "Launched PackageInstaller confirmation prompt (fallback) for session #$sessionId")
                 }.onFailure { err ->
                     DevConsoleManager.logError(TAG, "Failed launching PackageInstaller confirmation: ${err.message}", err)
+                    AutoUpdaterLogger.log(
+                        context,
+                        stage = "PackageInstaller",
+                        severity = AutoUpdaterLogger.Severity.ERROR,
+                        message = "Confirmation prompt launch failed: ${err.message}",
+                    )
                     val fallback = lastCompleted
                     _state.value = DownloadState.Failed(
                         version = resolvedVersion,
@@ -704,7 +916,7 @@ object UpdateDownloader {
                         fallbackCompleted = fallback,
                     )
                 }
-            }, 350L)
+            }, 650L)
         }
     }
 
@@ -721,6 +933,12 @@ object UpdateDownloader {
         val resolvedVersion = version.ifBlank { lastCompleted?.version.orEmpty() }
         val resolvedName = fileName.ifBlank { lastCompleted?.fileName.orEmpty() }
         DevConsoleManager.logInfo(TAG, "PackageInstaller succeeded for v$resolvedVersion (session #$sessionId)")
+        AutoUpdaterLogger.log(
+            appCtx,
+            stage = "PackageInstaller",
+            severity = AutoUpdaterLogger.Severity.SUCCESS,
+            message = "In-place update to v$resolvedVersion completed (session #$sessionId)",
+        )
         runCatching {
             lastCompleted?.installFilePath?.let { File(it).delete() }
         }
@@ -735,6 +953,7 @@ object UpdateDownloader {
         fileName: String,
         status: Int,
         rawMessage: String,
+        otherPackageName: String = "",
     ) {
         val appCtx = context.applicationContext
         _pendingConfirmIntent.value = null
@@ -744,15 +963,32 @@ object UpdateDownloader {
             if (sessionId >= 0) appCtx.packageManager.packageInstaller.abandonSession(sessionId)
         }
         val resolvedVersion = version.ifBlank { lastCompleted?.version.orEmpty() }
+        val otherSuffix = if (otherPackageName.isNotBlank()) " (conflict with $otherPackageName)" else ""
         val humanReason = when (status) {
             PackageInstaller.STATUS_FAILURE_ABORTED -> "Installation cancelled by user."
-            PackageInstaller.STATUS_FAILURE_BLOCKED -> "Blocked by device policy, Play Protect, or One UI Auto Blocker."
-            PackageInstaller.STATUS_FAILURE_CONFLICT -> "Package conflict or signing key mismatch — tap 'Uninstall Old App', then install the APK saved in Downloads/SpotUI."
+            PackageInstaller.STATUS_FAILURE_BLOCKED -> "Blocked by device policy, Play Protect, or One UI Auto Blocker$otherSuffix."
+            PackageInstaller.STATUS_FAILURE_CONFLICT -> "Package conflict or signing key mismatch$otherSuffix — tap 'Uninstall Old App', then install the APK saved in Downloads/SpotUI."
             PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> "APK is incompatible with this Android version or CPU ABI."
             PackageInstaller.STATUS_FAILURE_INVALID -> "Downloaded APK package failed system validation."
             PackageInstaller.STATUS_FAILURE_STORAGE -> "Insufficient device storage to install update."
-            else -> rawMessage.ifBlank { "PackageInstaller failed (status=$status)" }
+            else -> rawMessage.ifBlank { "PackageInstaller failed (status=$status)$otherSuffix" }
         }
+        val severity = if (status == PackageInstaller.STATUS_FAILURE_CONFLICT || status == PackageInstaller.STATUS_FAILURE_BLOCKED) {
+            AutoUpdaterLogger.Severity.CONFLICT
+        } else {
+            AutoUpdaterLogger.Severity.ERROR
+        }
+        AutoUpdaterLogger.log(
+            appCtx,
+            stage = "PackageInstaller",
+            severity = severity,
+            message = "Install failed (status=$status) for v$resolvedVersion",
+            details = buildString {
+                append(humanReason)
+                if (rawMessage.isNotBlank()) append(" | raw=").append(rawMessage)
+                if (otherPackageName.isNotBlank()) append(" | otherPkg=").append(otherPackageName)
+            },
+        )
         DevConsoleManager.logError(TAG, "PackageInstaller failure (status=$status): $humanReason")
         val existing = lastCompleted
         val flaggedCompleted = if (status == PackageInstaller.STATUS_FAILURE_CONFLICT && existing != null) {
@@ -782,9 +1018,21 @@ object UpdateDownloader {
         val intent = buildInstallerIntent(context, target)
             ?: return InstallLaunchResult.Failed("Update APK file missing from cache")
         return runCatching {
+            AutoUpdaterLogger.log(
+                context,
+                stage = "FallbackInstaller",
+                severity = AutoUpdaterLogger.Severity.INFO,
+                message = "Launching FileProvider ACTION_VIEW installer for v${target.version}",
+            )
             context.startActivity(intent)
             InstallLaunchResult.Launched
         }.getOrElse { err ->
+            AutoUpdaterLogger.log(
+                context,
+                stage = "FallbackInstaller",
+                severity = AutoUpdaterLogger.Severity.ERROR,
+                message = "FileProvider installer failed: ${err.message}",
+            )
             InstallLaunchResult.Failed(err.message ?: "Fallback installer launch failed")
         }
     }

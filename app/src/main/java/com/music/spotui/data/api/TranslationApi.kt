@@ -4,7 +4,6 @@ import android.util.Log
 import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.nl.languageid.LanguageIdentification
 import com.google.mlkit.nl.languageid.LanguageIdentificationOptions
-import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
@@ -85,18 +84,17 @@ object TranslationApi {
         languages.firstOrNull { it.first == code }?.second ?: code.uppercase()
 
     /**
-     * Detect the language of [text] using ML Kit's on-device Language
-     * Identification API. Falls back to "en" on failure or if the detected
-     * language isn't supported for translation.
+     * Detect the language of [text] using ML Kit's on-device Language Identification API.
      */
-    suspend fun detectLanguage(text: String): String {
+    suspend fun detectLanguage(text: String, confidenceThreshold: Float = 0.42f): String {
         if (text.isBlank()) return "en"
         return try {
             val options = LanguageIdentificationOptions.Builder()
-                .setConfidenceThreshold(0.5f)
+                .setConfidenceThreshold(confidenceThreshold)
                 .build()
             val identifier = LanguageIdentification.getClient(options)
             val result = identifier.identifyLanguage(text).await<String>()
+            runCatching { identifier.close() }
             if (result == "und" || languages.none { it.first == result }) "en" else result
         } catch (e: Exception) {
             Log.w(TAG, "Language detection failed", e)
@@ -106,37 +104,77 @@ object TranslationApi {
 
     /**
      * Ensure the ML Kit model for [sourceLang] → [targetLang] is downloaded.
-     * Returns the ready-to-use [Translator] instance.
      */
-    suspend fun ensureModel(sourceLang: String, targetLang: String): Translator =
-        withContext(Dispatchers.IO) {
-            require(languages.any { it.first == sourceLang }) { "Unsupported source language: $sourceLang" }
-            require(languages.any { it.first == targetLang }) { "Unsupported target language: $targetLang" }
+    suspend fun ensureModel(
+        sourceLang: String,
+        targetLang: String,
+        allowCellular: Boolean = false,
+    ): Translator = withContext(Dispatchers.IO) {
+        require(languages.any { it.first == sourceLang }) { "Unsupported source language: $sourceLang" }
+        require(languages.any { it.first == targetLang }) { "Unsupported target language: $targetLang" }
 
-            val options = TranslatorOptions.Builder()
-                .setSourceLanguage(sourceLang)
-                .setTargetLanguage(targetLang)
-                .build()
-            val translator = Translation.getClient(options)
+        val options = TranslatorOptions.Builder()
+            .setSourceLanguage(sourceLang)
+            .setTargetLanguage(targetLang)
+            .build()
+        val translator = Translation.getClient(options)
 
-            val conditions = DownloadConditions.Builder()
-                .requireWifi()
-                .build()
-            translator.downloadModelIfNeeded(conditions).await()
-            Log.d(TAG, "Model ready: $sourceLang → $targetLang")
-            translator
+        val conditions = DownloadConditions.Builder().apply {
+            if (!allowCellular) requireWifi()
+        }.build()
+        translator.downloadModelIfNeeded(conditions).await()
+        Log.d(TAG, "Model ready: $sourceLang → $targetLang")
+        translator
+    }
+
+    /**
+     * Auto-detects the language (when [sourceLangHint] is `"auto"`) and translates
+     * a spoken/chat phrase into English via ML Kit on-device models (works over Wi-Fi or cellular).
+     * Returns `Pair(detectedSourceLangCode, englishText)`.
+     */
+    suspend fun translatePhraseToEnglish(
+        text: String,
+        sourceLangHint: String = "auto",
+    ): Pair<String, String> = withContext(Dispatchers.IO) {
+        val cleaned = text.trim()
+        if (cleaned.isEmpty()) return@withContext "en" to ""
+
+        val detected = if (sourceLangHint == "auto" || sourceLangHint.isBlank()) {
+            detectLanguage(cleaned, confidenceThreshold = 0.35f)
+        } else {
+            sourceLangHint.lowercase(Locale.US)
         }
+
+        if (detected == "en" || languages.none { it.first == detected }) {
+            return@withContext detected to cleaned
+        }
+
+        val cacheKey = "$cleaned|$detected|en"
+        cache[cacheKey]?.let { cached -> return@withContext detected to cached }
+
+        val translator = ensureModel(detected, "en", allowCellular = true)
+        try {
+            val translated = translator.translate(cleaned).await().orEmpty().trim()
+            if (translated.isNotEmpty()) {
+                cache[cacheKey] = translated
+                detected to translated
+            } else {
+                detected to cleaned
+            }
+        } finally {
+            translator.close()
+        }
+    }
 
     /**
      * Translate all non-blank lyric lines through a single ML Kit [Translator] in one pass.
-     * Blank lines are left unchanged.
      */
     suspend fun translateLines(
         lines: List<LyricLine>,
         sourceLang: String,
         targetLang: String = Locale.getDefault().language,
     ): List<LyricLine> = withContext(Dispatchers.IO) {
-        val translator = ensureModel(sourceLang, targetLang)
+        val translator = ensureModel(sourceLang, targetLang, allowCellular = false)
 
         try {
             lines.map { line ->

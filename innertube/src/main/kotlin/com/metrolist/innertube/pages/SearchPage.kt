@@ -117,7 +117,51 @@ object SearchPage {
                 val metadataRuns = renderer.flexColumns
                     .drop(1)
                     .flatMap { it.musicResponsiveListItemFlexColumnRenderer.text?.runs.orEmpty() }
-                val artists = PageHelper.extractArtists(metadataRuns)
+                val rawTitle =
+                    renderer.flexColumns
+                        .firstOrNull()
+                        ?.musicResponsiveListItemFlexColumnRenderer
+                        ?.text
+                        ?.runs
+                        ?.firstOrNull()
+                        ?.text ?: return null
+                val isVideoItem = renderer.musicVideoType != null &&
+                    renderer.musicVideoType != "MUSIC_VIDEO_TYPE_ATV"
+                val extractedArtists = PageHelper.extractArtists(metadataRuns).ifEmpty {
+                    if (isVideoItem) {
+                        secondaryLine.firstOrNull()?.firstOrNull()?.let { uploaderRun ->
+                            val cleanName = uploaderRun.text.trim()
+                            if (cleanName.isNotBlank() && !cleanName.matches(Regex("""^\d+(?::\d+)+$"""))) {
+                                listOf(
+                                    Artist(
+                                        name = cleanName,
+                                        id = uploaderRun.navigationEndpoint?.browseEndpoint?.browseId,
+                                    )
+                                )
+                            } else {
+                                emptyList()
+                            }
+                        }.orEmpty()
+                    } else {
+                        emptyList()
+                    }
+                }
+                val finalArtists = if (extractedArtists.isNotEmpty()) {
+                    extractedArtists
+                } else if (isVideoItem) {
+                    listOf(Artist(name = "YouTube Video", id = null))
+                } else {
+                    return null
+                }
+                val albumModel =
+                    secondaryLine.getOrNull(1)?.firstOrNull()?.let { run ->
+                        run.navigationEndpoint?.browseEndpoint?.browseId?.let { id ->
+                            Album(
+                                name = run.text,
+                                id = id,
+                            )
+                        }
+                    }
 
                 SongItem(
                     id = renderer.playlistItemData?.videoId
@@ -130,31 +174,13 @@ object SearchPage {
                             ?.text?.runs?.firstOrNull()
                             ?.navigationEndpoint?.watchEndpoint?.videoId
                         ?: return null,
-                    title =
-                        renderer.flexColumns
-                            .firstOrNull()
-                            ?.musicResponsiveListItemFlexColumnRenderer
-                            ?.text
-                            ?.runs
-                            ?.firstOrNull()
-                            ?.text ?: return null,
-                    artists = artists.ifEmpty { return null },
-                    album =
-                        secondaryLine.getOrNull(1)?.firstOrNull()?.let { run ->
-                            run.navigationEndpoint?.browseEndpoint?.browseId?.let { id ->
-                                Album(
-                                    name = run.text,
-                                    id = id,
-                                )
-                            }
-                        },
+                    title = rawTitle,
+                    artists = finalArtists,
+                    album = albumModel,
                     duration = PageHelper.extractDuration(metadataRuns),
                     musicVideoType = renderer.musicVideoType,
                     thumbnail = renderer.thumbnail?.getThumbnailUrl() ?: return null,
-                    explicit =
-                        renderer.badges?.find {
-                            it.musicInlineBadgeRenderer?.icon?.iconType == "MUSIC_EXPLICIT_BADGE"
-                        } != null,
+                    explicit = PageHelper.isExplicitItem(renderer.badges, rawTitle, albumModel?.name),
                     libraryAddToken = libraryTokens.addToken,
                     libraryRemoveToken = libraryTokens.removeToken,
                     isEpisode = renderer.isEpisode

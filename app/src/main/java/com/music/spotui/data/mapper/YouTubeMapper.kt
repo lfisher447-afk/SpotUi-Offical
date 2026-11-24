@@ -3,6 +3,7 @@ package com.music.spotui.data.mapper
 
 import com.music.spotui.data.models.TrackModel
 import com.music.spotui.data.remote.YouTubeTrackDto
+import com.music.spotui.util.ExplicitContentDetector
 
 /** Maps InnerTube candidates to provider-neutral local track models. */
 object YouTubeMapper {
@@ -16,7 +17,11 @@ object YouTubeMapper {
         artworkUrl = artworkUrl,
         streamUrl = "https://music.youtube.com/watch?v=$id",
         durationMs = durationMs,
-        explicit = explicit,
+        explicit = ExplicitContentDetector.detectExplicit(
+            apiExplicit = explicit,
+            title = title,
+            album = albumName,
+        ),
         addedAtEpochMs = nowEpochMs,
         updatedAtEpochMs = nowEpochMs,
     )

@@ -17,8 +17,9 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- Audio, Equalizer & Bluetooth Routing (Galaxy Buds, Android Auto, Headsets) -->
+    <!-- Audio, Equalizer, Game Mic Translation & Bluetooth Routing (Galaxy Buds, Android Auto, Headsets) -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
@@ -106,13 +107,13 @@
         </provider>
 
         <activity
-            android:name=".ui.screens.YouTubeMusicWebActivity"
+            android:name=".ui.screens.SpotifyLogin.page.YouTubeMusicWebActivity"
             android:exported="false"
             android:label="YouTube Music"
             android:theme="@style/Theme.Spotui" />
 
         <activity
-            android:name=".ui.screens.DeezerLoginActivity"
+            android:name=".ui.screens.SpotifyLogin.page.DeezerLoginActivity"
             android:exported="false"
             android:label="Deezer Account"
             android:theme="@style/Theme.Spotui" />

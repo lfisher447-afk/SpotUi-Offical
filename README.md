@@ -14,7 +14,7 @@
 
 > **Enjoying SpotUI? Give the repository a [Star on GitHub](https://github.com/lfisher447-afk/SpotUi-Offical) — it directly boosts visibility, helps other Android audiophiles discover the project, and fuels faster releases!**
 
-**SpotUI (`com.music.spotui`) is an all-in-one Kotlin & Jetpack Compose Android audio player powered by Media3 `1.11.0`, the Eclipse MrBean Turbo 8x HTTP/2 multi-range download engine (`1–10` concurrent tracks, `5` default), an embedded APK-native `yt-dlp` (`0.18.1`) + FFmpeg extraction runtime, a 3D Binaural Soundstage & 8D Orbit DSP, a native `android.content.pm.PackageInstaller` in-app auto-updater, a One UI Game Booster Accessibility Floater Studio, 17 integrated modules & submodules, multi-MB/s NovaAc v8 AEAD archives, and an 8-channel `2,000`-entry DevConsole with a 21-point Health Probe.**
+**SpotUI (`com.music.spotui`) is an all-in-one Kotlin & Jetpack Compose Android audio player powered by Media3 `1.11.0`, the Eclipse MrBean Turbo 8x HTTP/2 multi-range download engine (`1–10` concurrent tracks, `5` default), an embedded APK-native `yt-dlp` (`0.18.1`) + FFmpeg extraction runtime, a 3D Binaural Soundstage & 8D Orbit DSP, a native `android.content.pm.PackageInstaller` in-app auto-updater, a Material 3 Expressive Accessibility Floater Studio with Game-Only Live Teammate Translation, 17 integrated modules & submodules, multi-MB/s NovaAc v8 AEAD archives, and an 8-channel `2,000`-entry DevConsole with a 21-point Health Probe.**
 
 [User Guide & Highlights](#user-guide--key-features) · [What's New in v2.5.4](#whats-new-in-v254-202611234) · [Complete Library & SDK Inventory](#complete-library--sdk-inventory) · [17 Integrated Modules](#17-integrated-modules--submodules) · [Architecture](#project-architecture--module-map) · [Build & CI](#build--release-workflows) · [Permissions](#permissions-overview) · [Version History](#version-history)
 
@@ -47,12 +47,12 @@
 ## User Guide & Key Features
 
 ### Getting Signed In (Spotify, YouTube Music, Deezer & Guest Mode)
-1. **Spotify Account Login**:
-   - **Clean Android Chrome WebView Login**: Strips `; wv` and legacy WebView version tokens that previously triggered `accounts.spotify.com/login/code/send` HTTP 400 errors and `requestStorageAccess` permission denials, presenting an authentic Chromium mobile User-Agent for OAuth popups and 1-tap Email Code flows.
-   - **HTTP 402 / 400 / 403 Auto-Recover**: Automatically clears/cycles offending cookies, rotates UA/login entry hints, decodes XOR TOTP v61 secrets (with Nuance caching & raw Gist fallback), and bridges verified `#session` / `sp_dc` + `sp_key` credentials directly into `SpotifyAuth`.
-   - **Direct `sp_dc` Cookie Paste & Guest Mode**: Paste raw `sp_dc` strings or Cookie-Editor JSON exports directly, hand off to an external browser, or browse anonymously in **Guest Mode**.
+1. **Unified Spotify Login Studio (`ui/screens/SpotifyLogin/{page,module,helper}/` + `:spotify` `Spotify.kt`)**:
+   - **YouTube-Style Sign-In + Sync Hub (`SpotifyLoginScreen`)**: Organized cleanly across `SpotifyLogin/page/`, `SpotifyLogin/module/`, and `SpotifyLogin/helper/` with a unified sign-in + **Sync All** pipeline syncing your Spotify profile, playlists, Saved/Liked tracks, and Saved Albums directly into SpotUI's Library alongside real-time connection status.
+   - **Hardened `SpotifyWebViewAdapter` & Privacy Shield**: Combines Chromium WebView engine hardening, zero-bypass TLS handling, renderer crash-loop recovery, and third-party tracker/ad-beacon blocking while stripping `; wv` and legacy WebView version tokens that previously broke `accounts.spotify.com/login/code/send` and `requestStorageAccess`.
+   - **Auto-Recover, Official OAuth PKCE & TOTP v61**: Automatically cycles offending cookies/hints on HTTP 400/402/403, extracts XOR TOTP v61 secrets (with Nuance caching & raw Gist fallback), bridges `#session` / `sp_dc` + `sp_key` credentials cleanly into `SpotifyAuth` (`Spotify.kt`), and supports official Spotify OAuth PKCE (`SpotifyOAuth`), raw `sp_dc` / JSON cookie import, external browser handoff, and **Guest Mode**.
 2. **YouTube Music Library Sync & Dual-Path Stream Extraction** (`YouTubeMusicSync` + `YtDlpEngine`):
-   - **Zero-Config Signed-In Session Sync**: Sign in once via the built-in `YouTubeMusicWebActivity` to sync playlists, **Liked Music (`LM`)**, and saved albums directly into your Library & Album tabs.
+   - **Zero-Config Signed-In Session Sync**: Sign in once via `SpotifyLogin/page/YouTubeMusicWebActivity` to sync playlists, **Liked Music (`LM`)**, and saved albums directly into your Library & Album tabs.
    - **Resilient InnerTube + Embedded APK-Native `yt-dlp`**: Combines InnerTube (`MWEB`, `ANDROID_MUSIC`, `2026` presets, 90s per-client circuit breakers, HTTP 429/5xx exponential backoff, HTML `VISITOR_DATA` fallback) and `NewPipeExtractor` with an embedded on-device **`youtubedl-android 0.18.1` + FFmpeg** runtime (`YtDlpEngine`) supporting primary extraction toggling and in-app binary updates.
    - **Public/Unlisted URL Import & Official OAuth PKCE**: Paste any YouTube / YT Music playlist link or connect official Google OAuth PKCE (`com.music.spotui:/oauth2redirect` or loopback `http://127.0.0.1:8765/oauth2redirect`).
 3. **Lossless Mirrors & Custom Network Routing**:
@@ -62,9 +62,10 @@
 - **Material 3 Expressive Overhaul & Side-Tab Settings**: Luminous Material 3 Expressive surfaces (`Home`, `Downloads`, Mini-Player, Navigation dock), animated `NavigationRail` side-tab switcher in **Settings**, `EqPresetCatalog`, and live **Expressive SongPlay UI (`NewPlayerLayout`)** / **Legacy Classic UI** switching.
 - **Independent In-App Volume (`0–100%`)**: Adjusts internal ExoPlayer PCM gain smoothly without modifying Android system OS media volume.
 - **Home Screen Widgets & Background Mini-Notification**: Add the `2x2` Compact or `4x2` Expanded Glance widgets (`SpotuiCompactWidgetReceiver` / `SpotuiExpandedWidgetReceiver`), connect via **Android Auto**, or enable the broadcast-only Exit Play/Pause Mini-Notification (`ExitPlaybackControlReceiver`) that controls playback without foregrounding the app.
-- **One UI Game Booster SpotUI Floater Studio (`MediaAccessibilityService`)**:
-  - Uses a `TYPE_ACCESSIBILITY_OVERLAY` window (`layout_mini_player.xml`) over full-screen landscape games without requiring `SYSTEM_ALERT_WINDOW`.
-  - Features a **collapsible 3-section sidebar rail (`MEDIA`, `SOUND`, `PRO`)**, **5 live tabbed panels (`Player`, `Queue`, `EQ`, `3D`, `Tools`)**, circular control tiles, Shuffle/Loop/Like pills, persistent active & paused track display, `0–100%` In-App Volume slider, **corner-drag resize handles**, tactile haptics, per-orientation saved coordinates, and a 5-second inactivity auto-dismiss option.
+- **Material 3 Expressive Accessibility Floater Studio & Game-Only Live Translator (`MediaAccessibilityService`)**:
+  - Uses Jetpack Compose Material 3 Expressive (`TYPE_ACCESSIBILITY_OVERLAY`) with morphing squircle/pill transport buttons, animated playing waveform, tonal containers, bottom-left & bottom-right corner-drag resizing, tactile haptics, and `0–100%` In-App Volume control (OS volume untouched).
+  - Features a **collapsible sidebar rail (`MEDIA`, `SOUND`, `PRO`, and conditional `GAME`)** switching live between `Player`, `Queue`, `EQ`, `3D`, `Tools`, and **`Translate` (visible ONLY when a game is detected in the foreground; hidden on non-game apps)**.
+  - **Game-Only Live Translation Bubble**: Detects foreground games automatically, listens via runtime microphone permission (`RECORD_AUDIO`) or manual phrase input, auto-detects teammate speech/text (`auto`, Spanish, Arabic, French, Russian, Japanese, Korean, Chinese, Hindi, Turkish, etc.), and translates on-device via ML Kit to **English** in a draggable, corner-resizable **Top-Left Floating Bubble** (adjustable width `160–420 dp`, font size `11–24 sp`, and opacity `55–98%`).
   - **One UI 9.0 Setup**: Unlock **Allow restricted settings** in **Android Settings -> Apps -> SpotUI -> ⋮**, enable **SpotUI Accessibility Mini-Player** under **Accessibility -> Installed apps**, and set **Accessibility button -> Location** to **Floating** (or disable **Block navigation buttons** in One UI Game Booster).
 
 ### Downloading & Managing Offline Libraries
@@ -80,13 +81,14 @@
 
 ## What's New in v2.5.4 (`202611234`)
 
-1. **Samsung One UI Game Booster SpotUI Floater Studio (`MediaAccessibilityService`)**:
-   - Complete One UI Game Booster inspired redesign (`layout_mini_player.xml`) with a collapsible docked sidebar rail (`MEDIA`, `SOUND`, `PRO`), 5 tabbed panels (`Player`, `Queue`, `EQ`, `3D`, `Tools`), circular control tiles, Shuffle/Loop/Like pills, `0–100%` In-App Volume slider, corner-drag resize handles, and tactile haptics.
-   - Repaired active/paused track metadata display and Play/Pause/Next/Previous/Shuffle/Loop/Queue routing across cold-start, buffering, and background playback states.
+1. **Material 3 Expressive Floater Studio & Game-Only Live Translation Bubble (`MediaAccessibilityService`)**:
+   - Rebuilt the Accessibility Floater cleanly in Jetpack Compose with Material 3 Expressive morphing play/pause container physics, collapsible navigation rail (`MEDIA`, `SOUND`, `PRO`, plus conditional `GAME`), live `Player`/`Queue`/`EQ`/`3D`/`Tools`/`Translate` tabs, `0–100%` In-App Volume slider, bottom-left & bottom-right corner-drag resizing, tactile vibration, and persistent track metadata + transport routing.
+   - Added foreground game detection (`GameTranslatorEngine`) that unlocks the `Translate` tab **only inside games** (hiding it on non-game apps) and projects an auto-detect-to-English live teammate translation bubble at the **top-left** with adjustable width (`160–420 dp`), text size (`11–24 sp`), opacity (`55–98%`), drag positioning, and corner resizing.
 2. **Embedded APK-Native `yt-dlp` (`youtubedl-android 0.18.1`) + FFmpeg (`YtDlpEngine`)**:
    - Bundled on-device `yt-dlp` + FFmpeg directly inside the APK (no PC or external server needed) with a primary extraction toggle, live binary updater, and automatic fallback whenever InnerTube clients hit bot checks or signature changes.
-3. **Spotify Login `; wv` / HTTP 400 Fix & InnerTube Circuit-Breaker Hardening**:
-   - Stripped WebView `; wv` and legacy version tokens causing `accounts.spotify.com/login/code/send` HTTP 400 errors and `requestStorageAccess` permission denials, added XOR TOTP v61 secret extraction, and integrated Auto-Recover cycling.
+3. **Unified `SpotifyLogin/{page,module,helper}/` + `SpotifyWebViewAdapter` & InnerTube Hardening**:
+   - Consolidated all Spotify, YouTube Music web, and Deezer login screens/helpers/modules under `ui/screens/SpotifyLogin/{page,module,helper}/`, unified around `Spotify.kt` (`SpotifyAuth`) + `SpotifyOAuth` PKCE + `SpotifyLoginPipeline` with YouTube-style **Sync All** into Library.
+   - Merged the hardened `SpotifyWebViewAdapter` engine (strict TLS validation, tracker/ad-beacon blocking, renderer recovery, `; wv` stripping) with XOR TOTP v61 extraction and Auto-Recover for `accounts.spotify.com/login/code/send`.
    - Added 90s per-client InnerTube circuit-breaker cooldowns, HTTP 429/5xx exponential backoff retries, `MWEB`/`ANDROID_MUSIC`/`2026` presets, HTML `VISITOR_DATA` fallback, and `NewPipeExtractor` handoff.
 4. **Material 3 Expressive Overhaul, Turbo 8x MrBean, Enhanced 3D Spatial & 8-Channel DevConsole (`v2.5.3`–`v2.5.4`)**:
    - Added `NavigationRail` side-tab Settings, luminous Material 3 Expressive Home/Downloads/Mini-Player cards, and `EqPresetCatalog`.
@@ -187,7 +189,7 @@ All versions below are defined directly in `gradle/libs.versions.toml` and `app/
 | **`YTDLP`** | `io.github.junkfood02.youtubedl-android` (`YtDlpEngine`) | Embedded APK-native `yt-dlp 0.18.1` + FFmpeg stream extractor with primary toggle & live binary updates |
 | **`MRBEAN_ENGINE`** | `org.eclipse.Mrbean.client` | `32`-socket HTTP/2 `ConnectionPool`, TTL DNS cache & Turbo 8x multi-range downloader (`1–10` concurrent tracks) |
 | **`MEDIA3_DSP`** | `com.music.spotui.audio` | 64-bit Biquad 7-Band EQ (`EqPresetCatalog`), Haas 3D Spatializer, Pinna HRTF, 8D Orbit & Soft Limiter |
-| **`FLOATER_A11Y`** | `com.music.spotui.accessibility` | One UI Game Booster Accessibility Floater Studio with collapsible sidebar, 5 tabs, In-App Volume & corner resize |
+| **`FLOATER_A11Y`** | `com.music.spotui.accessibility` | Material 3 Expressive Floater Studio with collapsible sidebar, 6 tabs (conditional Game `Translate`), Top-Left translation bubble, In-App Volume & corner resize |
 | **`NOVAA_ARCHIVE`** | `com.music.spotui.data.export` | Single-pass AEAD encrypted library & lossless track backup vault (`NovaAc v8`) |
 | **`GLANCE_WIDGETS`** | `com.music.spotui.widget` | Jetpack Glance `2x2` & `4x2` home screen player widgets synced via `PlaybackService` |
 | **`ANDROID_AUTO`** | `com.music.spotui.ui.notification` | Browsable Android Auto catalog, One UI Now Bar & Media3 `MediaLibraryService` session |
@@ -200,14 +202,15 @@ All versions below are defined directly in `gradle/libs.versions.toml` and `app/
 SpotUi-Offical/
 ├── app/                                      # Main Android application module (:app)
 │   ├── src/main/java/com/music/spotui/
-│   │   ├── accessibility/                    # MediaAccessibilityService (One UI Game Booster Floater Studio: 5 tabs,
-│   │   │                                     # collapsible sidebar rail, corner resize & haptics), AccessibilityHelper
+│   │   ├── accessibility/                    # MediaAccessibilityService (Compose M3 Expressive Floater Studio, corner resize & haptics),
+│   │   │                                     # GameTranslatorEngine (Game detection + Auto-Detect→English Top-Left Bubble),
+│   │   │                                     # FloaterComposeContent, FloaterPanels, FloaterUiState, OverlayLifecycleOwner
 │   │   ├── audio/                            # SpatialWideningAudioProcessor (v2 Haas/Early Reflections/HRTF/Schroeder/8D),
 │   │   │                                     # SpotuiDspAudioProcessor, CrossfadeFilterAudioProcessor, EqPresetCatalog,
 │   │   │                                     # BiquadFilter, AudioEffectController, BluetoothAudioInspector, UiSoundEngine
 │   │   ├── data/
 │   │   │   ├── api/                          # Api, ModuleLibsBridge (all 17 modules), LyricsApi (HTTP/2 pool),
-│   │   │   │                                 # SpotifySession, SpotifySync, DeepLinkHandler (HTTP/2 pool)
+│   │   │   │                                 # SpotifySession, SpotifySync, TranslationApi (ML Kit), DeepLinkHandler
 │   │   │   ├── export/                       # NovaAcExportManager (single-pass 4 MiB / 2 MiB AEAD streaming)
 │   │   │   ├── preferences/                  # SettingsPref, ModuleAndExperiencePref (SpotuiModuleId), DownloadPref,
 │   │   │   │                                 # OfflineCollectionsPref
@@ -223,9 +226,11 @@ SpotUi-Offical/
 │   │   │   ├── components/                   # PatchNotesDialog, UpdatePrompt, LiveLocationClockCard, SavedInSheet
 │   │   │   ├── navigation/                   # AdaptiveNavigation (BottomBar / Rail / TopTabs / Sidebar), Routes, MyNavHost
 │   │   │   ├── notification/                 # PlaybackService (MediaLibraryService), ExitPlaybackControlReceiver
-│   │   │   ├── screens/                      # Home, Search, Library, Downloads, Player (+ NewPlayerLayout),
-│   │   │   │                                 # SpotifyLoginScreen (Auto-Recover & WebView fixes), Settings (Side-Tab Rail),
-│   │   │   │                                 # UpdateRoadmapScreen, DevConsole
+│   │   │   ├── screens/
+│   │   │   │   ├── SpotifyLogin/page/        # SpotifyLoginScreen (Sync All), YouTubeMusicWebActivity, DeezerLoginActivity
+│   │   │   │   ├── SpotifyLogin/module/      # SpotifyWebViewAdapter (shield/engine), SpotifyOAuth, SpotifyLoginPipeline, SpotifyHashRecovery
+│   │   │   │   ├── SpotifyLogin/helper/      # SpotifyLoginHelpers (credential extractors & session helpers)
+│   │   │   │   └── ...                       # Home, Search, Library, Downloads, Player (+ NewPlayerLayout), Settings, UpdateRoadmap, DevConsole
 │   │   │   └── theme/                        # Material 3 expressive Color, Typography (system SansSerif), ThemePreferences
 │   │   ├── util/                             # DevConsoleManager (8 channels / 2,000 entries), SystemHealthChecker (21 checks),
 │   │   │                                     # ArtworkHelper, BackupHelper
@@ -234,7 +239,7 @@ SpotUi-Offical/
 │   │   └── client/                           # MrbeanDownloadClient (32-pool / 128-dispatcher / 8x 206 slicer / peak MB/s),
 │   │                                         # MrbeanMediaDataSource, MrbeanNetworkSettings (1–10 concurrency & 64–1024 KB buffer),
 │   │                                         # MrbeanNovaAcController
-│   └── src/main/res/layout/ & xml/           # layout_mini_player.xml, accessibility_service_config.xml, Game Booster drawables
+│   └── src/main/res/xml/                     # accessibility_service_config.xml, adaptive icon & widget configs
 ├── spotify/ & innertube/                     # Core root Gradle modules (:spotify, :innertube)
 ├── modules/app/libs/                         # Extended submodule suite (betterlyrics, kugou, lastfm, lrclib,
 │                                             # paxsenix, shazamkit, simpmusic, fastlane, spotify, innertube)
@@ -282,10 +287,10 @@ Outputs `dist/SpotUI-v2.5.4-release.apk` and `dist/SpotUI-v2.5.4-release.apk.sha
 
 SpotUI adheres to least-privilege and Google Play Creator Program compliant Android permission practices:
 - **Network & Background Playback**: `INTERNET`, `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, `FOREGROUND_SERVICE_DATA_SYNC`, `WAKE_LOCK`, `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`, `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`.
-- **Audio, Bluetooth & Tactile Feedback**: `MODIFY_AUDIO_SETTINGS`, `BLUETOOTH` (`maxSdkVersion 30`), `BLUETOOTH_CONNECT`, `VIBRATE`.
+- **Audio, Bluetooth, Speech & Tactile Feedback**: `MODIFY_AUDIO_SETTINGS`, `RECORD_AUDIO` (requested cleanly at runtime only when enabling Game-Only Live Teammate Translation inside the Floater), `BLUETOOTH` (`maxSdkVersion 30`), `BLUETOOTH_CONNECT`, `VIBRATE`.
 - **Local Audio & Public Downloads**: `READ_MEDIA_AUDIO` (API 33+) / `READ_EXTERNAL_STORAGE` (`maxSdkVersion 32`) for scanning local audio playback; `WRITE_EXTERNAL_STORAGE` (`maxSdkVersion 28`) for pre-Scoped-Storage `Music/spotui/` export (Android 10+ uses zero-permission `MediaStore`).
 - **In-App PackageInstaller Updates**: `REQUEST_INSTALL_PACKAGES` (used exclusively when the user confirms downloading & installing an updated GitHub Release APK in-app).
-- **Optional Floating Mini-Player Service**: `BIND_ACCESSIBILITY_SERVICE` on `MediaAccessibilityService` with `canRetrieveWindowContent="false"` and `isAccessibilityTool="true"` — reads **zero** screen content and renders only the user-toggled `TYPE_ACCESSIBILITY_OVERLAY` playback pill.
+- **Optional Floating Mini-Player Service**: `BIND_ACCESSIBILITY_SERVICE` on `MediaAccessibilityService` with `canRetrieveWindowContent="false"` and `isAccessibilityTool="true"` — reads **zero** screen content, detects foreground game packages only to reveal the Game Translate tab, and renders Jetpack Compose M3 Expressive overlays.
 
 ---
 
@@ -293,7 +298,7 @@ SpotUI adheres to least-privilege and Google Play Creator Program compliant Andr
 
 | Version | Code | Highlights |
 | :--- | :--- | :--- |
-| **v2.5.4** | `202611234` | **One UI Game Booster Floater Studio, Embedded `yt-dlp` + FFmpeg, Spotify `; wv`/HTTP 400 Fix & InnerTube Hardening**: Redesigned `MediaAccessibilityService` (`layout_mini_player.xml`) into a One UI Game Booster studio with a collapsible 3-section sidebar rail (`MEDIA`, `SOUND`, `PRO`), 5 tabbed panels (`Player`, `Queue`, `EQ`, `3D`, `Tools`), circular control tiles, Shuffle/Loop/Like pills, `0–100%` In-App Volume slider, corner-drag resizing, tactile vibration, and repaired active/paused track metadata & transport routing; bundled on-device `youtubedl-android 0.18.1` + FFmpeg (`YtDlpEngine`) with primary extraction toggle, live binary updater & automatic fallback; fixed `accounts.spotify.com/login/code/send` HTTP 400 & `requestStorageAccess` denials by stripping WebView `; wv`/legacy tokens and adding XOR TOTP v61 secret extraction + Auto-Recover; added 90s per-client InnerTube circuit breakers, HTTP 429/5xx backoff, `MWEB`/`ANDROID_MUSIC`/`2026` presets, HTML `VISITOR_DATA` fallback, `NewPipeExtractor` activation, `EqPresetCatalog`, 17-module telemetry & 21-point `SystemHealthChecker`. |
+| **v2.5.4** | `202611234` | **Unified `SpotifyLogin/{page,module,helper}/`, Material 3 Expressive Floater Studio, Game-Only Live Translation Bubble, Embedded `yt-dlp` + FFmpeg & InnerTube Hardening**: Consolidated all Spotify, YouTube Music Web, and Deezer login screens/helpers/modules under `ui/screens/SpotifyLogin/{page,module,helper}/` with `Spotify.kt` (`SpotifyAuth`) + hardened `SpotifyWebViewAdapter` + `SpotifyOAuth` PKCE and YouTube-style **Sync All**; rebuilt `MediaAccessibilityService` in Jetpack Compose with Material 3 Expressive morphing transport controls, collapsible rail (`MEDIA`, `SOUND`, `PRO`, conditional `GAME`), 6 live tabs (`Player`, `Queue`, `EQ`, `3D`, `Tools`, game-only `Translate`), `0–100%` In-App Volume slider, corner-drag resizing, tactile vibration, and a Top-Left adjustable auto-detect-to-English live teammate translation bubble; bundled on-device `youtubedl-android 0.18.1` + FFmpeg (`YtDlpEngine`) with primary extraction toggle & live binary updater; added XOR TOTP v61 secret extraction + Auto-Recover for HTTP 400/402/403, 90s per-client InnerTube circuit breakers, HTTP 429/5xx backoff, `MWEB`/`ANDROID_MUSIC`/`2026` presets, HTML `VISITOR_DATA` fallback, `NewPipeExtractor` activation, `EqPresetCatalog`, 17-module telemetry & 21-point `SystemHealthChecker`. |
 | **v2.5.3** | — | **Material 3 Expressive Overhaul, Side-Tab Settings, Turbo 8x MrBean & 2,000-Entry Logger**: Introduced Material 3 Expressive surfaces, animated `NavigationRail` side-tab Settings, upgraded `Home`/`Downloads`/Mini-Player cards, Turbo 8x MrBean (`32` keep-alive sockets, `128` dispatcher, `5` default concurrent downloads up to `10`, up to `8` parallel HTTP `206` slices >= 512 KiB, `512 KiB`–`1 MiB` buffers, peak MB/s meter), haptic Floater corner-drag resizing, Haas/Early Reflections/Pinna/8D Spatializer audibility overhaul, and an 8-channel `2,000`-entry `DevConsoleManager`. |
 | **v2.5.2** | `202611232` | **MrBean Turbo 1–10 Multi-Range Downloader, 3D Spatial Soundstage v2 & Native PackageInstaller Updater**: Rebuilt Eclipse MrBean networking with HTTP/2 multiplexing (`ConnectionPool` 24 / `Dispatcher` 96), 5-min TTL DNS cache, `1–6` parallel HTTP `206` `FileChannel` byte-range slices, `64–512 KB` buffer selection, async cover/lyrics prefetch, live MB/s telemetry, hot-scalable `1–10` concurrent song downloads, and 6x parallel SpotiFlac DASH-FLAC segments; unified HTTP/2 & CIO endpoint pooling across all submodules and app HTTP helpers; upgraded the in-app auto-updater to MrBean multi-range transfers + Android's native `PackageInstaller` Session API (`UpdateInstallReceiver` + progress/status callbacks); rebuilt 3D Spatial Audio with cascaded Schroeder all-pass decorrelation, sub-120 Hz mono-bass anchor, Woodworth spherical-head HRTF + Pinna elevation filter, 8D Binaural Orbit LFO, Correlation Guard & Android 13–17 Spatializer telemetry; hardened `MediaAccessibilityService` for Android 17 & One UI 9.0. |
 | **v2.5.1** | `202611221` | **In-App Auto-Update Downloader, Spotify HTTP 402/400 Hardening & BT SCO/A2DP Fix**: Initial direct in-app release downloader + SHA-256 verification, dual-profile Bluetooth A2DP vs HFP/SCO fix, clean Spotify WebView login URL & HTTP 402/400 Auto-Recover, TOTP caching + raw Gist mirror fallback, and `#session` token seeding. |

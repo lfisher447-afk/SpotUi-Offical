@@ -1,4 +1,4 @@
-package com.music.spotui.ui.screens
+package com.music.spotui.ui.screens.SpotifyLogin.page
 
 import android.annotation.SuppressLint
 import android.app.Activity
@@ -31,11 +31,6 @@ import kotlinx.coroutines.launch
 
 /**
  * YouTube Music account linker & playlist bridge.
- *
- * Users sign into their Google / YouTube Music account once inside the WebView,
- * and SpotUI immediately syncs every playlist, Liked Music (`LM`), and saved album
- * natively into SpotUI's own Library so all playback happens in SpotUI's native
- * audio/spatial engine rather than via the mobile website.
  */
 class YouTubeMusicWebActivity : Activity() {
     private var webView: WebView? = null

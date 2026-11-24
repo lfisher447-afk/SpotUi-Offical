@@ -3,6 +3,7 @@ package com.music.spotui.data.mapper
 
 import com.music.spotui.data.models.TrackModel
 import com.music.spotui.data.remote.SpotifyTrackDto
+import com.music.spotui.util.ExplicitContentDetector
 
 /** Maps Spotify network DTOs to immutable local models. */
 object SpotifyMapper {
@@ -17,7 +18,11 @@ object SpotifyMapper {
         albumName = album?.name.orEmpty(),
         artworkUrl = album?.images?.firstOrNull()?.url,
         durationMs = durationMs,
-        explicit = explicit,
+        explicit = ExplicitContentDetector.detectExplicit(
+            apiExplicit = explicit,
+            title = name,
+            album = album?.name,
+        ),
         isrc = externalIds["isrc"],
         addedAtEpochMs = nowEpochMs,
         updatedAtEpochMs = nowEpochMs,

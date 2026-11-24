@@ -34,6 +34,9 @@
     <string name="mini_player_tab_eq">EQ</string>
     <string name="mini_player_tab_3d">3D</string>
     <string name="mini_player_tab_tools">Tools</string>
+    <string name="mini_player_section_game">GAMING</string>
+    <string name="mini_player_tab_translate">Translate</string>
+    <string name="translation_bubble_title">Teammate Voice Translation (AI)</string>
     <string name="mini_player_eq_reset_flat">Reset Flat</string>
     <string name="mini_player_resize_hint">Drag corners to resize</string>
 </resources>

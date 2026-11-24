@@ -33,6 +33,18 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+    private val micPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            com.music.spotui.accessibility.GameTranslatorEngine.refreshMicPermission(this)
+            if (granted) {
+                android.widget.Toast.makeText(
+                    this,
+                    "Microphone enabled for Floater game translation",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?){
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
@@ -85,6 +97,8 @@ class MainActivity : ComponentActivity() {
         // Handle initial deep link intent if launched via Spotify link
         runCatching { com.music.spotui.util.DeepLinkHandler.handleIntent(intent) }
             .onFailure { AppDiagnostics.warning("DeepLink", "Initial deep-link handling failed", it) }
+
+        handleMicPermissionExtra(intent)
     }
 
     override fun onStart() {
@@ -121,12 +135,30 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun handleMicPermissionExtra(intent: Intent?) {
+        val shouldRequest = intent?.getBooleanExtra(
+            com.music.spotui.accessibility.MediaAccessibilityService.EXTRA_REQUEST_MIC_PERMISSION,
+            false,
+        ) == true
+        if (!shouldRequest) return
+        intent?.removeExtra(com.music.spotui.accessibility.MediaAccessibilityService.EXTRA_REQUEST_MIC_PERMISSION)
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
+            == PackageManager.PERMISSION_GRANTED
+        ) {
+            com.music.spotui.accessibility.GameTranslatorEngine.refreshMicPermission(this)
+        } else {
+            runCatching { micPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO) }
+                .onFailure { AppDiagnostics.warning("Permissions", "Microphone permission request failed", it) }
+        }
+    }
+
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         handleYouTubeOAuthIntent(intent)
         runCatching { com.music.spotui.util.DeepLinkHandler.handleIntent(intent) }
             .onFailure { AppDiagnostics.warning("DeepLink", "New deep-link handling failed", it) }
+        handleMicPermissionExtra(intent)
     }
 
     override fun onStop() {

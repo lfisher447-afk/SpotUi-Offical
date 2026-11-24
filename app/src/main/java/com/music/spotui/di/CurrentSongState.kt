@@ -83,7 +83,15 @@ class CurrentSongState @Inject constructor(
             it.url to com.music.spotui.data.preferences.alternativeStreamKey(it)
         })
         // Seed explicit flags so the YouTube fallback picks the matching edit.
-        SongPlayer.registerExplicit(sanitized.map { it.url to it.explicit })
+        SongPlayer.registerExplicit(
+            sanitized.map {
+                it.url to com.music.spotui.util.ExplicitContentDetector.detectExplicit(
+                    apiExplicit = it.explicit,
+                    title = it.title,
+                    album = it.album,
+                )
+            }
+        )
         // Seed durations so the YouTube match can reject same-title wrong-artist
         // songs (they almost always have a different length).
         SongPlayer.registerDuration(sanitized.mapNotNull { s -> if (s.durationMs > 0) s.url to s.durationMs else null })

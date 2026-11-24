@@ -136,7 +136,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.foundation.layout.heightIn
@@ -210,7 +210,7 @@ private enum class SettingsSideTab(
     MODULES("Modules", "17 Library Modules", "Toggle & verify Spotify, InnerTube, yt-dlp, Lyrics & Shazam", "17", Icons.Rounded.Extension),
     TURBO("Turbo", "MrBean & Storage", "8x HTTP/2 slices, connection pool & NovaAc cache", "8x", Icons.Rounded.Bolt),
     NETWORK("Network", "DNS, Auth & Sync", "DoH resolver, PoToken, proxy pool & YTM sync", "DoH", Icons.Rounded.Public),
-    SYSTEM("System", "System, Updates & Account", "Permissions, battery guard, v2.5.4 updater & backup", "OS", Icons.Rounded.Tune),
+    SYSTEM("System", "System, Updates & Account", "Permissions, battery guard, v2.5.5 updater & backup", "OS", Icons.Rounded.Tune),
     LOGS("Logs", "Logger & Telemetry", "2000-entry 8-channel developer diagnostics console", "LOG", Icons.Rounded.Terminal),
     ALL("All", "All SpotUI Settings", "Full scrollable configuration dashboard", "ALL", Icons.Rounded.Apps),
 }
@@ -349,19 +349,15 @@ fun SettingsScreen(navController: NavController) {
     var manualUpdateInfo by remember { mutableStateOf<UpdateChecker.UpdateInfo?>(null) }
     var autoDownloadUpdates by remember { mutableStateOf(isAutoDownloadUpdatesEnabled(context)) }
     val updateDownloadState by UpdateDownloader.state.collectAsStateWithLifecycle()
-    val pendingConfirmIntent by UpdateDownloader.pendingConfirmIntent.collectAsStateWithLifecycle()
+    val updaterLogEntries by com.music.spotui.data.update.AutoUpdaterLogger.entries.collectAsStateWithLifecycle()
+    var showUpdaterConflictLogs by rememberSaveable { mutableStateOf(false) }
     var settingsAutoOpenedVersion by remember { mutableStateOf<String?>(null) }
     var settingsInstallPermNeeded by remember { mutableStateOf(false) }
     var settingsInstallError by remember { mutableStateOf<String?>(null) }
     var showPatchNotesModal by remember { mutableStateOf(false) }
 
-    LaunchedEffect(pendingConfirmIntent) {
-        val confirmIntent = UpdateDownloader.consumePendingConfirmIntent() ?: return@LaunchedEffect
-        runCatching {
-            context.startActivity(confirmIntent)
-        }.onFailure { err ->
-            settingsInstallError = err.message ?: "Unable to open Android PackageInstaller dialog"
-        }
+    LaunchedEffect(Unit) {
+        com.music.spotui.data.update.AutoUpdaterLogger.initialize(context)
     }
 
     val settingsUnknownSourcesLauncher = rememberLauncherForActivityResult(
@@ -3155,11 +3151,41 @@ fun SettingsScreen(navController: NavController) {
                 },
             )
             Spacer(Modifier.height(10.dp))
-            Text(
-                text = "Installed: v${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})",
-                color = Color(0xFFB3B3B3),
-                fontSize = 12.sp,
-            )
+            val installedCertInfo = remember { UpdateDownloader.getInstalledSigningCertInfo(context) }
+            val updaterConflictCount = remember(updaterLogEntries) {
+                updaterLogEntries.count {
+                    it.severity == com.music.spotui.data.update.AutoUpdaterLogger.Severity.CONFLICT ||
+                        it.severity == com.music.spotui.data.update.AutoUpdaterLogger.Severity.ERROR ||
+                        it.severity == com.music.spotui.data.update.AutoUpdaterLogger.Severity.WARNING
+                }
+            }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF1A1D26))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = "Installed: v${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Installed Signing Key ID: ${installedCertInfo?.shortId?.plus("…") ?: "Unavailable"}",
+                    color = Color(0xFF9ED4FF),
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    fontSize = 11.sp,
+                )
+                Text(
+                    text = "In-place updates work automatically whenever the next APK matches this Signing Key ID (set SIGNING_KEYSTORE_BASE64 in GitHub Actions Secrets or commit debug.keystore.base64 to avoid ephemeral one-time keys).",
+                    color = Color(0xFFB3B8C4),
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                )
+            }
             Spacer(Modifier.height(6.dp))
             SettingsSwitchRow(
                 title = "Auto-download updates in-app",
@@ -3595,6 +3621,20 @@ fun SettingsScreen(navController: NavController) {
                         UpdateDownloader.DownloadState.Idle -> Unit
                     }
                     manualUpdateInfo?.let { info ->
+                        val remoteEval = remember(info.fingerprint) {
+                            UpdateDownloader.evaluateRemoteSigningCompatibility(context, info)
+                        }
+                        Text(
+                            text = remoteEval.summary,
+                            color = when (remoteEval.status) {
+                                UpdateDownloader.RemoteSigningCompatibility.COMPATIBLE -> Color(0xFF81C784)
+                                UpdateDownloader.RemoteSigningCompatibility.MISMATCH -> Color(0xFFFF8A65)
+                                UpdateDownloader.RemoteSigningCompatibility.EPHEMERAL_RISK -> Color(0xFFFFD54F)
+                                UpdateDownloader.RemoteSigningCompatibility.UNKNOWN -> Color(0xFF9ED4FF)
+                            },
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                        )
                         if (info.apkFileName.isNotBlank() || info.expectedSha256.isNotBlank()) {
                             val mbText = if (info.apkSizeBytes > 0L) " · %.1f MB".format(info.apkSizeBytes / (1024.0 * 1024.0)) else ""
                             if (info.apkFileName.isNotBlank()) {
@@ -3619,6 +3659,56 @@ fun SettingsScreen(navController: NavController) {
                             }
                         }
                     }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFF1A1D26))
+                    .clickable { showUpdaterConflictLogs = !showUpdaterConflictLogs }
+                    .testTag("toggle_updater_conflict_logs_button")
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Auto-Updater Conflict & Diagnostics Log",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = if (updaterConflictCount > 0) {
+                            "${updaterLogEntries.size} events · $updaterConflictCount warning/conflict"
+                        } else {
+                            "${updaterLogEntries.size} update check & install events recorded"
+                        },
+                        color = if (updaterConflictCount > 0) Color(0xFFFFCA7A) else Color(0xFF9EA5B5),
+                        fontSize = 11.sp,
+                    )
+                }
+                Text(
+                    text = if (showUpdaterConflictLogs) "Hide" else "View",
+                    color = AppPalette,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            AnimatedVisibility(
+                visible = showUpdaterConflictLogs,
+                enter = expandVertically(),
+                exit = shrinkVertically(),
+            ) {
+                Column(modifier = Modifier.padding(top = 8.dp)) {
+                    com.music.spotui.ui.components.UpdaterConflictLogPanel(
+                        context = context,
+                        entries = updaterLogEntries,
+                        latestInfo = manualUpdateInfo ?: UpdateChecker.latestAvailable.collectAsStateWithLifecycle().value,
+                    )
                 }
             }
             Spacer(Modifier.height(12.dp))

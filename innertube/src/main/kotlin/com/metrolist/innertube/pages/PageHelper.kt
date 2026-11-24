@@ -225,4 +225,26 @@ object PageHelper {
     private fun String.isDurationText(): Boolean =
         matches(Regex("""\d{1,2}[:.,]\d{2}(?:[:.,]\d{2})?"""))
 
+    private val cleanEditRegex = Regex(
+        """(?i)(?:\[(?:clean(?:\s+(?:version|edit))?|radio\s+edit|edited(?:\s+version)?|censored)\]|\((?:clean(?:\s+(?:version|edit))?|radio\s+edit|edited(?:\s+version)?|censored)\)|[-–—]\s*(?:clean\s+version|radio\s+edit)\s*$)""",
+    )
+
+    private val explicitMarkerRegex = Regex(
+        """(?i)(?:\[(?:e|explicit(?:\s+(?:version|edit))?|dirty|uncensored)\]|\((?:e|explicit(?:\s+(?:version|edit))?|dirty|uncensored)\)|[-–—]\s*(?:explicit(?:\s+version)?|dirty|uncensored)\s*$|\bexplicit\s+version\b)""",
+    )
+
+    fun isExplicitItem(
+        badges: List<com.metrolist.innertube.models.Badges>?,
+        title: String?,
+        albumName: String? = null,
+    ): Boolean {
+        if (!title.isNullOrBlank() && cleanEditRegex.containsMatchIn(title)) return false
+        val hasBadge = badges?.any {
+            it.musicInlineBadgeRenderer?.icon?.iconType == "MUSIC_EXPLICIT_BADGE"
+        } == true
+        if (hasBadge) return true
+        return (!title.isNullOrBlank() && explicitMarkerRegex.containsMatchIn(title)) ||
+            (!albumName.isNullOrBlank() && explicitMarkerRegex.containsMatchIn(albumName))
+    }
+
 }

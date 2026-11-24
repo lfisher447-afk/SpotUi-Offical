@@ -86,7 +86,11 @@ class Api @Inject constructor(
             // reuse each other's stream.
             url = com.music.spotui.di.SongPlayer.buildSpotifyPlayQuery(id, name, singer),
             spotifyTrackId = id,
-            explicit = explicit,
+            explicit = com.music.spotui.util.ExplicitContentDetector.detectExplicit(
+                apiExplicit = explicit,
+                title = name,
+                album = album?.name,
+            ),
             durationMs = durationMs,
             artistIds = artists.joinToString(",") { it.id.orEmpty() },
         )

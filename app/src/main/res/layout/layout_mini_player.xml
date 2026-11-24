@@ -624,6 +624,50 @@
                             android:textSize="9.5sp"
                             android:textStyle="bold" />
                     </LinearLayout>
+
+                    <!-- SECTION: GAMING -->
+                    <TextView
+                        android:id="@+id/tv_sidebar_section_game"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:paddingTop="4dp"
+                        android:paddingBottom="3dp"
+                        android:text="@string/mini_player_section_game"
+                        android:textColor="#FF1ED760"
+                        android:textSize="8.5sp"
+                        android:textStyle="bold"
+                        android:visibility="gone" />
+
+                    <LinearLayout
+                        android:id="@+id/nav_tab_translate"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:orientation="vertical"
+                        android:paddingTop="6dp"
+                        android:paddingBottom="6dp"
+                        android:visibility="gone">
+
+                        <ImageView
+                            android:id="@+id/iv_nav_translate"
+                            android:layout_width="17dp"
+                            android:layout_height="17dp"
+                            android:contentDescription="@string/mini_player_tab_translate"
+                            android:src="@drawable/ic_mini_tools"
+                            android:tint="#FF1ED760" />
+
+                        <TextView
+                            android:id="@+id/tv_nav_translate"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:maxLines="1"
+                            android:text="@string/mini_player_tab_translate"
+                            android:textColor="#FF1ED760"
+                            android:textSize="9.5sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
                 </LinearLayout>
             </ScrollView>
 
@@ -1720,6 +1764,112 @@
                                 android:textColor="#FFFFFFFF"
                                 android:textSize="9.5sp"
                                 android:textStyle="bold" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- TAB 6: TRANSLATE (Teammate Voice/Chat Translation Bubble for Games) -->
+                    <LinearLayout
+                        android:id="@+id/panel_floater_translate"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="@drawable/bg_mini_card_inner"
+                            android:orientation="vertical"
+                            android:padding="10dp">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/translation_bubble_title"
+                                android:textColor="#FF1ED760"
+                                android:textSize="11.5sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="3dp"
+                                android:text="Auto-detects teammate speech (Spanish, Arabic, Portuguese) &amp; translates to English in a top-left floating bubble."
+                                android:textColor="#FFB8C0CE"
+                                android:textSize="10sp" />
+
+                            <TextView
+                                android:id="@+id/toggle_translate_bubble"
+                                android:layout_width="match_parent"
+                                android:layout_height="28dp"
+                                android:layout_marginTop="8dp"
+                                android:background="@drawable/bg_mini_chip_active"
+                                android:gravity="center"
+                                android:text="Floating Bubble: ON"
+                                android:textColor="#FF06130B"
+                                android:textSize="10sp"
+                                android:textStyle="bold" />
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="6dp"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal">
+
+                                <TextView
+                                    android:layout_width="60dp"
+                                    android:layout_height="wrap_content"
+                                    android:text="Width"
+                                    android:textColor="#FFD5DCE6"
+                                    android:textSize="10sp" />
+
+                                <SeekBar
+                                    android:id="@+id/seek_translate_width"
+                                    android:layout_width="0dp"
+                                    android:layout_height="24dp"
+                                    android:layout_weight="1"
+                                    android:max="200"
+                                    android:progress="100"
+                                    android:progressTint="#FF1DB954"
+                                    android:thumbTint="#FFFFFFFF" />
+                            </LinearLayout>
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal">
+
+                                <TextView
+                                    android:layout_width="60dp"
+                                    android:layout_height="wrap_content"
+                                    android:text="Text Size"
+                                    android:textColor="#FFD5DCE6"
+                                    android:textSize="10sp" />
+
+                                <SeekBar
+                                    android:id="@+id/seek_translate_size"
+                                    android:layout_width="0dp"
+                                    android:layout_height="24dp"
+                                    android:layout_weight="1"
+                                    android:max="10"
+                                    android:progress="4"
+                                    android:progressTint="#FF1DB954"
+                                    android:thumbTint="#FFFFFFFF" />
+                            </LinearLayout>
+
+                            <TextView
+                                android:id="@+id/tv_translation_preview"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp"
+                                android:background="@drawable/bg_mini_mute_pill"
+                                android:padding="8dp"
+                                android:text="[Teammate - ES]: ¡Cuidado, hay enemigos a la derecha! -> [EN]: Watch out, enemies on the right!"
+                                android:textColor="#FF8BE9FD"
+                                android:textSize="10.5sp" />
                         </LinearLayout>
                     </LinearLayout>
                 </LinearLayout>

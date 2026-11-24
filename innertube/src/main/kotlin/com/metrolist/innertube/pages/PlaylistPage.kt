@@ -33,22 +33,22 @@ data class PlaylistPage(
 
             val artists = PageHelper.extractArtists(secondaryLineRuns)
 
+            val albumModel = renderer.flexColumns.getOrNull(2)?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.firstOrNull()?.let {
+                Album(
+                    name = it.text,
+                    id = it.navigationEndpoint?.browseEndpoint?.browseId ?: return@let null
+                )
+            }
+
             return SongItem(
                 id = renderer.videoId ?: return null,
                 title = title,
                 artists = artists,
-                album = renderer.flexColumns.getOrNull(2)?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.firstOrNull()?.let {
-                    Album(
-                        name = it.text,
-                        id = it.navigationEndpoint?.browseEndpoint?.browseId ?: return@let null
-                    )
-                },
+                album = albumModel,
                 duration = renderer.fixedColumns?.firstOrNull()?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.firstOrNull()?.text?.parseTime(),
                 musicVideoType = renderer.musicVideoType,
                 thumbnail = renderer.thumbnail?.getThumbnailUrl() ?: return null,
-                explicit = renderer.badges?.find {
-                    it.musicInlineBadgeRenderer?.icon?.iconType == "MUSIC_EXPLICIT_BADGE"
-                } != null,
+                explicit = PageHelper.isExplicitItem(renderer.badges, title, albumModel?.name),
                 endpoint = renderer.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint?.watchEndpoint,
                 setVideoId = renderer.playlistSetVideoId ?: return null,
                 libraryAddToken = libraryTokens.addToken,

@@ -587,13 +587,44 @@ object SongPlayer {
         val curIdx = q.indexOfFirst { it.id == curId }
             .let { if (it >= 0) it else state.songIndex.value }
             .coerceIn(0, q.lastIndex)
-        val nextIdx = when {
-            curIdx < q.lastIndex -> curIdx + 1
-            state.repeat.value == RepeatMode.ALL -> 0
-            else -> return null
+        val allowExplicit = appCtx?.let { com.music.spotui.data.preferences.isExplicitContentAllowed(it) } ?: true
+        val total = q.size
+        val stepCount = if (state.repeat.value == RepeatMode.ALL) total - 1 else (q.lastIndex - curIdx)
+        for (offset in 1..stepCount) {
+            val candidateIdx = (curIdx + offset) % total
+            val candidate = q[candidateIdx]
+            if (!allowExplicit && com.music.spotui.util.ExplicitContentDetector.detectExplicit(
+                    apiExplicit = candidate.explicit,
+                    title = candidate.title,
+                    album = candidate.album,
+                )
+            ) {
+                continue
+            }
+            return candidate to "song/${candidate.id}"
         }
-        val nextSong = q[nextIdx]
-        return nextSong to "song/${nextSong.id}"
+        return null
+    }
+
+    private fun blockedExplicitTrackTitle(
+        appContext: Context,
+        songQuery: String,
+        mediaId: String?,
+    ): String? {
+        if (com.music.spotui.data.preferences.isExplicitContentAllowed(appContext)) return null
+        val queueTrack = boundState?.queue?.value?.firstOrNull {
+            it.url == songQuery || (mediaId != null && "song/${it.id}" == mediaId)
+        }
+        val meta = metadataRegistry[songQuery]
+        val title = queueTrack?.title?.ifBlank { null } ?: meta?.title?.ifBlank { null } ?: metaTitle
+        val album = queueTrack?.album?.ifBlank { null } ?: meta?.album?.ifBlank { null } ?: metaAlbum
+        val apiExplicit = queueTrack?.explicit ?: explicitRegistry[songQuery] ?: false
+        val isExplicit = com.music.spotui.util.ExplicitContentDetector.detectExplicit(
+            apiExplicit = apiExplicit,
+            title = title,
+            album = album,
+        )
+        return if (isExplicit) title.ifBlank { "Explicit track" } else null
     }
 
     private fun resolveUriForQuery(song: String): String =
@@ -607,13 +638,39 @@ object SongPlayer {
     fun playSong(song: String, context: Context, mediaId: String? = null) {
         val appContext = context.applicationContext
         appCtx = appContext
+        val inferredMediaId = mediaId
+            ?: boundState?.queue?.value?.firstOrNull { it.url == song }?.let { "song/${it.id}" }
+            ?: boundState?.songId?.value?.takeIf { it > 0 }?.let { "song/$it" }
+        blockedExplicitTrackTitle(appContext, song, inferredMediaId)?.let { blockedTitle ->
+            activeResolveJob?.cancel()
+            currentRequest = song
+            currentMediaId = inferredMediaId
+            playWhenResolved = false
+            isResolvingTrack = false
+            lastPlaybackError = "Explicit track blocked by content filter"
+            com.music.spotui.util.DevConsoleManager.logInfo(
+                "ExplicitFilter",
+                "Blocked explicit playback: $blockedTitle",
+            )
+            runOnMain {
+                runCatching { player?.pause() }
+                runCatching { SpotifyWebPlayer.pause() }
+                updateResolveStatus(false)
+                boundState?.setPlaying(false)
+                boundState?.updateResolveError("Explicit track blocked: $blockedTitle")
+                android.widget.Toast.makeText(
+                    appContext,
+                    "Explicit track blocked: $blockedTitle",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+                com.music.spotui.ui.notification.PlaybackService.notifyPlaybackStateChanged(appContext)
+            }
+            return
+        }
         if (currentRequest != song) {
             activeResolveJob?.cancel()
         }
         currentRequest = song
-        val inferredMediaId = mediaId
-            ?: boundState?.queue?.value?.firstOrNull { it.url == song }?.let { "song/${it.id}" }
-            ?: boundState?.songId?.value?.takeIf { it > 0 }?.let { "song/$it" }
         currentMediaId = inferredMediaId
         playWhenResolved = true
         lastPlaybackError = null
@@ -2257,6 +2314,13 @@ object SongPlayer {
         )
     }
 
+    private fun SongItem.effectiveExplicit(): Boolean =
+        com.music.spotui.util.ExplicitContentDetector.detectExplicit(
+            apiExplicit = explicit,
+            title = title,
+            album = album?.name,
+        )
+
     private fun CandidateScore.isAcceptableMatch(wantExplicit: Boolean? = null): Boolean {
         val durationStrong = durationScore?.let { it >= 0.94 } ?: false
         val albumUseful = albumScore?.let { it >= 0.45 } ?: false
@@ -2270,7 +2334,8 @@ object SongPlayer {
         // Penalise candidates whose explicit flag doesn't match the Spotify track.
         // This makes it harder for a clean version to pass the gate when an
         // explicit one is expected (and vice-versa).
-        val explicitMismatch = wantExplicit != null && item.explicit != wantExplicit
+        val itemExplicit = item.effectiveExplicit()
+        val explicitMismatch = wantExplicit != null && itemExplicit != wantExplicit
         val minScore = if (explicitMismatch) baseMinScore + 0.6 else baseMinScore
 
         // Duration is deliberately weighted heavily, as in spotify_to_ytmusic,
@@ -2312,7 +2377,11 @@ object SongPlayer {
         )
         metadataRegistry[query] = repaired
         trackIdRegistry[query] = spotifyId
-        explicitRegistry[query] = track.explicit
+        explicitRegistry[query] = com.music.spotui.util.ExplicitContentDetector.detectExplicit(
+            apiExplicit = track.explicit,
+            title = track.name,
+            album = track.album?.name,
+        )
         if (track.durationMs > 0) durationRegistry[query] = track.durationMs
         return repaired
     }
@@ -2323,7 +2392,14 @@ object SongPlayer {
         forPlayback: Boolean = false,
         forceRefresh: Boolean = false,
     ): List<String> {
-        val cacheKey = "$query|${filter.value}"
+        val allowExplicit = appCtx?.let { com.music.spotui.data.preferences.isExplicitContentAllowed(it) } ?: true
+        val preferExplicit = appCtx?.let { com.music.spotui.data.preferences.isPreferExplicitVersions(it) } ?: true
+        val wantExplicit = com.music.spotui.util.ExplicitContentDetector.effectiveWantExplicit(
+            allowExplicit = allowExplicit,
+            preferExplicit = preferExplicit,
+            spotifyExplicitFlag = explicitRegistry[query],
+        )
+        val cacheKey = "$query|${filter.value}|exp=${wantExplicit ?: "any"}"
         if (!forceRefresh) {
             videoCandidatesCache[cacheKey]?.let { return it }
             appCtx?.let { ctx ->
@@ -2339,12 +2415,14 @@ object SongPlayer {
         if (forPlayback) {
             updateResolveStatus(true, "Searching YouTube videos...")
         }
-        val wantExplicit = explicitRegistry[query]
         val baseSearchText = searchTextForPlayback(query)
-        // Append "explicit" to the YouTube search query when Spotify says the
-        // track is explicit — increases the chance YouTube returns the correct
-        // version instead of the clean/radio edit.
-        val searchText = if (wantExplicit == true) "$baseSearchText explicit" else baseSearchText
+        // Append "explicit" or "clean" to the YouTube search query according to
+        // Spotify track metadata + Explicit preference toggles.
+        val searchText = when {
+            wantExplicit == true -> "$baseSearchText explicit"
+            wantExplicit == false && explicitRegistry[query] == true -> "$baseSearchText clean"
+            else -> baseSearchText
+        }
         // A raw YouTube videoId is 11 chars with no spaces — accept it directly.
         if (searchText.length == 11 && !searchText.contains(' ')) return listOf(searchText)
         val hits = YouTube.search(searchText, filter)
@@ -2357,13 +2435,6 @@ object SongPlayer {
             Log.w(TAG, "resolveVideoId: no YouTube song results for: $searchText")
             return emptyList()
         }
-        // YouTube's top hit is NOT always the requested song (worst for
-        // non-English titles). Score every hit against the query — the query is
-        // "title artist1, artist2":
-        //   +2 artist match, +1 title match, +2 duration match.
-        // Duration is the key disambiguator for same-title/different-artist: a
-        // wrong-artist song with the same name almost always has a different
-        // length, so it never ties the real track once duration is in the score.
         fun norm(s: String) = s.lowercase().filter { it.isLetterOrDigit() }
         val qn = norm(baseSearchText)
         val exactMeta = ensureSpotifyMatchMetadata(query)
@@ -2373,9 +2444,9 @@ object SongPlayer {
             var s = 0
             if (cleanTitle.isNotEmpty() && qn.contains(cleanTitle)) s += 1
             if (h.artists.any { a -> norm(a.name).let { it.isNotEmpty() && qn.contains(it) } }) s += 2
-            // Within ~4s of the Spotify track length → very likely the same recording.
             val hDur = h.duration
             if (wantSec != null && hDur != null && kotlin.math.abs(hDur - wantSec) <= 4) s += 2
+            if (!allowExplicit && com.music.spotui.util.ExplicitContentDetector.isCleanEditText(h.title)) s += 2
             h to s
         }
         val transferScored = if (exactMeta != null) {
@@ -2383,8 +2454,6 @@ object SongPlayer {
         } else {
             emptyList()
         }
-        // A hit is "verified" as the right recording when its artist matches the
-        // query, OR (when we know the Spotify length) its duration is within ~4s.
         fun verified(h: SongItem): Boolean {
             val artistOk = h.artists.any { a -> norm(a.name).let { it.isNotEmpty() && qn.contains(it) } }
             val d = h.duration
@@ -2392,23 +2461,25 @@ object SongPlayer {
             return artistOk || durOk
         }
         fun explicitFirst(list: List<SongItem>) =
-            if (wantExplicit != null) list.sortedByDescending { it.explicit == wantExplicit } else list
+            if (wantExplicit != null) list.sortedByDescending { it.effectiveExplicit() == wantExplicit } else list
         val ordered = if (transferScored.isNotEmpty()) {
             val accepted = transferScored
                 .filter { it.isAcceptableMatch(wantExplicit) }
                 .let { pool ->
-                    // Hard filter: when the Spotify track has an explicit flag and at
-                    // least one acceptable candidate matches, discard the rest so a
-                    // clean version can never win over an available explicit one.
                     if (wantExplicit != null) {
-                        val matching = pool.filter { it.item.explicit == wantExplicit }
+                        val matching = pool.filter { it.item.effectiveExplicit() == wantExplicit }
                         if (matching.isNotEmpty()) matching else pool
                     } else {
                         pool
                     }
                 }
                 .sortedWith(
-                    compareByDescending<CandidateScore> { it.item.explicit == wantExplicit || wantExplicit == null }
+                    compareByDescending<CandidateScore> {
+                        it.item.effectiveExplicit() == wantExplicit || wantExplicit == null
+                    }
+                        .thenByDescending {
+                            !allowExplicit && com.music.spotui.util.ExplicitContentDetector.isCleanEditText(it.item.title)
+                        }
                         .thenByDescending { it.score }
                 )
                 .map { it.item }
@@ -2424,13 +2495,11 @@ object SongPlayer {
                         "album=${"%.2f".format(best?.albumScore ?: 0.0)} " +
                         "alt=${best?.unexpectedAlternates.orEmpty().joinToString("/")}), falling back to best-effort",
                 )
-                transferScored.sortedByDescending { it.score }.map { it.item }
+                explicitFirst(transferScored.sortedByDescending { it.score }.map { it.item })
             } else {
                 accepted.distinctBy { it.id }
             }
         } else {
-            // Legacy/plain queries without registered Spotify metadata: keep the
-            // old best-effort ordering.
             val verifiedRanked = scored
                 .filter { verified(it.first) }
                 .sortedByDescending { it.second }
@@ -2450,9 +2519,9 @@ object SongPlayer {
         val chosenScore = transferScored.firstOrNull { it.item.id == chosen.id }
         Log.d(
             TAG,
-            "resolveVideoId: '$searchText' -> '${chosen.title}' by " +
+            "resolveVideoId: '$searchText' [${filter.value}] -> '${chosen.title}' by " +
                 chosen.artists.joinToString { it.name } +
-                " [explicit=${chosen.explicit} dur=${chosen.duration}s want=${wantSec}s id=${chosen.id}] " +
+                " [explicit=${chosen.effectiveExplicit()} want=$wantExplicit dur=${chosen.duration}s want=${wantSec}s id=${chosen.id}] " +
                 (chosenScore?.let {
                     "score=${"%.2f".format(it.score)} title=${"%.2f".format(it.titleScore)} " +
                         "artist=${"%.2f".format(it.artistEvidenceScore)} duration=${"%.2f".format(it.durationScore ?: 0.0)} " +
@@ -2472,8 +2541,9 @@ object SongPlayer {
     }
 
     /**
-     * Resolves a playable YouTube stream for [query], falling back through up to
-     * 3 ranked video candidates when one has no obtainable stream.
+     * Resolves a playable YouTube stream for [query] using the configured
+     * [com.music.spotui.data.preferences.AltStreamSearchMode] (`AUTO`, `MUSIC`, `VIDEO`, `BOTH`),
+     * falling back across ranked candidates when one fails.
      */
     private suspend fun resolveYtPlayback(
         query: String,
@@ -2485,10 +2555,20 @@ object SongPlayer {
         lastYtFailureReason = null
         val connectivityManager =
             appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        // Skip the HTTP HEAD validation probe when the video ID came from a
-        // previous successful play (cached in memory or SharedPrefs). ExoPlayer
-        // has its own retry logic, so the probe just adds ~0.5-1s of latency.
-        val cacheKey = "$query|${com.metrolist.innertube.YouTube.SearchFilter.FILTER_SONG.value}"
+        val searchMode = com.music.spotui.data.preferences.getAltStreamSearchMode(appContext)
+        val allowExplicit = com.music.spotui.data.preferences.isExplicitContentAllowed(appContext)
+        val preferExplicit = com.music.spotui.data.preferences.isPreferExplicitVersions(appContext)
+        val wantExplicit = com.music.spotui.util.ExplicitContentDetector.effectiveWantExplicit(
+            allowExplicit = allowExplicit,
+            preferExplicit = preferExplicit,
+            spotifyExplicitFlag = explicitRegistry[query],
+        )
+        val primaryFilter = if (searchMode == com.music.spotui.data.preferences.AltStreamSearchMode.VIDEO) {
+            YouTube.SearchFilter.FILTER_VIDEO
+        } else {
+            YouTube.SearchFilter.FILTER_SONG
+        }
+        val cacheKey = "$query|${primaryFilter.value}|exp=${wantExplicit ?: "any"}"
         val candidatesCached = !forceFreshCandidates && videoCandidatesCache.containsKey(cacheKey)
         val tried = mutableSetOf<String>()
         suspend fun tryIds(ids: List<String>, skipValidation: Boolean = false): YTPlayerUtils.PlaybackData? {
@@ -2504,9 +2584,9 @@ object SongPlayer {
                     skipValidation = skipValidation,
                 ).fold(
                     onSuccess = { return it },
-                    onFailure = { 
+                    onFailure = {
                         lastYtFailureReason = it.message ?: "Stream failed"
-                        Log.w(TAG, "stream failed for $videoId (${it.message}) — trying next candidate for: ${searchTextForPlayback(query)}") 
+                        Log.w(TAG, "stream failed for $videoId (${it.message}) — trying next candidate for: ${searchTextForPlayback(query)}")
                     },
                 )
             }
@@ -2517,17 +2597,59 @@ object SongPlayer {
         } else {
             6
         }
-        tryIds(resolveVideoCandidates(query, forPlayback = forPlayback, forceRefresh = forceFreshCandidates).take(candidateLimit), skipValidation = candidatesCached)?.let { return it }
-        if (!com.music.spotui.data.preferences.isVideoFallbackEnabled(appContext)) {
-            Log.w(TAG, "song candidates exhausted and video fallback disabled for: ${searchTextForPlayback(query)}")
-            return null
+
+        when (searchMode) {
+            com.music.spotui.data.preferences.AltStreamSearchMode.BOTH -> {
+                val mergedIds = coroutineScope {
+                    val musicDeferred = async {
+                        resolveVideoCandidates(query, YouTube.SearchFilter.FILTER_SONG, forPlayback = forPlayback, forceRefresh = forceFreshCandidates)
+                    }
+                    val videoDeferred = async {
+                        resolveVideoCandidates(query, YouTube.SearchFilter.FILTER_VIDEO, forPlayback = false, forceRefresh = forceFreshCandidates)
+                    }
+                    val m = musicDeferred.await()
+                    val v = videoDeferred.await()
+                    val interleaved = ArrayList<String>(m.size + v.size)
+                    val maxLen = maxOf(m.size, v.size)
+                    for (i in 0 until maxLen) {
+                        m.getOrNull(i)?.let { interleaved.add(it) }
+                        v.getOrNull(i)?.let { interleaved.add(it) }
+                    }
+                    interleaved.distinct()
+                }
+                tryIds(mergedIds.take(candidateLimit * 2), skipValidation = candidatesCached)?.let { return it }
+            }
+
+            com.music.spotui.data.preferences.AltStreamSearchMode.VIDEO -> {
+                tryIds(
+                    resolveVideoCandidates(query, YouTube.SearchFilter.FILTER_VIDEO, forPlayback = forPlayback, forceRefresh = forceFreshCandidates).take(candidateLimit),
+                    skipValidation = candidatesCached,
+                )?.let { return it }
+                Log.w(TAG, "video candidates exhausted, falling back to music search for: ${searchTextForPlayback(query)}")
+                tryIds(
+                    resolveVideoCandidates(query, YouTube.SearchFilter.FILTER_SONG, forPlayback = forPlayback, forceRefresh = forceFreshCandidates).take(candidateLimit),
+                    skipValidation = false,
+                )?.let { return it }
+            }
+
+            com.music.spotui.data.preferences.AltStreamSearchMode.MUSIC,
+            com.music.spotui.data.preferences.AltStreamSearchMode.AUTO -> {
+                tryIds(
+                    resolveVideoCandidates(query, YouTube.SearchFilter.FILTER_SONG, forPlayback = forPlayback, forceRefresh = forceFreshCandidates).take(candidateLimit),
+                    skipValidation = candidatesCached,
+                )?.let { return it }
+                if (!com.music.spotui.data.preferences.isVideoFallbackEnabled(appContext)) {
+                    Log.w(TAG, "song candidates exhausted and video fallback disabled for: ${searchTextForPlayback(query)}")
+                    return null
+                }
+                Log.w(TAG, "song candidates exhausted, trying video search for: ${searchTextForPlayback(query)}")
+                tryIds(
+                    resolveVideoCandidates(query, YouTube.SearchFilter.FILTER_VIDEO, forPlayback = forPlayback, forceRefresh = forceFreshCandidates).take(candidateLimit),
+                    skipValidation = candidatesCached,
+                )?.let { return it }
+            }
         }
-        // Song results exhausted (e.g. every official upload is age-restricted and
-        // we're not signed in to YouTube). Regular video uploads — lyric videos,
-        // reuploads — usually aren't age-gated: last-resort pass over those.
-        Log.w(TAG, "song candidates exhausted, trying video search for: ${searchTextForPlayback(query)}")
-        tryIds(resolveVideoCandidates(query, YouTube.SearchFilter.FILTER_VIDEO, forPlayback = forPlayback, forceRefresh = forceFreshCandidates).take(candidateLimit), skipValidation = candidatesCached)?.let { return it }
-        Log.e(TAG, "All YouTube candidates failed for: ${searchTextForPlayback(query)}")
+        Log.e(TAG, "All YouTube candidates failed ($searchMode) for: ${searchTextForPlayback(query)}")
         return null
     }
 

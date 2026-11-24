@@ -86,6 +86,10 @@ class MyApplication : Application(), Configuration.Provider {
                 else -> AppDiagnostics.info("SpotifyCanvas:$level", msg)
             }
         }
+        // Install Spotify 401 auto-refresh + GQL persisted-query hash self-healing at cold start
+        runCatching { com.music.spotui.ui.screens.SpotifyLogin.module.installSpotifyTokenAutoRefresh(this) }
+            .onFailure { AppDiagnostics.warning("SpotifyAuth", "Auto-refresh install failed", it) }
+
         // Required by the ported YouTube streaming flow (cipher/PoToken WebViews).
         runCatching { CipherDeobfuscator.initialize(this) }
             .onFailure { AppDiagnostics.error("CipherDeobfuscator", "Initialization failed", it) }

@@ -398,7 +398,12 @@ fun NewPlayerLayout(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (currentTrack?.explicit == true) {
+                    val trackExplicit = com.music.spotui.util.ExplicitContentDetector.detectExplicit(
+                        apiExplicit = currentTrack?.explicit == true,
+                        title = songTitle,
+                        album = songAlbum,
+                    )
+                    if (trackExplicit) {
                         ExplicitBadge(size = 11.sp)
                         Spacer(Modifier.width(6.dp))
                     }

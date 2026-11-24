@@ -74,6 +74,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -819,7 +821,11 @@ fun PlayerScreen(navController: NavController) {
                             },
                             spotifyTrackId = queueSongs.firstOrNull { it.id == songId }?.spotifyTrackId.orEmpty(),
                             onShowSavedIn = { showSavedIn = true },
-                            isExplicit = queueSongs.firstOrNull { it.id == songId }?.explicit == true,
+                            isExplicit = com.music.spotui.util.ExplicitContentDetector.detectExplicit(
+                                apiExplicit = queueSongs.firstOrNull { it.id == songId }?.explicit == true,
+                                title = songTitle,
+                                album = playerViewModel.currentSongAlbum.value,
+                            ),
                         )
 
                         // Smooth scrubbing: while dragging, the thumb follows the finger
@@ -2629,23 +2635,31 @@ fun AlternativeStreamEditor(
     onClear: () -> Unit,
     onOpenYouTubeSearch: () -> Unit,
 ) {
+    val context = LocalContext.current
     var youtubeText by remember { mutableStateOf("") }
-    val videoPreviewEnabled = com.music.spotui.data.preferences.isPlayerVideoPreviewEnabled(LocalContext.current)
+    val videoPreviewEnabled = com.music.spotui.data.preferences.isPlayerVideoPreviewEnabled(context)
+    val currentSearchMode = remember(currentAlternative) {
+        com.music.spotui.data.preferences.getAltStreamSearchMode(context)
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Icon(
-                imageVector = Icons.Default.KeyboardArrowDown,
-                tint = Color.White,
+            IconButton(
+                onClick = onBack,
                 modifier = Modifier
-                    .size(24.dp)
-                    .clickable { onBack() },
-                contentDescription = null,
-            )
-            Spacer(Modifier.width(12.dp))
+                    .size(48.dp)
+                    .testTag("alt_stream_back_button"),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowDown,
+                    tint = Color.White,
+                    contentDescription = "Back",
+                )
+            }
+            Spacer(Modifier.width(4.dp))
             Text(
                 "Alternative stream",
                 color = Color.White,
@@ -2653,9 +2667,8 @@ fun AlternativeStreamEditor(
                 fontWeight = FontWeight.Bold,
             )
         }
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(10.dp))
         if (currentAlternative != null && currentAlternative.isYouTube && videoPreviewEnabled) {
-            val context = LocalContext.current
             val videoId = currentAlternative.value
             val thumbnailUrl = "https://img.youtube.com/vi/$videoId/mqdefault.jpg"
             Row(
@@ -2679,7 +2692,7 @@ fun AlternativeStreamEditor(
                         .size(64.dp)
                         .clip(RoundedCornerShape(6.dp)),
                     contentScale = ContentScale.Crop,
-                    contentDescription = null,
+                    contentDescription = "YouTube thumbnail",
                 )
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
@@ -2734,7 +2747,9 @@ fun AlternativeStreamEditor(
             singleLine = true,
             textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp),
             label = { Text("YouTube link or video ID", color = Color(0xFFB3B3B3)) },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("alt_stream_youtube_input"),
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -2743,6 +2758,9 @@ fun AlternativeStreamEditor(
         ) {
             TextButton(
                 enabled = enabled && youtubeText.isNotBlank(),
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("alt_stream_use_youtube_button"),
                 onClick = { onUseYouTube(youtubeText) }) {
                 Text(
                     "Use YouTube",
@@ -2753,6 +2771,7 @@ fun AlternativeStreamEditor(
         PlayerMenuRow(
             icon = Icons.Default.Search,
             label = "Search YouTube",
+            subtitle = "Mode: ${currentSearchMode.shortLabel} · Choose Auto, Music, Video, or Both",
             enabled = enabled,
             trailingArrow = true,
         ) {
@@ -2802,23 +2821,75 @@ fun YouTubeSearchView(
             .padding(horizontal = 20.dp, vertical = 16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Icon(
-                imageVector = Icons.Default.KeyboardArrowDown,
-                tint = Color.White,
+            IconButton(
+                onClick = { viewModel.stopPreview(); onBack() },
                 modifier = Modifier
-                    .size(24.dp)
-                    .clickable { viewModel.stopPreview(); onBack() },
-                contentDescription = null,
-            )
-            Spacer(Modifier.width(12.dp))
-            Text(
-                "Search YouTube",
-                color = Color.White,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-            )
+                    .size(48.dp)
+                    .testTag("alt_search_back_button"),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowDown,
+                    tint = Color.White,
+                    contentDescription = "Back",
+                )
+            }
+            Spacer(Modifier.width(4.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "Search YouTube",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = viewModel.statusNote ?: viewModel.searchMode.description,
+                    color = Color(0xFFB3B3B3),
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+            }
         }
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(10.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            com.music.spotui.data.preferences.AltStreamSearchMode.entries.forEach { mode ->
+                val selected = viewModel.searchMode == mode
+                FilterChip(
+                    selected = selected,
+                    onClick = { viewModel.setMode(mode) },
+                    enabled = enabled,
+                    label = {
+                        Text(
+                            text = mode.shortLabel,
+                            fontSize = 12.sp,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                        )
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = AppPalette.copy(alpha = 0.22f),
+                        selectedLabelColor = AppPalette,
+                        containerColor = Color(0xFF1E2028),
+                        labelColor = Color(0xFFD0D5E0),
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = enabled,
+                        selected = selected,
+                        borderColor = Color(0xFF333642),
+                        selectedBorderColor = AppPalette,
+                    ),
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("alt_search_mode_${mode.name.lowercase()}"),
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
         OutlinedTextField(
             value = viewModel.searchQuery,
             onValueChange = { viewModel.updateQuery(it) },
@@ -2826,7 +2897,9 @@ fun YouTubeSearchView(
             singleLine = true,
             textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp),
             label = { Text("Search query", color = Color(0xFFB3B3B3)) },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("alt_search_query_input"),
         )
         Spacer(Modifier.height(12.dp))
 
@@ -2846,17 +2919,33 @@ fun YouTubeSearchView(
             }
 
             viewModel.error != null -> {
-                Text(
-                    text = viewModel.error.orEmpty(),
-                    color = Color(0xFFE57373),
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = viewModel.error.orEmpty(),
+                        color = Color(0xFFE57373),
+                        fontSize = 13.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = { viewModel.retrySearch() },
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("alt_search_retry_button"),
+                    ) {
+                        Text("Retry", color = AppPalette, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
 
             viewModel.searchResults.isEmpty() && viewModel.searchQuery.isNotBlank() -> {
                 Text(
-                    text = "No results found",
+                    text = "No results found in ${viewModel.searchMode.shortLabel} mode",
                     color = Color(0xFFB3B3B3),
                     fontSize = 13.sp,
                     modifier = Modifier.padding(top = 8.dp),
@@ -2905,32 +2994,62 @@ private fun YouTubeSearchResultRow(
         val sec = dur % 60
         "%d:%02d".format(min, sec)
     }.orEmpty()
+    val isExplicit = com.music.spotui.util.ExplicitContentDetector.detectExplicit(
+        apiExplicit = song.explicit,
+        title = song.title,
+        album = song.album?.name,
+    )
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp),
+            .padding(vertical = 4.dp),
     ) {
         GlideImage(
             model = song.thumbnail,
             modifier = Modifier
                 .size(44.dp)
-                .clip(RoundedCornerShape(4.dp)),
+                .clip(RoundedCornerShape(6.dp)),
             contentScale = ContentScale.Crop,
-            contentDescription = null,
+            contentDescription = song.title,
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = song.title,
-                color = Color.White,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-            )
             Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isExplicit) {
+                    com.music.spotui.ui.components.ExplicitBadge(size = 9.sp)
+                    Spacer(Modifier.width(5.dp))
+                }
+                Text(
+                    text = song.title,
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.height(2.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                val badgeBg = if (song.isVideoSong) Color(0xFF2B3A4D) else Color(0xFF1F3829)
+                val badgeFg = if (song.isVideoSong) Color(0xFF8AB4F8) else Color(0xFF1ED760)
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(badgeBg)
+                        .padding(horizontal = 5.dp, vertical = 1.dp),
+                ) {
+                    Text(
+                        text = if (song.isVideoSong) "Video" else "Music",
+                        color = badgeFg,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
                 Text(
                     text = song.artists.joinToString(", ") { it.name },
                     color = Color(0xFFB3B3B3),
@@ -2941,7 +3060,7 @@ private fun YouTubeSearchResultRow(
                 )
                 if (durationText.isNotBlank()) {
                     Text(
-                        text = " · $durationText",
+                        text = "· $durationText",
                         color = Color(0xFFB3B3B3),
                         fontSize = 12.sp,
                     )
@@ -2950,34 +3069,44 @@ private fun YouTubeSearchResultRow(
         }
         Spacer(Modifier.width(4.dp))
         if (isResolving) {
-            androidx.compose.material3.CircularProgressIndicator(
-                color = AppPalette,
-                modifier = Modifier
-                    .size(28.dp)
-                    .padding(4.dp),
-                strokeWidth = 2.dp,
-            )
+            Box(
+                modifier = Modifier.size(48.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                androidx.compose.material3.CircularProgressIndicator(
+                    color = AppPalette,
+                    modifier = Modifier.size(22.dp),
+                    strokeWidth = 2.dp,
+                )
+            }
         } else {
-            Icon(
-                imageVector = if (isPreviewing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                tint = if (isPreviewing) AppPalette else Color(0xFFB3B3B3),
+            IconButton(
+                onClick = onPreview,
+                enabled = enabled,
                 modifier = Modifier
-                    .size(32.dp)
-                    .clickable(enabled = enabled) { onPreview() }
-                    .padding(4.dp),
-                contentDescription = "Preview",
+                    .size(48.dp)
+                    .testTag("alt_search_preview_${song.id}"),
+            ) {
+                Icon(
+                    imageVector = if (isPreviewing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    tint = if (isPreviewing) AppPalette else Color(0xFFB3B3B3),
+                    contentDescription = if (isPreviewing) "Pause preview" else "Preview stream",
+                )
+            }
+        }
+        IconButton(
+            onClick = onSelect,
+            enabled = enabled,
+            modifier = Modifier
+                .size(48.dp)
+                .testTag("alt_search_select_${song.id}"),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Check,
+                tint = Color(0xFFD0D5E0),
+                contentDescription = "Use this stream",
             )
         }
-        Spacer(Modifier.width(2.dp))
-        Icon(
-            imageVector = Icons.Default.Check,
-            tint = Color(0xFFB3B3B3),
-            modifier = Modifier
-                .size(32.dp)
-                .clickable(enabled = enabled) { onSelect() }
-                .padding(4.dp),
-            contentDescription = "Use this",
-        )
     }
 }
 
@@ -3052,7 +3181,7 @@ private fun CanvasVideo(url: String, modifier: Modifier = Modifier, onError: (()
             prepare()
         }
     }
-    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(url, lifecycleOwner) {
         val listener = object : androidx.media3.common.Player.Listener {
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {

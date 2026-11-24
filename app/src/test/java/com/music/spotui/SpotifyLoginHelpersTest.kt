@@ -1,48 +1,40 @@
 package com.music.spotui
 
-import com.music.spotui.ui.screens.WebUaMode
-import com.music.spotui.ui.screens.buildCredentialAutofillJs
-import com.music.spotui.ui.screens.buildDomErrorProbeJs
-import com.music.spotui.ui.screens.isTrustedAuthHost
-import com.music.spotui.ui.screens.maskEmailForLog
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import com.music.spotui.ui.screens.LoginUaProfile
+import com.music.spotui.ui.screens.looksLikeSpotifyCookiePayload
 import com.music.spotui.ui.screens.parseSpotifyCookiesFromText
+import com.music.spotui.ui.screens.redactSecrets
+import com.music.spotui.ui.screens.resolveLoginUserAgent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35], application = MyApplication::class)
 class SpotifyLoginHelpersTest {
 
     @Test
-    fun webUaMode_defaultsToSystemWebViewFirst() {
-        assertEquals(WebUaMode.SYSTEM_WEBVIEW, WebUaMode.entries.first())
+    fun loginUaProfile_defaultsToCleanMobileFirst() {
+        assertEquals(LoginUaProfile.CLEAN_MOBILE, LoginUaProfile.entries.first())
     }
 
     @Test
-    fun buildCredentialAutofillJs_emailCode_neverMatchesSocialButtonsOrLooseContinueSubstring() {
-        val js = buildCredentialAutofillJs(
-            emailOrUsername = "listener@example.com",
-            password = null,
-            preferEmailCode = true,
-        )
+    fun resolveLoginUserAgent_stripsWebViewTokensInCleanMobileProfile() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val cleanUa = resolveLoginUserAgent(context, LoginUaProfile.CLEAN_MOBILE)
+        assertTrue(cleanUa.isNotBlank())
+        assertFalse(cleanUa.contains("; wv", ignoreCase = true))
+        assertFalse(cleanUa.contains("Version/", ignoreCase = true))
 
-        // Must NOT fall back to substring indexOf('continue') which matches "Continue with Google"
-        assertFalse(js.contains("indexOf('continue')"))
-        // Must explicitly exclude social SSO providers & target Spotify login submit button
-        assertTrue(js.contains("isExcludedBtn"))
-        assertTrue(js.contains("combined.indexOf('google')"))
-        assertTrue(js.contains("""button[data-testid="login-button"]"""))
-        // Must clear previous run timer so re-invoking Email Code works on same page context
-        assertTrue(js.contains("__spotuiAutofillTimer"))
-        assertTrue(js.contains("without password"))
-    }
-
-    @Test
-    fun buildDomErrorProbeJs_filtersInvisibleAndTinyRecaptchaIframes() {
-        val js = buildDomErrorProbeJs()
-        assertTrue(js.contains("rect.width > 120 && rect.height > 120"))
-        assertTrue(js.contains("style.display === 'none'"))
-        assertTrue(js.contains("style.visibility === 'hidden'"))
+        val desktopUa = resolveLoginUserAgent(context, LoginUaProfile.DESKTOP_CHROME)
+        assertTrue(desktopUa.contains("Windows NT"))
+        assertTrue(desktopUa.contains("Chrome/"))
     }
 
     @Test
@@ -60,26 +52,38 @@ class SpotifyLoginHelpersTest {
         assertEquals("AQD_JSON", jsonDc)
         assertEquals("J_KEY", jsonKey)
 
+        val jsonObjectExport = """{"sp_dc":"AQD_OBJ","sp_key":"OBJ_KEY"}"""
+        val (objDc, objKey) = parseSpotifyCookiesFromText(jsonObjectExport)
+        assertEquals("AQD_OBJ", objDc)
+        assertEquals("OBJ_KEY", objKey)
+
         val netscape = ".spotify.com\tTRUE\t/\tTRUE\t1900000000\tsp_dc\tAQD_NETSCAPE"
         val (netDc, _) = parseSpotifyCookiesFromText(netscape)
         assertEquals("AQD_NETSCAPE", netDc)
+
+        val encoded = "sp_dc%3DAQD_ENC%3B%20sp_key%3DENC_KEY"
+        val (encDc, encKey) = parseSpotifyCookiesFromText(encoded)
+        assertEquals("AQD_ENC", encDc)
+        assertEquals("ENC_KEY", encKey)
     }
 
     @Test
-    fun isTrustedAuthHost_allowsExactOrSubdomainsOnly() {
-        assertTrue(isTrustedAuthHost("accounts.spotify.com"))
-        assertTrue(isTrustedAuthHost("spotify.com"))
-        assertTrue(isTrustedAuthHost("accounts.google.com"))
-        assertTrue(isTrustedAuthHost("www.recaptcha.net"))
-        assertFalse(isTrustedAuthHost("evilspotify.com"))
-        assertFalse(isTrustedAuthHost("notgoogle.com"))
-        assertFalse(isTrustedAuthHost(""))
-        assertFalse(isTrustedAuthHost(null))
+    fun redactSecrets_masksCookiesBearerAndRawTokens() {
+        val rawToken = "AQ" + "A".repeat(60)
+        val input = "sp_dc=secret_dc_123; sp_key=secret_key_456 Authorization: Bearer tok_xyz_789 $rawToken"
+        val redacted = redactSecrets(input)
+        assertFalse(redacted.contains("secret_dc_123"))
+        assertFalse(redacted.contains("secret_key_456"))
+        assertFalse(redacted.contains("tok_xyz_789"))
+        assertFalse(redacted.contains(rawToken))
+        assertTrue(redacted.contains("<redacted>"))
     }
 
     @Test
-    fun maskEmailForLog_redactsLocalPart() {
-        assertEquals("us***@example.com", maskEmailForLog("user@example.com"))
-        assertEquals("<empty>", maskEmailForLog("   "))
+    fun looksLikeSpotifyCookiePayload_validatesClipboardCandidates() {
+        assertTrue(looksLikeSpotifyCookiePayload("sp_dc=AQD_TEST_VALUE"))
+        assertTrue(looksLikeSpotifyCookiePayload("AQ" + "B".repeat(55)))
+        assertFalse(looksLikeSpotifyCookiePayload("hello world"))
+        assertFalse(looksLikeSpotifyCookiePayload("   "))
     }
 }
