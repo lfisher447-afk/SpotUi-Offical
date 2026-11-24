@@ -18,7 +18,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -47,22 +46,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.metrolist.spotify.SpotifyAuth
-import com.metrolist.spotify.models.SpotifyInternalToken
-import com.music.spotui.audio.UiSoundEngine
-import com.music.spotui.data.api.SpotifySession
-import com.music.spotui.data.api.SpotifyTokenProvider
 import com.music.spotui.util.DevConsoleManager
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import timber.log.Timber
 
 internal const val LOGIN_SPOTIFY_GREEN = 0xFF1ED760
 internal const val LOGIN_BACKGROUND_DARK = 0xFF0E1016
@@ -236,7 +224,13 @@ internal fun parseSpotifyCookiesFromText(raw: String): Pair<String, String> {
         }
     }
 
-    val cleaned = trimmed.removePrefix("sp_dc=").split(";").first().trim().trim('"', '\'')
+    val cleaned = trimmed
+        .removePrefix("sp_dc=")
+        .split(";")
+        .first()
+        .trim()
+        .trim('"', '\'')
+        .filterNot { it.isWhitespace() || it.isISOControl() }
     return cleaned to ""
 }
 
@@ -300,96 +294,19 @@ internal fun resetSpotifyWebSession(webView: WebView?, onDone: () -> Unit) {
     }
 }
 
-internal fun processLoginSession(
-    context: Context,
-    spDc: String,
-    spKey: String = "",
-    source: String = "Session",
-    preCapturedToken: SpotifyInternalToken? = null,
-    autoSyncLibrary: Boolean = true,
-    scope: CoroutineScope,
-    setProcessing: (Boolean) -> Unit,
-    setStatus: (String) -> Unit,
-    setError: (Boolean) -> Unit,
-    onComplete: (Boolean) -> Unit,
-    onSuccess: (String?) -> Unit,
-) {
-    setProcessing(true)
-    setError(false)
-    setStatus("Verifying Spotify session…")
-    DevConsoleManager.logAuth("Verifying session via $source (sp_dc len=${spDc.length}, preToken=${preCapturedToken != null})")
+private val SECRET_REDACTIONS: List<Regex> = listOf(
+    Regex("""(sp_dc\s*[=:]\s*"?)[^;"'\s]+""", RegexOption.IGNORE_CASE),
+    Regex("""(sp_key\s*[=:]\s*"?)[^;"'\s]+""", RegexOption.IGNORE_CASE),
+    Regex("""(Bearer\s+)[A-Za-z0-9._~+/=-]+""", RegexOption.IGNORE_CASE),
+    Regex("""(accessToken"?\s*[=:]\s*"?)[A-Za-z0-9._~+/=-]{16,}""", RegexOption.IGNORE_CASE),
+)
+private val RAW_SP_DC_IN_TEXT = Regex("""\bAQ[A-Za-z0-9_-]{50,}""")
 
-    scope.launch(Dispatchers.IO) {
-        var lastError: Throwable? = null
-        var verified = false
-        var verifiedLabel = "Signed in!"
-
-        repeat(2) { attempt ->
-            if (verified) return@repeat
-            val result = SpotifyAuth.fetchAccessToken(spDc, spKey)
-            result.onSuccess { token ->
-                SpotifySession.setSpDc(context, spDc, spKey)
-                SpotifyTokenProvider.seedVerifiedToken(
-                    token.accessToken,
-                    token.accessTokenExpirationTimestampMs,
-                )
-                DevConsoleManager.logAuth("Login verified via $source on attempt ${attempt + 1} (anon=${token.isAnonymous})")
-                verified = true
-            }.onFailure { e ->
-                lastError = e
-                Timber.e(e, "Spotify token exchange failed (attempt ${attempt + 1})")
-                DevConsoleManager.logWarning("SpotifyLogin", "Attempt ${attempt + 1}/2 failed: ${e.message}")
-                if (attempt == 0) delay(500)
-            }
-        }
-
-        // Fallback: WebView captured a live non-anonymous open.spotify.com #session token alongside sp_dc.
-        if (!verified && preCapturedToken != null && !preCapturedToken.isAnonymous && preCapturedToken.accessToken.isNotBlank()) {
-            SpotifySession.setSpDc(context, spDc, spKey)
-            SpotifyTokenProvider.seedVerifiedToken(
-                preCapturedToken.accessToken,
-                preCapturedToken.accessTokenExpirationTimestampMs,
-            )
-            DevConsoleManager.logAuth("Accepted verified WebView #session token ($source) as fallback")
-            verified = true
-            verifiedLabel = "Signed in via Web session!"
-        }
-
-        if (verified) {
-            var syncDetail: String? = null
-            if (autoSyncLibrary) {
-                withContext(Dispatchers.Main) {
-                    setStatus("Signed in! Importing Spotify playlists & liked songs natively…")
-                }
-                val syncResult = com.music.spotui.data.api.SpotifySync.syncAllFromSession(context)
-                syncDetail = syncResult.getOrNull()?.detail
-                if (syncDetail.isNullOrBlank()) {
-                    com.music.spotui.data.api.SpotifySync.notifyAuthStateChanged("Signed in!")
-                }
-            } else {
-                com.music.spotui.data.api.SpotifySync.notifyAuthStateChanged("Signed in!")
-            }
-            withContext(Dispatchers.Main) {
-                UiSoundEngine.playToggleSound(context, true)
-                setStatus(syncDetail ?: verifiedLabel)
-                setProcessing(false)
-                setError(false)
-                onComplete(true)
-            }
-            delay(200)
-            withContext(Dispatchers.Main) { onSuccess(syncDetail) }
-            return@launch
-        }
-
-        val errMsg = lastError?.message ?: "Unable to verify sp_dc session"
-        DevConsoleManager.logError("SpotifyLogin", "Verification failed ($source): $errMsg", lastError)
-        withContext(Dispatchers.Main) {
-            setStatus("Sign-in failed: $errMsg")
-            setError(true)
-            setProcessing(false)
-            onComplete(false)
-        }
-    }
+/** Masks cookie / bearer values so logs shown on screen or copied to the clipboard never leak a session. */
+internal fun redactSecrets(text: String): String {
+    var out = text
+    for (pattern in SECRET_REDACTIONS) out = pattern.replace(out, "\$1<redacted>")
+    return RAW_SP_DC_IN_TEXT.replace(out, "<redacted>")
 }
 
 @Composable
@@ -448,7 +365,7 @@ internal fun LoginDiagnosticsDialog(
                                 else -> Color(0xFF81C784)
                             }
                             Text(
-                                text = "${entry.timestamp} [${entry.tag}] ${entry.message}",
+                                text = redactSecrets("${entry.timestamp} [${entry.tag}] ${entry.message}"),
                                 color = tint,
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 10.sp,
@@ -466,13 +383,13 @@ internal fun LoginDiagnosticsDialog(
                         if (faults.isNotEmpty()) {
                             appendLine("=== FAULTS ===")
                             faults.takeLast(8).forEach { f ->
-                                appendLine("[${f.component}] ${f.reason} | ${f.autoFixHint}")
+                                appendLine(redactSecrets("[${f.component}] ${f.reason} | ${f.autoFixHint}"))
                             }
                             appendLine()
                         }
                         appendLine("=== AUTH EVENTS ===")
                         authLogs.forEach { entry ->
-                            appendLine("${entry.timestamp} [${entry.level}] ${entry.tag}: ${entry.message}")
+                            appendLine(redactSecrets("${entry.timestamp} [${entry.level}] ${entry.tag}: ${entry.message}"))
                         }
                     }
                     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
