@@ -27,3 +27,26 @@ fun installSpotifyTokenAutoRefresh(context: Context) {
 fun launchLoginTask(block: suspend CoroutineScope.() -> Unit) {
     SpotifyLoginModule.launchLoginTask(block)
 }
+
+/** The four visible steps of "WebView cookie in -> Spotify.kt armed -> library synced". */
+internal enum class LoginStage(val label: String) {
+    VERIFY("Cookie"),
+    TOKEN("Session"),
+    PROFILE("Profile"),
+    LIBRARY("Library"),
+}
+
+internal sealed interface LoginOutcome {
+    data class Success(
+        val signInLabel: String,
+        val accountName: String?,
+        val syncDetail: String?,
+        val syncWarning: String?,
+    ) : LoginOutcome
+
+    data class Failure(
+        val stage: LoginStage,
+        val message: String,
+        val cause: Throwable?,
+    ) : LoginOutcome
+}
