@@ -63,6 +63,10 @@ class Api @Inject constructor(
               .removePrefix("album:")
               .trim()
 
+        fun invalidatePlaylist(id: String) {
+            library = null
+        }
+
         /** Drop all cached feeds (e.g. on logout / account switch). */
         fun clear() {
             albums = null; artists = null; home = null; library = null

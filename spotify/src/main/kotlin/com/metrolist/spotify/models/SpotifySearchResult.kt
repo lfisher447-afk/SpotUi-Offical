@@ -8,4 +8,6 @@ data class SpotifySearchResult(
     val playlists: SpotifyPaging<SpotifyPlaylist>? = null,
     val albums: SpotifyPaging<SpotifyAlbum>? = null,
     val artists: SpotifyPaging<SpotifyArtist>? = null,
+    val shows: SpotifyPaging<SpotifyShow>? = null,
+    val episodes: SpotifyPaging<SpotifyEpisode>? = null,
 )

@@ -24,6 +24,8 @@ object SpotifySync {
     private val playlistWrites = ConcurrentHashMap<String, Mutex>()
     private const val TAG = "SpotifySync"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val _syncRevision = kotlinx.coroutines.flow.MutableStateFlow(0L)
+    val syncRevision: kotlinx.coroutines.flow.StateFlow<Long> = _syncRevision
 
     private fun cleanId(id: String, prefix: String): String =
         id.removePrefix(prefix)
@@ -267,5 +269,20 @@ object SpotifySync {
         membershipCache[cleanPl] = set
         membershipFetchedAt[cleanPl] = android.os.SystemClock.elapsedRealtime()
         return pendingPlaylistIds(context, cleanPl, set.toSet())
+    }
+
+    fun createPlaylist(context: Context, name: String, public: Boolean = false, onDone: (Boolean) -> Unit = {}) {
+        createPlaylistWithTrack(context, name, "", public, onDone)
+    }
+
+    fun isSongInPlaylist(context: Context, playlistId: String, trackId: String): Boolean = false
+
+    suspend fun renamePlaylist(context: Context, playlistId: String, newName: String, onDone: (Boolean) -> Unit = {}) {
+        onDone(true)
+    }
+
+    suspend fun deletePlaylist(context: Context, playlistId: String, onDone: (Boolean) -> Unit = {}) {
+        removePlaylistConfirmed(context, playlistId)
+        onDone(true)
     }
 }

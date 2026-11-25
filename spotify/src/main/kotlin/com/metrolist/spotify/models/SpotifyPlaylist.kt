@@ -15,6 +15,7 @@ data class SpotifyPlaylist(
     val public: Boolean? = null,
     val collaborative: Boolean = false,
     @SerialName("snapshot_id") val snapshotId: String? = null,
+    val contributors: List<SpotifyPlaylistContributor> = emptyList(),
 )
 
 @Serializable
@@ -22,6 +23,14 @@ data class SpotifyPlaylistOwner(
     val id: String = "",
     @SerialName("display_name") val displayName: String? = null,
     val uri: String? = null,
+    val imageUrl: String? = null,
+)
+
+@Serializable
+data class SpotifyPlaylistContributor(
+    val id: String = "",
+    @SerialName("display_name") val displayName: String? = null,
+    val imageUrl: String? = null,
 )
 
 /**
