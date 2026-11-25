@@ -1,6 +1,19 @@
 package com.music.spotui.ui.screens.SpotifyLogin.helper
 
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.browser.customtabs.CustomTabColorSchemeParams
+import androidx.browser.customtabs.CustomTabsIntent
+import com.metrolist.spotify.SpotifyAuth
+import com.music.spotui.util.DevConsoleManager
+
+internal const val LOGIN_SPOTIFY_GREEN = 0xFF1ED760
+internal const val LOGIN_BACKGROUND_DARK = 0xFF0B0E14
+internal const val LOGIN_CARD_DARK = 0xFF151924
+internal const val LOGIN_TEXT_SECONDARY = 0xFFAAB2C4
 
 enum class LoginUaProfile {
     SYSTEM_DEFAULT,
@@ -75,4 +88,51 @@ fun looksLikeSpotifyCookiePayload(text: String): Boolean {
     if (t.startsWith("AQ") && t.length >= 50) return true
     if (t.startsWith("[{") || t.startsWith("{\"")) return true
     return false
+}
+
+/**
+ * Launches Spotify authentication in Chrome Custom Tabs (`androidx.browser:browser`) so
+ * `document.requestStorageAccess()`, Google/Apple SSO, passkeys, and reCAPTCHA run natively
+ * inside the real browser engine without WebView's `HTTP 400` block.
+ * Safely falls back to `Intent.ACTION_VIEW` if no Custom Tabs provider is installed.
+ */
+internal fun openSpotifyInChromeCustomTab(
+    context: Context,
+    url: String = SpotifyAuth.LOGIN_URL,
+): Boolean {
+    val uri = Uri.parse(url)
+    val darkToolbar = (0xFF0E1016).toInt()
+    val customTabLaunched = runCatching {
+        val colorScheme = CustomTabColorSchemeParams.Builder()
+            .setToolbarColor(darkToolbar)
+            .setNavigationBarColor(darkToolbar)
+            .build()
+        val builder = CustomTabsIntent.Builder()
+            .setDefaultColorSchemeParams(colorScheme)
+            .setShowTitle(true)
+            .setUrlBarHidingEnabled(false)
+            .setShareState(CustomTabsIntent.SHARE_STATE_ON)
+        val customTabsIntent = builder.build()
+        if (context !is Activity) {
+            customTabsIntent.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        customTabsIntent.launchUrl(context, uri)
+        DevConsoleManager.logAuth("Launched Chrome Custom Tabs for Spotify login")
+        true
+    }.getOrDefault(false)
+
+    if (customTabLaunched) return true
+
+    return runCatching {
+        val viewIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+            if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(viewIntent)
+        DevConsoleManager.logAuth("Launched external browser fallback for Spotify login")
+        true
+    }.getOrElse { err ->
+        DevConsoleManager.logError("SpotifyLogin", "No browser available for Spotify login", err)
+        Toast.makeText(context, "Unable to open Chrome or browser", Toast.LENGTH_SHORT).show()
+        false
+    }
 }
