@@ -27,6 +27,11 @@ object SpotifySync {
     private val _syncRevision = kotlinx.coroutines.flow.MutableStateFlow(0L)
     val syncRevision: kotlinx.coroutines.flow.StateFlow<Long> = _syncRevision
 
+    /** Called after sign-in / sign-out so auth-dependent UI re-reads the session. */
+    fun notifyAuthStateChanged(message: String) {
+        SpotifyTokenProvider.notifyAuthStateChanged()
+    }
+
     private fun cleanId(id: String, prefix: String): String =
         id.removePrefix(prefix)
             .removePrefix(prefix.removeSuffix(":"))
