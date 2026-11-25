@@ -143,23 +143,60 @@ fun SpotifyLoginScreen(navController: NavController) {
         statusMessage = "Connecting to Spotify…"
 
         scope.launch {
-            // Ensure background webview attempts injection if page is ready
-            var attempts = 0
-            while (!pageReady.get() && attempts < 15) {
-                delay(300)
-                attempts++
+            fun fallbackToWeb(msg: String) {
+                isProcessing = false
+                hasError = false
+                showWebFallback = true
+                statusMessage = msg
             }
-            if (webViewRef != null && pageReady.get()) {
+
+            // 1. Wait (max ~6s) for the hidden page to finish loading.
+            var waited = 0
+            while (!pageReady.get() && waited < 20) {
+                delay(300)
+                waited++
+            }
+
+            // 2. Spotify's login page is a SPA: the form can appear late, and may be two steps
+            //    (username -> password). Retry until the click really lands on an enabled button.
+            var submitted = false
+            for (attempt in 1..12) {
+                if (tokenFetchStarted.get()) return@launch
                 val res = injectCredentials(webViewRef, email, password)
                 if (res == "SUBMIT") {
-                    statusMessage = "Submitting credentials…"
-                    return@launch
+                    submitted = true
+                    break
+                }
+                statusMessage = if (res == "STEP1") "Sending username…" else "Waiting for Spotify login form…"
+                delay(800)
+            }
+            if (!submitted) {
+                fallbackToWeb("Couldn't auto-fill Spotify's form. Please sign in below")
+                return@launch
+            }
+
+            // 3. Watchdog: never sit on "Submitting credentials…" forever.
+            statusMessage = "Submitting credentials…"
+            val deadline = System.currentTimeMillis() + 30_000L
+            while (System.currentTimeMillis() < deadline) {
+                delay(700)
+                if (tokenFetchStarted.get()) return@launch // sp_dc seen: finishLogin owns the UI now
+                val issue = readLoginIssue(webViewRef)
+                when (issue) {
+                    "" -> Unit
+                    "CAPTCHA", "VERIFY" -> {
+                        fallbackToWeb("Spotify needs a quick verification — finish signing in below")
+                        return@launch
+                    }
+                    else -> {
+                        isProcessing = false
+                        hasError = true
+                        statusMessage = issue
+                        return@launch
+                    }
                 }
             }
-            // If automated injection couldn't find form or was blocked, open Web Fallback cleanly
-            isProcessing = false
-            showWebFallback = true
-            statusMessage = "Please complete sign-in below"
+            fallbackToWeb("Sign-in is taking too long — finish it below")
         }
     }
 
@@ -645,14 +682,27 @@ private suspend fun injectCredentials(webView: WebView?, email: String, password
             el.dispatchEvent(new Event('input', {bubbles:true}));
             el.dispatchEvent(new Event('change', {bubbles:true}));
           }
+          function isOff(b){ return b.disabled || b.getAttribute('aria-disabled') === 'true'; }
           var u = document.querySelector('#login-username, input[data-testid=login-username], input[autocomplete=username], input[name=username], input[type=email]');
           var p = document.querySelector('#login-password, input[data-testid=login-password], input[type=password]');
-          if(!u || !p){ return 'NOFORM'; }
-          setVal(u, $u);
+          if(!u && !p){ return 'NOFORM'; }
+          var b = document.querySelector('#login-button, button[data-testid=login-button]') || document.querySelector('button[type=submit]');
+          if(u){ setVal(u, $u); }
+          if(!p){
+            // Username-first step: submit it, the password field appears on the next attempt.
+            if(b && !isOff(b)){ b.click(); return 'STEP1'; }
+            return 'NOBTN';
+          }
           setVal(p, $p);
-          var b = document.querySelector('#login-button, button[data-testid=login-button], button[type=submit]');
-          if(b){ b.click(); return 'SUBMIT'; }
-          if(p.form){ p.form.submit(); return 'SUBMIT'; }
+          if(b){
+            if(isOff(b)){ return 'DISABLED'; }
+            b.click();
+            return 'SUBMIT';
+          }
+          if(p.form){
+            if(p.form.requestSubmit){ p.form.requestSubmit(); } else { p.form.submit(); }
+            return 'SUBMIT';
+          }
           return 'NOBTN';
         })();
     """.trimIndent()
@@ -660,6 +710,36 @@ private suspend fun injectCredentials(webView: WebView?, email: String, password
         val done = kotlinx.coroutines.CompletableDeferred<String>()
         webView.evaluateJavascript(js) { raw ->
             done.complete(raw?.trim('"') ?: "NOFORM")
+        }
+        done.await()
+    }
+}
+
+/**
+ * Reads what the hidden login page is showing after submit.
+ * Returns "" (nothing wrong yet), "CAPTCHA", "VERIFY", or Spotify's own error text.
+ */
+private suspend fun readLoginIssue(webView: WebView?): String {
+    webView ?: return ""
+    val js = """
+        (function(){
+          var sels = ['[data-testid=login-error]', '#username-error', '#password-error',
+                      '[data-encore-id=formFeedback]', '[role=alert]'];
+          for (var i = 0; i < sels.length; i++) {
+            var el = document.querySelector(sels[i]);
+            if (el && el.innerText && el.innerText.trim().length > 0) { return el.innerText.trim().substring(0, 160); }
+          }
+          var t = document.body ? document.body.innerText.toLowerCase() : '';
+          if (/captcha|verify you are human|not a robot/.test(t)) { return 'CAPTCHA'; }
+          if (/verification code|enter the code|6-digit|check your email|two-step/.test(t)) { return 'VERIFY'; }
+          return '';
+        })();
+    """.trimIndent()
+    return withContext(Dispatchers.Main) {
+        val done = kotlinx.coroutines.CompletableDeferred<String>()
+        webView.evaluateJavascript(js) { raw ->
+            val value = raw?.let { runCatching { org.json.JSONTokener(it).nextValue() as? String }.getOrNull() }
+            done.complete(value.orEmpty())
         }
         done.await()
     }
