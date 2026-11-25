@@ -20,3 +20,8 @@ object LibraryCatalogCache {
         cachedList = list
     }
 }
+
+// Cached entries are always Spotify playlists, identified by their Spotify id.
+// These let SpotifySync.cachedPlaylistMembership read them without changing its logic.
+internal val SpotifyPlaylist.isPlaylist: Boolean get() = true
+internal val SpotifyPlaylist.spotifyId: String get() = id
