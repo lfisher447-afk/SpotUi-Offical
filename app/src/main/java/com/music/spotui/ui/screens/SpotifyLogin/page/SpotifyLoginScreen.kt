@@ -1,4 +1,4 @@
-package com.music.spotui.ui.screens
+package com.music.spotui.ui.screens.SpotifyLogin.page
 
 import android.annotation.SuppressLint
 import android.app.Activity
