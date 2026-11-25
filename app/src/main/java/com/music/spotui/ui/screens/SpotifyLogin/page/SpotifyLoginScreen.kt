@@ -70,6 +70,16 @@ import androidx.navigation.NavController
 import com.metrolist.spotify.Spotify
 import com.metrolist.spotify.SpotifyAuth
 import com.music.spotui.R
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.graphics.graphicsLayer
+import com.metrolist.spotify.models.SpotifyInternalToken
+import com.music.spotui.ui.screens.SpotifyLogin.helper.parseSpotifyCookiesFromText
+import com.music.spotui.ui.screens.SpotifyLogin.module.MIN_SP_DC_LENGTH
+import com.music.spotui.ui.screens.SpotifyLogin.module.SpotifyWebViewAdapter
+import com.music.spotui.ui.screens.SpotifyLogin.module.processLoginSession
 import com.music.spotui.data.api.SpotifySession
 import com.music.spotui.ui.navigation.Routes
 import kotlinx.coroutines.Dispatchers
@@ -95,16 +105,41 @@ fun SpotifyLoginScreen(navController: NavController) {
     var isProcessing by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf("") }
     var hasError by remember { mutableStateOf(false) }
+    var signedInAs by remember { mutableStateOf<String?>(null) }
     var showWebFallback by remember { mutableStateOf(false) }
     var showCookieDialog by remember { mutableStateOf(false) }
     var manualCookieInput by remember { mutableStateOf("") }
 
-    var isWebLoading by remember { mutableStateOf(true) }
-    var webHasError by remember { mutableStateOf(false) }
-
-    val pageReady = remember { AtomicBoolean(false) }
-    val tokenFetchStarted = remember { AtomicBoolean(false) }
+    var popupView by remember { mutableStateOf<WebView?>(null) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    val pipelineStarted = remember { AtomicBoolean(false) }
+
+    // Adapter -> pipeline bridge (the adapter is created before the pipeline starter below).
+    val captureSink = remember { arrayOfNulls<(String, String, SpotifyInternalToken?, String) -> Unit>(1) }
+
+    // ONE hardened engine for both modes: the native form drives it invisibly, the web mode shows it.
+    val adapter = remember {
+        SpotifyWebViewAdapter(
+            isPrivate = false,
+            onSessionCaptured = { dc, key, token, source -> captureSink[0]?.invoke(dc, key, token, source) },
+            onPopupRequested = { popupView = it },
+        )
+    }
+    val nav by adapter.navigationState.collectAsState()
+    val engine by adapter.processState.collectAsState()
+
+    DisposableEffect(Unit) {
+        onDispose {
+            adapter.destroy()
+            webViewRef = null
+        }
+    }
+
+    // Start from a clean slate: drop any stale in-memory token (the WebView session is wiped by createView).
+    LaunchedEffect(Unit) { Spotify.clearAuthSession() }
+
+    // SSO popups (Google / Facebook / Apple) must be visible, so leave the native overlay.
+    LaunchedEffect(popupView) { if (popupView != null) showWebFallback = true }
 
     val navigateToHome: () -> Unit = {
         com.music.spotui.di.SpotifyWebPlayer.refreshLogin(context)
@@ -113,23 +148,40 @@ fun SpotifyLoginScreen(navController: NavController) {
         }
     }
 
-    // Poll for the sp_dc cookie — set on .spotify.com when user signs in
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(1000)
-            if (tokenFetchStarted.get()) continue
-            val spDc = extractCookie("sp_dc")
-            if (!spDc.isNullOrBlank() && tokenFetchStarted.compareAndSet(false, true)) {
-                finishLogin(
-                    webViewRef, context as Activity, scope,
-                    setProcessing = { isProcessing = it },
-                    setStatus = { statusMessage = it },
-                    setError = { hasError = it },
-                    tokenFetchStarted = tokenFetchStarted,
-                    onSuccess = navigateToHome,
-                )
-            }
-        }
+    /**
+     * Single entry for every sign-in path (native form, web mode, SSO popup, pasted cookie).
+     * Runs Spotify.loginWithWebViewSession (retry/backoff, pre-captured `#session` token, profile),
+     * seeds SpotifyTokenProvider, saves sp_dc + sp_key, installs token auto-refresh, syncs the library.
+     */
+    fun startPipeline(spDc: String, spKey: String, token: SpotifyInternalToken?, source: String) {
+        if (!pipelineStarted.compareAndSet(false, true)) return
+        adapter.closePopup()
+        showWebFallback = false
+        processLoginSession(
+            context = context,
+            spDc = spDc,
+            spKey = spKey,
+            source = source,
+            preCapturedToken = token,
+            autoSyncLibrary = true,
+            scope = scope,
+            setProcessing = { isProcessing = it },
+            setStatus = { statusMessage = it },
+            setError = { hasError = it },
+            onComplete = { ok ->
+                if (ok) {
+                    password = ""
+                } else {
+                    pipelineStarted.set(false)
+                    adapter.allowRecapture()
+                }
+            },
+            onSuccess = { navigateToHome() },
+            onAccount = { signedInAs = it },
+        )
+    }
+    SideEffect {
+        captureSink[0] = { dc, key, token, source -> startPipeline(dc, key, token, source) }
     }
 
     fun handleNativeSubmit() {
@@ -140,6 +192,7 @@ fun SpotifyLoginScreen(navController: NavController) {
         }
         isProcessing = true
         hasError = false
+        signedInAs = null
         statusMessage = "Connecting to Spotify…"
 
         scope.launch {
@@ -150,9 +203,11 @@ fun SpotifyLoginScreen(navController: NavController) {
                 statusMessage = msg
             }
 
-            // 1. Wait (max ~6s) for the hidden page to finish loading.
+            val failureBefore = adapter.processState.value.lastFailureMessage
+
+            // 1. Wait (max ~7s) for the hardened WebView to finish loading the login page.
             var waited = 0
-            while (!pageReady.get() && waited < 20) {
+            while (adapter.navigationState.value.isLoading && waited < 25) {
                 delay(300)
                 waited++
             }
@@ -161,7 +216,7 @@ fun SpotifyLoginScreen(navController: NavController) {
             //    (username -> password). Retry until the click really lands on an enabled button.
             var submitted = false
             for (attempt in 1..12) {
-                if (tokenFetchStarted.get()) return@launch
+                if (pipelineStarted.get()) return@launch
                 val res = injectCredentials(webViewRef, email, password)
                 if (res == "SUBMIT") {
                     submitted = true
@@ -175,14 +230,23 @@ fun SpotifyLoginScreen(navController: NavController) {
                 return@launch
             }
 
-            // 3. Watchdog: never sit on "Submitting credentials…" forever.
+            // 3. Watchdog: the adapter reports the session via onSessionCaptured -> startPipeline.
+            //    Poll as a safety net (SPA redirects don't always fire onPageFinished) and surface problems.
             statusMessage = "Submitting credentials…"
-            val deadline = System.currentTimeMillis() + 30_000L
+            val deadline = System.currentTimeMillis() + 45_000L
             while (System.currentTimeMillis() < deadline) {
                 delay(700)
-                if (tokenFetchStarted.get()) return@launch // sp_dc seen: finishLogin owns the UI now
-                val issue = readLoginIssue(webViewRef)
-                when (issue) {
+                if (pipelineStarted.get()) return@launch
+                if (adapter.tryCaptureSessionNow("NativeSubmitPoll")) {
+                    delay(400)
+                    if (pipelineStarted.get()) return@launch
+                }
+                val failure = adapter.processState.value.lastFailureMessage
+                if (failure != null && failure != failureBefore) {
+                    fallbackToWeb("Spotify rejected the sign-in challenge. Use Auto-recover, then sign in below")
+                    return@launch
+                }
+                when (val issue = readLoginIssue(webViewRef)) {
                     "" -> Unit
                     "CAPTCHA", "VERIFY" -> {
                         fallbackToWeb("Spotify needs a quick verification — finish signing in below")
@@ -200,29 +264,15 @@ fun SpotifyLoginScreen(navController: NavController) {
         }
     }
 
-    fun submitManualCookie(spDc: String) {
-        val clean = spDc.trim()
-        if (clean.isBlank()) return
-        isProcessing = true
-        statusMessage = "Authenticating with cookie…"
-        hasError = false
-        scope.launch(Dispatchers.IO) {
-            SpotifySession.setSpDc(context, clean)
-            val result = SpotifyAuth.fetchAccessToken(clean)
-            result.onSuccess { token ->
-                Spotify.accessToken = token.accessToken
-                withContext(Dispatchers.Main) {
-                    isProcessing = false
-                    navigateToHome()
-                }
-            }.onFailure { e ->
-                withContext(Dispatchers.Main) {
-                    isProcessing = false
-                    hasError = true
-                    statusMessage = "Cookie authentication failed: ${e.message}"
-                }
-            }
+    fun submitManualCookie(raw: String) {
+        val (dc, key) = parseSpotifyCookiesFromText(raw)
+        if (dc.length < MIN_SP_DC_LENGTH) {
+            hasError = true
+            statusMessage = "That doesn't look like a valid sp_dc cookie"
+            return
         }
+        signedInAs = null
+        startPipeline(dc, key, null, "ManualCookie")
     }
 
     fun enterGuestMode() {
@@ -236,32 +286,22 @@ fun SpotifyLoginScreen(navController: NavController) {
         }
     }
 
+    BackHandler(enabled = popupView != null || showWebFallback) {
+        when {
+            popupView != null -> adapter.closePopup()
+            adapter.goBack() -> Unit
+            else -> showWebFallback = false
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF121212))
     ) {
-        if (!showWebFallback) {
-            // ── Native Compose Form ──
-            LoginForm(
-                email = email,
-                onEmail = { email = it },
-                password = password,
-                onPassword = { password = it },
-                showPassword = showPassword,
-                onTogglePassword = { showPassword = !showPassword },
-                isProcessing = isProcessing,
-                statusMessage = statusMessage,
-                hasError = hasError,
-                onSubmit = { handleNativeSubmit() },
-                onUseWeb = { showWebFallback = true },
-                onPasteCookie = { showCookieDialog = true },
-                onGuestMode = { enterGuestMode() }
-            )
-        } else {
-            // ── Web Browser Login View ──
-            Column(modifier = Modifier.fillMaxSize()) {
-                // Top Bar
+        Column(modifier = Modifier.fillMaxSize()) {
+            if (showWebFallback) {
+                // ── Web mode top bar ──
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -285,143 +325,134 @@ fun SpotifyLoginScreen(navController: NavController) {
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp
                     )
-                    IconButton(onClick = {
-                        webHasError = false
-                        webViewRef?.reload()
-                    }) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Reload",
-                            tint = Color.White
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = {
+                            if (!adapter.tryCaptureSessionNow("ManualWebSync")) {
+                                hasError = true
+                                statusMessage = "No Spotify session yet — finish signing in first"
+                            }
+                        }) {
+                            Text("Sync", color = Color(SPOTIFY_GREEN), fontWeight = FontWeight.Bold)
+                        }
+                        IconButton(onClick = { adapter.reload() }) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Reload",
+                                tint = Color.White
+                            )
+                        }
                     }
                 }
-
-                if (isWebLoading) {
+                if (nav.isLoading) {
                     LinearProgressIndicator(
                         modifier = Modifier.fillMaxWidth(),
                         color = Color(SPOTIFY_GREEN),
                         trackColor = Color(0xFF282828)
                     )
                 }
-
-                Box(modifier = Modifier.weight(1f)) {
-                    AndroidView(
-                        modifier = Modifier.fillMaxSize(),
-                        factory = { ctx ->
-                            WebView(ctx).apply {
-                                webViewRef = this
-                                setBackgroundColor(android.graphics.Color.parseColor("#121212"))
-                                settings.javaScriptEnabled = true
-                                settings.domStorageEnabled = true
-                                settings.databaseEnabled = true
-                                settings.loadWithOverviewMode = true
-                                settings.useWideViewPort = true
-                                settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                                settings.javaScriptCanOpenWindowsAutomatically = true
-
-                                webChromeClient = WebChromeClient()
-                                webViewClient = object : WebViewClient() {
-                                    override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                        isWebLoading = true
-                                        webHasError = false
-                                        pageReady.set(false)
-                                    }
-
-                                    override fun onPageFinished(view: WebView?, url: String?) {
-                                        isWebLoading = false
-                                        pageReady.set(true)
-                                    }
-
-                                    override fun onReceivedError(
-                                        view: WebView?,
-                                        request: WebResourceRequest?,
-                                        error: WebResourceError?
-                                    ) {
-                                        if (request?.isForMainFrame == true) {
-                                            isWebLoading = false
-                                            webHasError = true
-                                        }
-                                    }
-                                }
-                                loadUrl(SpotifyAuth.LOGIN_URL)
-                            }
-                        }
-                    )
-
-                    if (webHasError) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color(0xFF121212))
-                                .padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Warning,
-                                contentDescription = null,
-                                tint = Color(0xFFFF5252),
-                                modifier = Modifier.size(48.dp)
-                            )
-                            Spacer(Modifier.height(16.dp))
-                            Text(
-                                "Unable to load Spotify Login",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                "Please check your network connection and try again.",
-                                color = Color.Gray,
-                                fontSize = 14.sp,
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(Modifier.height(24.dp))
-                            Button(
-                                onClick = {
-                                    webHasError = false
-                                    webViewRef?.reload()
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(SPOTIFY_GREEN))
-                            ) {
-                                Text("Retry", color = Color.Black, fontWeight = FontWeight.Bold)
-                            }
-                            Spacer(Modifier.height(12.dp))
-                            TextButton(onClick = { showWebFallback = false }) {
-                                Text("Return to Native Login", color = Color.White)
-                            }
+                val hint = engine.autoRecoverHint
+                if (hint != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF2A1A1A))
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = Color(0xFFFF5252),
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.size(8.dp))
+                        Text(hint, color = Color.LightGray, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { adapter.autoRecover(context) }) {
+                            Text("Auto-recover", color = Color(SPOTIFY_GREEN), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
                     }
+                }
+                if (statusMessage.isNotBlank()) {
+                    Text(
+                        statusMessage,
+                        color = if (hasError) Color(0xFFFF5252) else Color(0xFFB3B3B3),
+                        fontSize = 12.sp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            Box(modifier = Modifier.weight(1f)) {
+                // The single hardened WebView. Full-size and fully laid out even in native mode
+                // (just transparent), so Spotify's page and reCAPTCHA see a normal viewport.
+                AndroidView(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = if (showWebFallback) 1f else 0f },
+                    factory = { ctx ->
+                        adapter.createView(ctx, Spotify.LOGIN_URL, clearPreviousSession = true)
+                            .also { webViewRef = it }
+                    }
+                )
+
+                if (!showWebFallback) {
+                    // ── Native Compose Form (drives the WebView above) ──
+                    LoginForm(
+                        email = email,
+                        onEmail = { email = it },
+                        password = password,
+                        onPassword = { password = it },
+                        showPassword = showPassword,
+                        onTogglePassword = { showPassword = !showPassword },
+                        isProcessing = isProcessing,
+                        statusMessage = statusMessage,
+                        hasError = hasError,
+                        accountName = signedInAs,
+                        onSubmit = { handleNativeSubmit() },
+                        onUseWeb = {
+                            statusMessage = ""
+                            hasError = false
+                            showWebFallback = true
+                        },
+                        onSignUp = {
+                            webViewRef?.loadUrl(Spotify.SIGNUP_URL)
+                            showWebFallback = true
+                        },
+                        onPasteCookie = { showCookieDialog = true },
+                        onGuestMode = { enterGuestMode() }
+                    )
                 }
             }
         }
 
-        // Hidden background WebView for native form auto-submission
-        if (!showWebFallback) {
-            Box(modifier = Modifier.size(1.dp).background(Color.Transparent)) {
-                AndroidView(
-                    factory = { ctx ->
-                        WebView(ctx).apply {
-                            webViewRef = this
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            settings.databaseEnabled = true
-                            settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-
-                            webViewClient = object : WebViewClient() {
-                                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                    pageReady.set(false)
-                                }
-                                override fun onPageFinished(view: WebView?, url: String?) {
-                                    pageReady.set(true)
-                                }
-                            }
-                            loadUrl(SpotifyAuth.LOGIN_URL)
-                        }
+        // ── SSO popup (Google / Facebook / Apple) ──
+        popupView?.let { popup ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF121212))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .height(56.dp)
+                        .background(Color(0xFF181818))
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { adapter.closePopup() }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Close",
+                            tint = Color.White
+                        )
                     }
-                )
+                    Text("Sign in", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+                AndroidView(modifier = Modifier.fillMaxSize(), factory = { popup })
             }
         }
 
@@ -435,7 +466,8 @@ fun SpotifyLoginScreen(navController: NavController) {
                 text = {
                     Column {
                         Text(
-                            "Log in to open.spotify.com in your browser, inspect Cookies -> copy sp_dc.",
+                            "Log in to open.spotify.com in your browser, inspect Cookies -> copy sp_dc. " +
+                                "A pasted cookie header or sp_dc=… also works.",
                             color = Color.LightGray,
                             fontSize = 12.sp
                         )
@@ -483,14 +515,17 @@ private fun LoginForm(
     isProcessing: Boolean,
     statusMessage: String,
     hasError: Boolean,
+    accountName: String?,
     onSubmit: () -> Unit,
     onUseWeb: () -> Unit,
+    onSignUp: () -> Unit,
     onPasteCookie: () -> Unit,
     onGuestMode: () -> Unit,
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(Color(0xFF121212))
             .statusBarsPadding()
             .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
@@ -570,6 +605,17 @@ private fun LoginForm(
             modifier = Modifier.fillMaxWidth(),
         )
 
+        if (!accountName.isNullOrBlank()) {
+            Spacer(Modifier.height(14.dp))
+            Text(
+                "Signed in as $accountName",
+                color = Color(SPOTIFY_GREEN),
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+            )
+        }
+
         if (statusMessage.isNotBlank()) {
             Spacer(Modifier.height(14.dp))
             Text(
@@ -620,7 +666,16 @@ private fun LoginForm(
             Text("Log in with Spotify Web Browser", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(4.dp))
+        TextButton(onClick = onSignUp, enabled = !isProcessing) {
+            Text(
+                "Don't have an account? Sign up",
+                color = Color(0xFFB3B3B3),
+                fontSize = 12.sp,
+            )
+        }
+
+        Spacer(Modifier.height(8.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -742,67 +797,5 @@ private suspend fun readLoginIssue(webView: WebView?): String {
             done.complete(value.orEmpty())
         }
         done.await()
-    }
-}
-
-private fun extractCookie(name: String): String? {
-    val allCookies = CookieManager.getInstance().getCookie("https://open.spotify.com") ?: return null
-    return allCookies.split(";")
-        .mapNotNull {
-            val parts = it.trim().split("=", limit = 2)
-            if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
-        }
-        .firstOrNull { it.first == name && it.second.isNotBlank() }
-        ?.second
-}
-
-private fun finishLogin(
-    view: WebView?,
-    activity: Activity,
-    scope: kotlinx.coroutines.CoroutineScope,
-    setProcessing: (Boolean) -> Unit,
-    setStatus: (String) -> Unit,
-    setError: (Boolean) -> Unit,
-    tokenFetchStarted: AtomicBoolean,
-    onSuccess: () -> Unit,
-) {
-    val spDc = extractCookie("sp_dc")
-    val spKey = extractCookie("sp_key") ?: ""
-    if (spDc.isNullOrBlank()) {
-        setProcessing(true)
-        setError(true)
-        setStatus("Couldn't read login cookie. Please complete Spotify login.")
-        tokenFetchStarted.set(false)
-        return
-    }
-
-    setProcessing(true)
-    setError(false)
-    setStatus("Connecting…")
-    view?.stopLoading()
-
-    scope.launch(Dispatchers.IO) {
-        SpotifySession.setSpDc(activity, spDc)
-        var lastError: Throwable? = null
-        repeat(3) { attempt ->
-            val result = SpotifyAuth.fetchAccessToken(spDc, spKey)
-            result.onSuccess { token ->
-                Spotify.accessToken = token.accessToken
-                withContext(Dispatchers.Main) { setStatus("Success!") }
-                delay(300)
-                withContext(Dispatchers.Main) { onSuccess() }
-                return@launch
-            }.onFailure { e ->
-                lastError = e
-                Timber.e(e, "Spotify token fetch failed (attempt ${attempt + 1})")
-                if (attempt < 2) delay(800)
-            }
-        }
-        withContext(Dispatchers.Main) {
-            setStatus("Login failed: ${lastError?.message ?: "unknown error"}")
-            setError(true)
-            setProcessing(false)
-        }
-        tokenFetchStarted.set(false)
     }
 }
