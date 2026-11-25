@@ -144,5 +144,19 @@ class FeatureUpgradeVerificationTest {
         assertTrue(UpdateChecker.isNewer("2.5.0", "2.4.0"))
         assertTrue(UpdateChecker.isNewer("2.5.0", "2.5.0-debug"))
         assertFalse(UpdateChecker.isNewer("2.5.0", "2.5.0"))
+
+        val ciReleaseMarkdown = """
+            ### Download & Integrity
+            - **APK:** `SpotUI-v2.5.5-release.apk` (58M)
+            - **APK SHA-256:** `0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef`
+            - **Signing Key ID:** `3e079b97f0…` (`repo-base64`)
+        """.trimIndent()
+        assertEquals("3e079b97f0" to "repo-base64", UpdateChecker.extractSigningMetadata(ciReleaseMarkdown))
+
+        val secretMarkdown = "- **Signing Key ID:** `3E079B97F0AABBCC` (`github-secret`)"
+        assertEquals("3e079b97f0" to "github-secret", UpdateChecker.extractSigningMetadata(secretMarkdown))
+
+        val ephemeralFallbackBody = "> Built with a one-off ephemeral keystore."
+        assertEquals("" to "ephemeral", UpdateChecker.extractSigningMetadata(ephemeralFallbackBody))
     }
 }

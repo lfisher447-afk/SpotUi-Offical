@@ -73,12 +73,10 @@ import androidx.compose.material.icons.rounded.SpatialAudio
 import androidx.compose.material.icons.rounded.SportsEsports
 import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material3.ContainedLoadingIndicator
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearWavyProgressIndicator
-import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -112,7 +110,6 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 import kotlin.math.roundToInt
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun FloaterExpressiveConsole(
     state: FloaterUiModel,
@@ -367,7 +364,11 @@ internal fun FloaterExpressiveConsole(
                                             .background(cs.scrim.copy(alpha = 0.45f)),
                                         contentAlignment = Alignment.Center,
                                     ) {
-                                        ContainedLoadingIndicator(modifier = Modifier.size(28.dp))
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(24.dp),
+                                            color = cs.onPrimaryContainer,
+                                            strokeWidth = 2.5.dp,
+                                        )
                                     }
                                 }
                             }
@@ -442,11 +443,10 @@ internal fun FloaterExpressiveConsole(
                         } else {
                             0f
                         }
-                        LinearWavyProgressIndicator(
+                        LinearProgressIndicator(
                             progress = { progress },
                             color = cs.primary,
                             trackColor = cs.surfaceContainerLowest,
-                            amplitude = { if (state.isPlaying) 1f else 0f },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("floater_wavy_progress"),
@@ -848,7 +848,6 @@ internal fun FloaterExpressiveConsole(
  * Auto-detects teammate speech/chat (Spanish, Arabic, etc.), translates into English,
  * and allows inline font-size adjustment (A-/A+), drag repositioning, and corner width resize.
  */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun TranslationBubbleOverlayContent(
     bubble: TranslationBubbleState,
@@ -916,9 +915,10 @@ internal fun TranslationBubbleOverlayContent(
                             horizontalArrangement = Arrangement.spacedBy(5.dp),
                         ) {
                             if (bubble.isTranslating) {
-                                LoadingIndicator(
+                                CircularProgressIndicator(
                                     modifier = Modifier.size(11.dp),
                                     color = cs.primary,
+                                    strokeWidth = 1.75.dp,
                                 )
                             } else {
                                 Box(

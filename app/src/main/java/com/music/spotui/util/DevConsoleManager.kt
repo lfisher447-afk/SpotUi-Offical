@@ -27,7 +27,7 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * DevConsoleManager (v2.5.4)
+ * DevConsoleManager (v2.5.5)
  * Dedicated real-time categorized logger, 2,000-entry ring buffer, audio/DSP/3D telemetry,
  * MrBean network throughput tracking, Accessibility Floater monitoring, and fault ledger.
  */
@@ -116,7 +116,7 @@ object DevConsoleManager {
                 timestamp = formatNow(),
                 level = LogLevel.INFO,
                 tag = "DevConsoleManager",
-                message = "Dedicated v2.5.4 Logger ready (2,000-entry ring buffer, 8 channels, live telemetry).",
+                message = "Dedicated v${BuildConfig.VERSION_NAME} Logger ready (2,000-entry ring buffer, 8 channels, live telemetry).",
                 category = LogCategory.SYSTEM,
             ),
         )

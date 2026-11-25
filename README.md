@@ -1,6 +1,6 @@
 <div align="center">
 
-# spotUI Android — v2.5.4 (`202611234`)
+# spotUI Android — v2.5.5 (`202611245`)
 
 ### Expressive Jetpack Compose audio and Spotify and YouTube audio with automatic playlist sync for both Spotify and YouTube as soon as you log in — Android 8 – 17 & One UI 9.0 Ready 😊💫
 
@@ -16,7 +16,7 @@
 
 **SpotUI (`com.music.spotui`) is an all-in-one Kotlin & Jetpack Compose Android audio player powered by Media3 `1.11.0`, the Eclipse MrBean Turbo 8x HTTP/2 multi-range download engine (`1–10` concurrent tracks, `5` default), an embedded APK-native `yt-dlp` (`0.18.1`) + FFmpeg extraction runtime, a 3D Binaural Soundstage & 8D Orbit DSP, a native `android.content.pm.PackageInstaller` in-app auto-updater, a Material 3 Expressive Accessibility Floater Studio with Game-Only Live Teammate Translation, 17 integrated modules & submodules, multi-MB/s NovaAc v8 AEAD archives, and an 8-channel `2,000`-entry DevConsole with a 21-point Health Probe.**
 
-[User Guide & Highlights](#user-guide--key-features) · [What's New in v2.5.4](#whats-new-in-v254-202611234) · [Complete Library & SDK Inventory](#complete-library--sdk-inventory) · [17 Integrated Modules](#17-integrated-modules--submodules) · [Architecture](#project-architecture--module-map) · [Build & CI](#build--release-workflows) · [Permissions](#permissions-overview) · [Version History](#version-history)
+[User Guide & Highlights](#user-guide--key-features) · [What's New in v2.5.5](#whats-new-in-v255-202611245) · [Complete Library & SDK Inventory](#complete-library--sdk-inventory) · [17 Integrated Modules](#17-integrated-modules--submodules) · [Architecture](#project-architecture--module-map) · [Build & CI](#build--release-workflows) · [Permissions](#permissions-overview) · [Version History](#version-history)
 
 </div>
 
@@ -27,10 +27,10 @@
 | Item | Current Value |
 | :--- | :--- |
 | **Application ID** | `com.music.spotui` (`com.music.spotui.debug` for debug builds) |
-| **Version Name** | `2.5.4` |
-| **Build Version Code** | `202611234` |
-| **SDK Range** | `minSdk 26` (Android 8.0) · `compileSdk / targetSdk 36` · Tested & hardened for **Android 17 (API 37) / One UI 9.0** |
-| **Toolchain** | Java `21` · Kotlin `2.2.0` · AGP `8.13.2` · KSP `2.2.0-2.0.2` · Hilt `2.57.1` · Compose BOM `2024.12.01` |
+| **Version Name** | `2.5.5` |
+| **Build Version Code** | `202611245` |
+| **SDK Range** | `minSdk 26` (Android 8.0) · `compileSdk / targetSdk 36` (`buildToolsVersion 36.0.0`) · Tested & hardened for **Android 17 (API 37) / One UI 9.0** |
+| **Toolchain** | Java `21` · Kotlin `2.2.0` · AGP `8.13.2` · KSP `2.2.0-2.0.2` · Hilt `2.57.1` · Compose BOM `2025.05.01` · Material 3 `1.4.0` |
 | **Media Engine** | AndroidX Media3 `1.11.0` (`ExoPlayer`, `MediaLibraryService`, `DASH`, `OkHttpDataSource`, `WorkManager`) |
 | **Stream Extraction** | Dual-path **InnerTube** (`MWEB`/`ANDROID_MUSIC`/90s circuit breaker + `NewPipeExtractor v0.26.3`) + **Embedded `youtubedl-android 0.18.1` + FFmpeg** (`YtDlpEngine`) |
 | **Network Engine** | **Eclipse MrBean Turbo 8x (`org.eclipse.Mrbean.*`)** (`32`-socket HTTP/2 `ConnectionPool` / `128` dispatcher, up to `8` `206` `FileChannel` slices, `64 KiB – 1 MiB` I/O buffers, `1–10` concurrent tracks) |
@@ -49,8 +49,8 @@
 ### Getting Signed In (Spotify, YouTube Music, Deezer & Guest Mode)
 1. **Unified Spotify Login Studio (`ui/screens/SpotifyLogin/{page,module,helper}/` + `:spotify` `Spotify.kt`)**:
    - **YouTube-Style Sign-In + Sync Hub (`SpotifyLoginScreen`)**: Organized cleanly across `SpotifyLogin/page/`, `SpotifyLogin/module/`, and `SpotifyLogin/helper/` with a unified sign-in + **Sync All** pipeline syncing your Spotify profile, playlists, Saved/Liked tracks, and Saved Albums directly into SpotUI's Library alongside real-time connection status.
-   - **Hardened `SpotifyWebViewAdapter` & Privacy Shield**: Combines Chromium WebView engine hardening, zero-bypass TLS handling, renderer crash-loop recovery, and third-party tracker/ad-beacon blocking while stripping `; wv` and legacy WebView version tokens that previously broke `accounts.spotify.com/login/code/send` and `requestStorageAccess`.
-   - **Auto-Recover, Official OAuth PKCE & TOTP v61**: Automatically cycles offending cookies/hints on HTTP 400/402/403, extracts XOR TOTP v61 secrets (with Nuance caching & raw Gist fallback), bridges `#session` / `sp_dc` + `sp_key` credentials cleanly into `SpotifyAuth` (`Spotify.kt`), and supports official Spotify OAuth PKCE (`SpotifyOAuth`), raw `sp_dc` / JSON cookie import, external browser handoff, and **Guest Mode**.
+   - **Hardened `SpotifyWebViewAdapter` & Client Hints Alignment**: Combines Chromium WebView engine hardening, aligned `SYSTEM_DEFAULT` User-Agent + `Sec-CH-UA` Client Hints (zero `navigator` or `Document.prototype` tampering), `X-Requested-With` package-leak stripping, clean cookie/`WebStorage` wipe prior to login, strict TLS validation, renderer crash-loop recovery, and third-party tracker/ad-beacon blocking.
+   - **Auto-Recover, SSO Popups & TOTP v61**: Automatically cycles offending cookies/hints on HTTP 400/402/403, extracts XOR TOTP v61 secrets (with Nuance caching & raw Gist fallback), bridges `#session` / `sp_dc` + `sp_key` credentials cleanly into `SpotifyAuth` (`Spotify.kt`) + `SpotifyLoginPipeline`, handles Google/Apple multi-window SSO popups cleanly, and supports raw `sp_dc` / JSON cookie import, external browser handoff, and **Guest Mode**.
 2. **YouTube Music Library Sync & Dual-Path Stream Extraction** (`YouTubeMusicSync` + `YtDlpEngine`):
    - **Zero-Config Signed-In Session Sync**: Sign in once via `SpotifyLogin/page/YouTubeMusicWebActivity` to sync playlists, **Liked Music (`LM`)**, and saved albums directly into your Library & Album tabs.
    - **Resilient InnerTube + Embedded APK-Native `yt-dlp`**: Combines InnerTube (`MWEB`, `ANDROID_MUSIC`, `2026` presets, 90s per-client circuit breakers, HTTP 429/5xx exponential backoff, HTML `VISITOR_DATA` fallback) and `NewPipeExtractor` with an embedded on-device **`youtubedl-android 0.18.1` + FFmpeg** runtime (`YtDlpEngine`) supporting primary extraction toggling and in-app binary updates.
@@ -79,22 +79,19 @@
 
 ---
 
-## What's New in v2.5.4 (`202611234`)
+## What's New in v2.5.5 (`202611245`)
 
-1. **Material 3 Expressive Floater Studio & Game-Only Live Translation Bubble (`MediaAccessibilityService`)**:
-   - Rebuilt the Accessibility Floater cleanly in Jetpack Compose with Material 3 Expressive morphing play/pause container physics, collapsible navigation rail (`MEDIA`, `SOUND`, `PRO`, plus conditional `GAME`), live `Player`/`Queue`/`EQ`/`3D`/`Tools`/`Translate` tabs, `0–100%` In-App Volume slider, bottom-left & bottom-right corner-drag resizing, tactile vibration, and persistent track metadata + transport routing.
-   - Added foreground game detection (`GameTranslatorEngine`) that unlocks the `Translate` tab **only inside games** (hiding it on non-game apps) and projects an auto-detect-to-English live teammate translation bubble at the **top-left** with adjustable width (`160–420 dp`), text size (`11–24 sp`), opacity (`55–98%`), drag positioning, and corner resizing.
-2. **Embedded APK-Native `yt-dlp` (`youtubedl-android 0.18.1`) + FFmpeg (`YtDlpEngine`)**:
-   - Bundled on-device `yt-dlp` + FFmpeg directly inside the APK (no PC or external server needed) with a primary extraction toggle, live binary updater, and automatic fallback whenever InnerTube clients hit bot checks or signature changes.
-3. **Unified `SpotifyLogin/{page,module,helper}/` + `SpotifyWebViewAdapter` & InnerTube Hardening**:
-   - Consolidated all Spotify, YouTube Music web, and Deezer login screens/helpers/modules under `ui/screens/SpotifyLogin/{page,module,helper}/`, unified around `Spotify.kt` (`SpotifyAuth`) + `SpotifyOAuth` PKCE + `SpotifyLoginPipeline` with YouTube-style **Sync All** into Library.
-   - Merged the hardened `SpotifyWebViewAdapter` engine (strict TLS validation, tracker/ad-beacon blocking, renderer recovery, `; wv` stripping) with XOR TOTP v61 extraction and Auto-Recover for `accounts.spotify.com/login/code/send`.
-   - Added 90s per-client InnerTube circuit-breaker cooldowns, HTTP 429/5xx exponential backoff retries, `MWEB`/`ANDROID_MUSIC`/`2026` presets, HTML `VISITOR_DATA` fallback, and `NewPipeExtractor` handoff.
-4. **Material 3 Expressive Overhaul, Turbo 8x MrBean, Enhanced 3D Spatial & 8-Channel DevConsole (`v2.5.3`–`v2.5.4`)**:
-   - Added `NavigationRail` side-tab Settings, luminous Material 3 Expressive Home/Downloads/Mini-Player cards, and `EqPresetCatalog`.
-   - Upgraded MrBean to `32` keep-alive sockets (`128` dispatcher), `512 KiB` default (`64 KiB – 1 MiB`) I/O buffers, `5` default concurrent downloads (up to `10`), and up to `8` parallel HTTP `206` range slices with live peak MB/s tracking.
-   - Overhauled `SpatialWideningAudioProcessor` with Haas micro-taps, upper-band Mid/Side expansion, Early Reflections into the 3-stage Schroeder tank, stronger HRTF pinna peaks, and boosted 8D Orbit modulation.
-   - Expanded `DevConsoleManager` into an **8-channel** (`Playback`, `DSP & 3D`, `Network & DL`, `Auth`, `Floater & UI`, `Bluetooth`, `Modules`, `System`) **`2,000`-entry** live telemetry stream paired with a **21-point** `SystemHealthChecker` and **17 integrated modules**.
+1. **Spotify WebView Anti-Bot Shield, Client Hints Alignment & Auto-Capture (`SpotifyLogin/{page,module,helper}/`)**:
+   - Eliminated `"Oops! Something went wrong"` anti-bot blocks by matching default `SYSTEM_DEFAULT` User-Agent with `Sec-CH-UA` Client Hints, stripping `X-Requested-With` package identification via `WebSettingsCompat`, removing native JS prototype overrides that tripped reCAPTCHA Enterprise, wiping stale cookies/`WebStorage` prior to load, and handling in-app SSO popups cleanly into `Spotify.kt` (`SpotifyAuth`) + `SpotifyLoginPipeline` + YouTube-style **Sync All**.
+2. **Complete Auto-Updater Pre-Flight Signing Check & Persistent CI Keystore (`tools/setup-keystore.sh`)**:
+   - Fixed `UpdateChecker.extractSigningMetadata()` regex so GitHub Release markdown (`**Signing Key ID:** \`...\``) parses accurately before downloading, preventing unexpected `Signing key mismatch` blocks.
+   - Added shared `tools/setup-keystore.sh` and `tools/verify-keystore.sh`, whitelisted `!debug.keystore.base64` in `.gitignore`, pinned `buildToolsVersion = "36.0.0"` across all Android modules, and synchronized `release-apk.yml` + `tools/build-release-apk.sh`.
+3. **Material 3 Expressive Floater Studio & Game-Only Live Translation Bubble (`MediaAccessibilityService`)**:
+   - Rebuilt the Accessibility Floater cleanly in Jetpack Compose with Material 3 Expressive transport controls, collapsible navigation rail (`MEDIA`, `SOUND`, `PRO`, plus conditional `GAME`), live `Player`/`Queue`/`EQ`/`3D`/`Tools`/`Translate` tabs, `0–100%` In-App Volume slider, bottom-left & bottom-right corner-drag resizing, and tactile vibration.
+   - Added foreground game detection (`GameTranslatorEngine`) unlocking `Translate` **only inside games** and projecting a Top-Left auto-detect-to-English live teammate translation bubble with adjustable width (`160–420 dp`), text size (`11–24 sp`), opacity (`55–98%`), drag positioning, and corner resizing.
+4. **Embedded APK-Native `yt-dlp` (`0.18.1`) + FFmpeg, InnerTube Hardening, Turbo 8x MrBean & 8-Channel DevConsole (`v2.5.3`–`v2.5.5`)**:
+   - Bundled on-device `youtubedl-android 0.18.1` + FFmpeg (`YtDlpEngine`) alongside InnerTube (`MWEB`/`ANDROID_MUSIC`/`2026` presets, 90s per-client circuit breakers, HTTP 429/5xx exponential backoff, HTML `VISITOR_DATA` fallback, `NewPipeExtractor`).
+   - Expanded `DevConsoleManager` (`8` channels, `2,000`-entry ring buffer), **21-point** `SystemHealthChecker`, **17 integrated modules**, `EqPresetCatalog`, Turbo 8x MrBean (`32` sockets, `8` `206` slices, `5` default concurrent downloads up to `10`), and enhanced `SpatialWideningAudioProcessor`.
 
 ---
 
@@ -109,19 +106,19 @@ All versions below are defined directly in `gradle/libs.versions.toml` and `app/
 | **Android Gradle Plugin (AGP)** | `8.13.2` | Multi-module Android build toolchain (`compileSdk 36`, `targetSdk 36`, `minSdk 26`) |
 | **KSP (`com.google.devtools.ksp`)** | `2.2.0-2.0.2` | Annotation processing for Hilt & Room |
 | **Kotlinx Coroutines (`android`, `guava`, `play-services`)** | `1.11.0` | Structured async concurrency, Media3 `ListenableFuture` bridging & Task interop |
-| **Kotlinx Serialization JSON** | `1.7.3` | Zero-reflection JSON parsing for Spotify, InnerTube, Lyrics & navigation routes |
+| **Kotlinx Serialization JSON** | `1.8.1` | Zero-reflection JSON parsing for Spotify, InnerTube, Lyrics & navigation routes |
 | **Core Library Desugaring (`desugar_jdk_libs_nio`)** | `2.1.5` | Java `java.time` & NIO APIs backported cleanly to Android 8.0+ (API 26+) |
 | **Concurrent Futures KTX (`androidx.concurrent`)** | `1.2.0` | Clean suspend-bridging for callback & executor-based Android APIs |
 
 ### UI, Design, Widgets & WebView
 | Library / Artifact | Version | Purpose |
 | :--- | :--- | :--- |
-| **Jetpack Compose BOM (`androidx.compose:compose-bom`)** | `2024.12.01` | Material Design 3 (`material3`), UI (`ui`, `graphics`, `tooling-preview`), Runtime LiveData, & Material Icons Extended |
-| **AndroidX Core KTX (`androidx.core:core-ktx`)** | `1.15.0` | WindowInsets, `ContextCompat`, `IntentCompat`, FileProvider & MediaStore helpers |
-| **AndroidX Lifecycle (`lifecycle-runtime-ktx`)** | `2.8.7` | Lifecycle-aware `StateFlow` collection (`collectAsStateWithLifecycle`) |
-| **AndroidX Activity Compose (`activity-compose`)** | `1.9.3` | `enableEdgeToEdge()`, `BackHandler`, & `rememberLauncherForActivityResult` |
-| **Navigation Compose (`navigation-compose`)** | `2.8.5` | Adaptive single-activity navigation across Home, Search, Library, Downloads, Player, Settings & DevConsole |
-| **AndroidX WebKit (`androidx.webkit:webkit`)** | `1.13.0` | Safe WebView auth flows for Spotify & YouTube Music with error/cookie diagnostics |
+| **Jetpack Compose BOM (`androidx.compose:compose-bom`)** | `2025.05.01` | Material Design 3 (`material3 1.4.0`), UI (`ui`, `graphics`, `tooling-preview`), Runtime LiveData, & Material Icons Extended |
+| **AndroidX Core KTX (`androidx.core:core-ktx`)** | `1.16.0` | WindowInsets, `ContextCompat`, `IntentCompat`, FileProvider & MediaStore helpers |
+| **AndroidX Lifecycle (`lifecycle-runtime-ktx` & `-compose`)** | `2.9.1` | Lifecycle-aware `StateFlow` collection (`collectAsStateWithLifecycle`) |
+| **AndroidX Activity Compose (`activity-compose`)** | `1.10.1` | `enableEdgeToEdge()`, `BackHandler`, & `rememberLauncherForActivityResult` |
+| **Navigation Compose (`navigation-compose`)** | `2.9.0` | Adaptive single-activity navigation across Home, Search, Library, Downloads, Player, Settings & DevConsole |
+| **AndroidX WebKit & Browser (`webkit` / `browser`)** | `1.14.0` / `1.8.0` | Hardened WebView auth flows for Spotify & YouTube Music with Client Hints alignment & Custom Tabs handoff |
 | **Jetpack Glance (`glance-appwidget`, `glance-material3`)** | `1.1.1` | Material 3 `2x2` Compact and `4x2` Expanded Home Screen music widgets |
 | **Glide (`com.github.bumptech.glide:glide` & `:compose`)** | `4.16.0` / `1.0.0-beta01` | High-speed artwork loading, caching, and zoomable release markdown images |
 | **AndroidX Core SplashScreen** | `1.0.1` | Seamless cold-start splash transition |
@@ -228,7 +225,7 @@ SpotUi-Offical/
 │   │   │   ├── notification/                 # PlaybackService (MediaLibraryService), ExitPlaybackControlReceiver
 │   │   │   ├── screens/
 │   │   │   │   ├── SpotifyLogin/page/        # SpotifyLoginScreen (Sync All), YouTubeMusicWebActivity, DeezerLoginActivity
-│   │   │   │   ├── SpotifyLogin/module/      # SpotifyWebViewAdapter (shield/engine), SpotifyOAuth, SpotifyLoginPipeline, SpotifyHashRecovery
+│   │   │   │   ├── SpotifyLogin/module/      # SpotifyWebViewAdapter (shield/engine), SpotifyLoginPipeline, SpotifyHashRecovery
 │   │   │   │   ├── SpotifyLogin/helper/      # SpotifyLoginHelpers (credential extractors & session helpers)
 │   │   │   │   └── ...                       # Home, Search, Library, Downloads, Player (+ NewPlayerLayout), Settings, UpdateRoadmap, DevConsole
 │   │   │   └── theme/                        # Material 3 expressive Color, Typography (system SansSerif), ThemePreferences
@@ -243,7 +240,7 @@ SpotUi-Offical/
 ├── spotify/ & innertube/                     # Core root Gradle modules (:spotify, :innertube)
 ├── modules/app/libs/                         # Extended submodule suite (betterlyrics, kugou, lastfm, lrclib,
 │                                             # paxsenix, shazamkit, simpmusic, fastlane, spotify, innertube)
-├── tools/                                    # build-release-apk.sh & archive verification utilities
+├── tools/                                    # setup-keystore.sh, verify-keystore.sh, build-release-apk.sh & archive verification utilities
 └── .github/workflows/                        # release-apk.yml (CI APK build + apksigner + SHA-256 + GitHub Release)
 ```
 
@@ -252,22 +249,23 @@ SpotUi-Offical/
 ## Build & Release Workflows
 
 ### Option A — Automated GitHub Actions (`.github/workflows/release-apk.yml`)
-1. Push a commit to `main`/`master`, push a tag matching `v*` (e.g., `git tag v2.5.4 && git push origin v2.5.4`), or manually trigger **Actions -> Build & Publish Release APK -> Run workflow**.
+1. Push a commit to `main`/`master`, push a tag matching `v*` (e.g., `git tag v2.5.5 && git push origin v2.5.5`), or manually trigger **Actions -> Build & Publish Release APK -> Run workflow**.
 2. **Default Fast Builds (`skip_tests: true` by default)**: Tag/branch builds and default manual dispatches skip unit tests so release APKs build quickly and reliably. To run `:spotify:test`, `:innertube:testDebugUnitTest`, and `:app:testDebugUnitTest`, trigger **Run workflow** manually and **uncheck** `Skip unit tests`.
-3. **Persistent Signing Key Resolution (Prevents `Signing key mismatch`)**: Android requires every in-place update APK to use the exact same signing certificate as the installed build (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`). The workflow resolves `debug.keystore` in strict priority order:
+3. **Persistent Signing Key Resolution (Prevents `Signing key mismatch`)**: Android requires every in-place update APK to use the exact same signing certificate as the installed build (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`). Both CI and local builds call `tools/setup-keystore.sh`, resolving `debug.keystore` in strict priority order:
    1. **GitHub Actions Secret (`SIGNING_KEYSTORE_BASE64` or `DEBUG_KEYSTORE_BASE64`)** — Recommended so all CI builds share one consistent key even across branches/forks (`cat debug.keystore.base64` or `base64 -w0 debug.keystore`).
-   2. **Committed `debug.keystore.base64`** in the repository root (signing certificate short ID: `3e079b97f0…`). Ensure `debug.keystore.base64` is included when pushing to GitHub!
+   2. **Committed `debug.keystore.base64`** in the repository root (whitelisted in `.gitignore`; signing certificate short ID: `3e079b97f0…`). Ensure `debug.keystore.base64` is committed & pushed to GitHub!
    3. **Ephemeral `keytool` fallback** (only if both above are missing — emits a CI warning and prints a notice in the release notes because a one-off key cannot update over previous releases in-place).
-4. CI builds `:app:assembleRelease`, verifies signatures with `apksigner`, prints the **Signing Key ID** and **APK SHA-256** in the build summary & release notes, uploads build artifacts, and publishes **`SpotUI-v2.5.4-release.apk`** + **`.sha256`** to **GitHub Releases**.
+4. CI builds `:app:assembleRelease`, verifies signatures with `apksigner` and `tools/verify-keystore.sh`, prints the **Signing Key ID** and **APK SHA-256** in the build summary & release notes, uploads build artifacts, and publishes **`SpotUI-v2.5.5-release.apk`** + **`.sha256`** to **GitHub Releases**.
 
 > **Fixing `Signing key mismatch` from an older build:** If your currently installed APK was signed with an earlier ephemeral key (different SHA-256 prefix than the new release), back up your library/settings in **Settings -> System -> Backup**, tap **Uninstall Old App** (or uninstall SpotUI once), and install the newly downloaded APK from `Downloads/SpotUI/`. Once installed with a persistent `SIGNING_KEYSTORE_BASE64` secret or `debug.keystore.base64`, all subsequent releases update cleanly in-place via Android `PackageInstaller`.
 
 ### Option B — Local Release Script (`tools/build-release-apk.sh`) or Gradle
-Requires **JDK 21** and **Android SDK Platform 36**:
+Requires **JDK 21** and **Android SDK Platform 36 (`build-tools 36.0.0`)**:
 
 ```bash
 export ANDROID_HOME=/path/to/android-sdk
 export JAVA_HOME=/path/to/jdk-21
+bash tools/verify-keystore.sh
 bash tools/build-release-apk.sh
 ```
 
@@ -277,7 +275,7 @@ Or compile directly with Gradle:
 gradle :app:assembleRelease
 ```
 
-Outputs `dist/SpotUI-v2.5.4-release.apk` and `dist/SpotUI-v2.5.4-release.apk.sha256`.
+Outputs `dist/SpotUI-v2.5.5-release.apk` and `dist/SpotUI-v2.5.5-release.apk.sha256`.
 
 > **Signing Notice:** The checked-in `sharedDebug` signing config enables seamless in-place sideload & `PackageInstaller` upgrades across builds (`app/build.gradle.kts`). Always substitute a private release keystore before public store distribution, and never commit account cookies, ARLs, OAuth secrets, or private keys.
 
@@ -298,7 +296,8 @@ SpotUI adheres to least-privilege and Google Play Creator Program compliant Andr
 
 | Version | Code | Highlights |
 | :--- | :--- | :--- |
-| **v2.5.4** | `202611234` | **Unified `SpotifyLogin/{page,module,helper}/`, Material 3 Expressive Floater Studio, Game-Only Live Translation Bubble, Embedded `yt-dlp` + FFmpeg & InnerTube Hardening**: Consolidated all Spotify, YouTube Music Web, and Deezer login screens/helpers/modules under `ui/screens/SpotifyLogin/{page,module,helper}/` with `Spotify.kt` (`SpotifyAuth`) + hardened `SpotifyWebViewAdapter` + `SpotifyOAuth` PKCE and YouTube-style **Sync All**; rebuilt `MediaAccessibilityService` in Jetpack Compose with Material 3 Expressive morphing transport controls, collapsible rail (`MEDIA`, `SOUND`, `PRO`, conditional `GAME`), 6 live tabs (`Player`, `Queue`, `EQ`, `3D`, `Tools`, game-only `Translate`), `0–100%` In-App Volume slider, corner-drag resizing, tactile vibration, and a Top-Left adjustable auto-detect-to-English live teammate translation bubble; bundled on-device `youtubedl-android 0.18.1` + FFmpeg (`YtDlpEngine`) with primary extraction toggle & live binary updater; added XOR TOTP v61 secret extraction + Auto-Recover for HTTP 400/402/403, 90s per-client InnerTube circuit breakers, HTTP 429/5xx backoff, `MWEB`/`ANDROID_MUSIC`/`2026` presets, HTML `VISITOR_DATA` fallback, `NewPipeExtractor` activation, `EqPresetCatalog`, 17-module telemetry & 21-point `SystemHealthChecker`. |
+| **v2.5.5** | `202611245` | **Spotify WebView Anti-Bot Shield, Persistent CI Keystore Auto-Updater, M3 Expressive Floater & Game-Only Translator**: Fixed Spotify WebView `Sec-CH-UA` Client Hints mismatches & prototype tampering triggers, stripped `X-Requested-With` package leaks, wiped stale cookies/`WebStorage` before login, and unified SSO popups into `Spotify.kt` + Library Sync All; fixed `UpdateChecker.extractSigningMetadata` markdown parsing for pre-flight signing compatibility checks; added `tools/setup-keystore.sh` + `tools/verify-keystore.sh`, whitelisted `!debug.keystore.base64` in `.gitignore`, pinned `buildToolsVersion = "36.0.0"`, updated Fastlane metadata, and aligned 17-module / 21-point telemetry. |
+| **v2.5.4** | `202611234` | **Unified `SpotifyLogin/{page,module,helper}/`, Material 3 Expressive Floater Studio, Game-Only Live Translation Bubble, Embedded `yt-dlp` + FFmpeg & InnerTube Hardening**: Consolidated all Spotify, YouTube Music Web, and Deezer login screens/helpers/modules under `ui/screens/SpotifyLogin/{page,module,helper}/` with `Spotify.kt` (`SpotifyAuth`) + hardened `SpotifyWebViewAdapter` and YouTube-style **Sync All**; rebuilt `MediaAccessibilityService` in Jetpack Compose with Material 3 Expressive transport controls, collapsible rail (`MEDIA`, `SOUND`, `PRO`, conditional `GAME`), 6 live tabs (`Player`, `Queue`, `EQ`, `3D`, `Tools`, game-only `Translate`), `0–100%` In-App Volume slider, corner-drag resizing, tactile vibration, and a Top-Left adjustable auto-detect-to-English live teammate translation bubble; bundled on-device `youtubedl-android 0.18.1` + FFmpeg (`YtDlpEngine`) with primary extraction toggle & live binary updater; added XOR TOTP v61 secret extraction + Auto-Recover for HTTP 400/402/403, 90s per-client InnerTube circuit breakers, HTTP 429/5xx backoff, `MWEB`/`ANDROID_MUSIC`/`2026` presets, HTML `VISITOR_DATA` fallback, `NewPipeExtractor` activation, `EqPresetCatalog`, 17-module telemetry & 21-point `SystemHealthChecker`. |
 | **v2.5.3** | — | **Material 3 Expressive Overhaul, Side-Tab Settings, Turbo 8x MrBean & 2,000-Entry Logger**: Introduced Material 3 Expressive surfaces, animated `NavigationRail` side-tab Settings, upgraded `Home`/`Downloads`/Mini-Player cards, Turbo 8x MrBean (`32` keep-alive sockets, `128` dispatcher, `5` default concurrent downloads up to `10`, up to `8` parallel HTTP `206` slices >= 512 KiB, `512 KiB`–`1 MiB` buffers, peak MB/s meter), haptic Floater corner-drag resizing, Haas/Early Reflections/Pinna/8D Spatializer audibility overhaul, and an 8-channel `2,000`-entry `DevConsoleManager`. |
 | **v2.5.2** | `202611232` | **MrBean Turbo 1–10 Multi-Range Downloader, 3D Spatial Soundstage v2 & Native PackageInstaller Updater**: Rebuilt Eclipse MrBean networking with HTTP/2 multiplexing (`ConnectionPool` 24 / `Dispatcher` 96), 5-min TTL DNS cache, `1–6` parallel HTTP `206` `FileChannel` byte-range slices, `64–512 KB` buffer selection, async cover/lyrics prefetch, live MB/s telemetry, hot-scalable `1–10` concurrent song downloads, and 6x parallel SpotiFlac DASH-FLAC segments; unified HTTP/2 & CIO endpoint pooling across all submodules and app HTTP helpers; upgraded the in-app auto-updater to MrBean multi-range transfers + Android's native `PackageInstaller` Session API (`UpdateInstallReceiver` + progress/status callbacks); rebuilt 3D Spatial Audio with cascaded Schroeder all-pass decorrelation, sub-120 Hz mono-bass anchor, Woodworth spherical-head HRTF + Pinna elevation filter, 8D Binaural Orbit LFO, Correlation Guard & Android 13–17 Spatializer telemetry; hardened `MediaAccessibilityService` for Android 17 & One UI 9.0. |
 | **v2.5.1** | `202611221` | **In-App Auto-Update Downloader, Spotify HTTP 402/400 Hardening & BT SCO/A2DP Fix**: Initial direct in-app release downloader + SHA-256 verification, dual-profile Bluetooth A2DP vs HFP/SCO fix, clean Spotify WebView login URL & HTTP 402/400 Auto-Recover, TOTP caching + raw Gist mirror fallback, and `#session` token seeding. |

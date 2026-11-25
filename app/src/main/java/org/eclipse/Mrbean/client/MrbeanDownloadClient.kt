@@ -35,7 +35,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * High-throughput HTTP/2 + Keep-Alive + Multi-Range download & playback transport
- * for SpotUI's Eclipse MrBean Turbo Engine (v2.5.4).
+ * for SpotUI's Eclipse MrBean Turbo Engine (v2.5.5).
  *
  * - Shared warm [ConnectionPool] (32 sockets / 5m keep-alive) & raised [Dispatcher]
  *   (`maxRequests = 128`, `maxRequestsPerHost = 32`) eliminate TCP+TLS handshake stalls.
@@ -47,7 +47,7 @@ object MrbeanDownloadClient {
     private const val DOWNLOAD_UA =
         "Mozilla/5.0 (Linux; Android 14; Pixel) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
-    private const val PLAYBACK_UA = "Spotui-MrBean/2.5.4 (Android Media3)"
+    private val PLAYBACK_UA = "Spotui-MrBean/${com.music.spotui.BuildConfig.VERSION_NAME} (Android Media3)"
 
     data class DownloadResult(
         val success: Boolean,

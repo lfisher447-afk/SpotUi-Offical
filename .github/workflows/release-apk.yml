@@ -66,24 +66,19 @@ jobs:
           cache-provider: basic
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
 
+      - name: Ensure Android Build-Tools 36.0.0
+        run: |
+          if [ -n "${ANDROID_HOME:-}" ] && [ ! -d "${ANDROID_HOME}/build-tools/36.0.0" ] && [ -x "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" ]; then
+            yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+          fi
+
       - name: Prepare debug signing keystore
         env:
           SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
           DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
         run: |
-          KEYSTORE_PATH="${{ github.workspace }}/debug.keystore"
-          BASE64_PATH="${{ github.workspace }}/debug.keystore.base64"
-          SECRET_B64="${SIGNING_KEYSTORE_BASE64:-${DEBUG_KEYSTORE_BASE64:-}}"
-          if [ -n "$SECRET_B64" ]; then
-            printf '%s' "$SECRET_B64" | tr -d '\r\n ' | base64 -d > "$KEYSTORE_PATH"
-          elif [ ! -f "$KEYSTORE_PATH" ] && [ -f "$BASE64_PATH" ]; then
-            tr -d '\r\n ' < "$BASE64_PATH" | base64 -d > "$KEYSTORE_PATH" || rm -f "$KEYSTORE_PATH"
-          fi
-          if [ ! -f "$KEYSTORE_PATH" ]; then
-            keytool -genkey -v -keystore "$KEYSTORE_PATH" -alias androiddebugkey \
-              -keypass android -storepass android -keyalg RSA -keysize 2048 \
-              -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-          fi
+          chmod +x tools/setup-keystore.sh tools/verify-keystore.sh
+          KEYSTORE_PATH="${{ github.workspace }}/debug.keystore" bash tools/setup-keystore.sh
 
       - name: Run unit tests across all modules
         run: |
@@ -126,51 +121,20 @@ jobs:
           cache-provider: basic
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
 
+      - name: Ensure Android Build-Tools 36.0.0
+        run: |
+          if [ -n "${ANDROID_HOME:-}" ] && [ ! -d "${ANDROID_HOME}/build-tools/36.0.0" ] && [ -x "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" ]; then
+            yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+          fi
+
       - name: Prepare release signing keystore
         id: keystore
         env:
           SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
           DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
         run: |
-          KEYSTORE_PATH="${{ github.workspace }}/debug.keystore"
-          BASE64_PATH="${{ github.workspace }}/debug.keystore.base64"
-          SIGNING_SOURCE=""
-          SECRET_B64="${SIGNING_KEYSTORE_BASE64:-${DEBUG_KEYSTORE_BASE64:-}}"
-
-          if [ -n "$SECRET_B64" ]; then
-            echo "Decoding signing keystore from GitHub Actions secret..."
-            printf '%s' "$SECRET_B64" | tr -d '\r\n ' | base64 -d > "$KEYSTORE_PATH"
-            SIGNING_SOURCE="github-secret"
-          elif [ -f "$KEYSTORE_PATH" ]; then
-            echo "Using existing debug.keystore from workspace..."
-            SIGNING_SOURCE="workspace-keystore"
-          elif [ -f "$BASE64_PATH" ]; then
-            echo "Decoding committed debug.keystore.base64..."
-            if tr -d '\r\n ' < "$BASE64_PATH" | base64 -d > "$KEYSTORE_PATH" && [ -s "$KEYSTORE_PATH" ]; then
-              SIGNING_SOURCE="repo-base64"
-            else
-              echo "::warning::debug.keystore.base64 failed to decode cleanly."
-              rm -f "$KEYSTORE_PATH"
-            fi
-          fi
-
-          if [ ! -f "$KEYSTORE_PATH" ]; then
-            echo "::warning::No SIGNING_KEYSTORE_BASE64 secret or debug.keystore.base64 found! Generating an ephemeral one-time keystore — Android will block in-place updates with 'Signing key mismatch' across separate CI builds."
-            keytool -genkey -v -keystore "$KEYSTORE_PATH" -alias androiddebugkey \
-              -keypass android -storepass android -keyalg RSA -keysize 2048 \
-              -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-            SIGNING_SOURCE="ephemeral"
-          fi
-
-          CERT_SHA256=$(keytool -list -v -keystore "$KEYSTORE_PATH" -storepass android -alias androiddebugkey \
-            | grep -oE 'SHA256:[[:space:]]*[0-9A-Fa-f:]+' | head -n1 | awk '{print $2}')
-          CERT_SHORT=$(printf '%s' "${CERT_SHA256:-unknown}" | tr -d ':' | tr '[:upper:]' '[:lower:]' | cut -c1-10)
-          echo "Signing source: ${SIGNING_SOURCE} | Certificate SHA-256: ${CERT_SHA256} (SpotUI ID: ${CERT_SHORT}…)"
-          ls -lh "$KEYSTORE_PATH"
-
-          echo "signing_source=${SIGNING_SOURCE}" >> "$GITHUB_OUTPUT"
-          echo "cert_sha256=${CERT_SHA256}" >> "$GITHUB_OUTPUT"
-          echo "cert_short=${CERT_SHORT}" >> "$GITHUB_OUTPUT"
+          chmod +x tools/setup-keystore.sh tools/verify-keystore.sh
+          KEYSTORE_PATH="${{ github.workspace }}/debug.keystore" bash tools/setup-keystore.sh
 
       - name: Assemble Release APK
         run: |

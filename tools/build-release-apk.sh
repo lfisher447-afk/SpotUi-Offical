@@ -4,10 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
-  echo "Decoding shared debug keystore..."
-  base64 -d debug.keystore.base64 > debug.keystore
-fi
+bash "$ROOT_DIR/tools/setup-keystore.sh"
 
 GRADLE_CMD="gradle"
 if command -v gradle >/dev/null 2>&1; then
@@ -40,6 +37,8 @@ cp "$APK_SRC" "$APK_OUT"
     shasum -a 256 "SpotUI-v${VERSION}-release.apk" > "SpotUI-v${VERSION}-release.apk.sha256"
   fi
 )
+
+bash "$ROOT_DIR/tools/verify-keystore.sh" "$APK_OUT" || true
 
 echo ""
 echo "Release APK ready for upload to GitHub Releases:"

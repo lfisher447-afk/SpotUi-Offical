@@ -1,1 +1,1 @@
-Material 3 YouTube Music client for Android
+Material 3 Expressive Spotify & YouTube Music player with 3D DSP & sync

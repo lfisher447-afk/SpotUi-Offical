@@ -56,13 +56,12 @@ import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ContainedLoadingIndicator
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -125,7 +124,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun SpotifyLoginScreen(navController: NavController) {
     val context = LocalContext.current
@@ -342,10 +340,10 @@ fun SpotifyLoginScreen(navController: NavController) {
                     contentAlignment = Alignment.Center,
                 ) {
                     if (isProcessing) {
-                        ContainedLoadingIndicator(
-                            modifier = Modifier.size(28.dp),
-                            containerColor = Color.Transparent,
-                            indicatorColor = Color.Black,
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            color = Color.Black,
+                            strokeWidth = 2.5.dp,
                         )
                     } else {
                         Icon(
@@ -634,7 +632,6 @@ fun SpotifyLoginScreen(navController: NavController) {
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun HardenedWebViewLoginBody(
     adapter: SpotifyWebViewAdapter,
@@ -764,7 +761,7 @@ private fun HardenedWebViewLoginBody(
         }
 
         if (navState.isLoading) {
-            LinearWavyProgressIndicator(
+            LinearProgressIndicator(
                 progress = { (navState.progress.coerceIn(5, 100) / 100f) },
                 color = Color(LOGIN_SPOTIFY_GREEN),
                 trackColor = Color(0xFF1A1E2A),

@@ -25,7 +25,7 @@ import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.annotation.RequiresApi
-import androidx.webkit.WebViewCompat
+import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
 import com.metrolist.spotify.Spotify
 import com.metrolist.spotify.models.SpotifyInternalToken
@@ -101,7 +101,7 @@ internal data class SpotifyMediaCapabilityState(
  * Unified, hardened Chromium WebView Engine + Privacy Shield for SpotUI Spotify Auth & Web Sync.
  *
  * Designed directly from `com.musify.browser.engine.WebViewAdapter` with full anti-bot hardening:
- * 1. Strips `X-Requested-With` app package leak via [WebViewCompat.setRequestedWithHeaderOriginAllowList].
+ * 1. Strips `X-Requested-With` app package leak via [WebSettingsCompat.setRequestedWithHeaderOriginAllowList].
  * 2. Defaults to [LoginUaProfile.SYSTEM_DEFAULT] so `User-Agent` & `Sec-CH-UA` Client Hints match
  *    100% — zero `navigator` or `Document.prototype` JS overrides that trip reCAPTCHA Enterprise.
  * 3. Wipes stale cookies & [WebStorage] cleanly before loading [Spotify.LOGIN_URL].
@@ -278,7 +278,8 @@ internal class SpotifyWebViewAdapter(
         }.getOrDefault(false)
         if (supported) {
             val ok = runCatching {
-                WebViewCompat.setRequestedWithHeaderOriginAllowList(webView, emptySet())
+                @Suppress("DEPRECATION")
+                WebSettingsCompat.setRequestedWithHeaderOriginAllowList(webView.settings, emptySet())
                 true
             }.getOrDefault(false)
             _securityState.value = _securityState.value.copy(requestedWithStripped = ok)

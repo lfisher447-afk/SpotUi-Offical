@@ -356,7 +356,7 @@ object UpdateChecker {
     internal fun extractSigningMetadata(body: String): Pair<String, String> {
         if (body.isBlank()) return "" to ""
         val keyRegex = Regex(
-            """Signing\s+Key\s+ID:\s*`?([a-fA-F0-9]{8,64})[^`\r\n]*`?(?:\s*\(`?([^)`\r\n]+)`?\))?""",
+            """Signing\s+Key\s+ID[\s*_`]*:[\s*_`]*([a-fA-F0-9]{8,64})(?:…|\.{3}|[a-fA-F0-9])*[\s*_`]*(?:\([\s*_`]*([^)`\r\n*]+?)[\s*_`]*\))?""",
             RegexOption.IGNORE_CASE,
         )
         val match = keyRegex.find(body)

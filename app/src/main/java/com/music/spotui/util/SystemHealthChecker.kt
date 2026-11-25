@@ -107,7 +107,7 @@ object SystemHealthChecker {
         if (!forceRefresh && prev != null && (nowMs - lastScanCompletedAtMs) in 0 until SCAN_COOLDOWN_MS) {
             DevConsoleManager.logInfo(
                 "HealthScanner",
-                "Returning cached 20-point report (${remainingCooldownMs(nowMs) / 1000 + 1}s cooldown remaining)",
+                "Returning cached ${prev.checks.size}-point report (${remainingCooldownMs(nowMs) / 1000 + 1}s cooldown remaining)",
             )
             return@withContext prev
         }

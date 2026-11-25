@@ -17,7 +17,7 @@ import kotlin.math.sqrt
 import kotlin.math.tanh
 
 /**
- * SpotUI 3D Holographic Binaural Soundstage & 8D Orbit Audio Processor (v2.5.4).
+ * SpotUI 3D Holographic Binaural Soundstage & 8D Orbit Audio Processor (v2.5.5).
  *
  * Delivers an unmistakable, studio-grade out-of-head 3D soundstage over headphones,
  * Bluetooth earbuds, and stereo speakers without hollowness or bass smear:

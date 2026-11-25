@@ -1,23 +1,14 @@
-Material 3 YouTube Music client for Android
+Spotui Music Player is an expressive Jetpack Compose audio player built on Media3 with Spotify and YouTube Music playlist synchronization, multi-source synced lyrics, lossless mirror routing, 7-band Biquad EQ, and 3D binaural soundstage processing.
 
 Features:
 
-- Play any song or video from YT Music
-- Background playback 
-- Personalized quick picks 
-- Library management 
-- Download and cache songs for offline playback
-- Search for songs, albums, artists, videos and playlists
-- Live lyrics 
-- YouTube Music account login support
-- Syncing of songs, artists, albums and playlists, from and to your account
-- Skip silence 
-- Import playlists 
-- Audio normalization 
-- Adjust tempo/pitch 
-- Local playlist management
-- Reorder songs in playlist or queue 
-- Light - Dark - black - Dynamic theme
-- Sleep timer
-- Material 3 
-- etc.
+- Unified Spotify, YouTube Music, and Deezer library sync
+- Background Media3 playback with Android Auto & Glance home screen widgets
+- Offline downloads with MediaStore export into Music/spotui
+- 7-Band Biquad EQ, Preamp, Bass Boost, RMS Normalizer & 3D Binaural Orbit DSP
+- Independent 0-100% In-App Volume slider preserving OS media volume
+- Resizable Accessibility Floating Mini-Player with Studio tabs & Game-only live teammate translation
+- LRCLIB, BetterLyrics, SimpMusic, Paxsenix & KuGou synced lyrics with on-device translation
+- Last.fm scrobbling & ShazamKit audio recognition telemetry
+- Encrypted NovaAc v8 playlist & library archive backups
+- Material 3 Expressive themes, dark/AMOLED surfaces & adaptive layouts

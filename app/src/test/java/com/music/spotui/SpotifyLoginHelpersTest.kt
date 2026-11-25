@@ -20,14 +20,14 @@ import org.robolectric.annotation.Config
 class SpotifyLoginHelpersTest {
 
     @Test
-    fun loginUaProfile_defaultsToCleanMobileFirst() {
-        assertEquals(LoginUaProfile.CLEAN_MOBILE, LoginUaProfile.entries.first())
+    fun loginUaProfile_defaultsToSystemDefaultFirst() {
+        assertEquals(LoginUaProfile.SYSTEM_DEFAULT, LoginUaProfile.entries.first())
     }
 
     @Test
-    fun resolveLoginUserAgent_stripsWebViewTokensInCleanMobileProfile() {
+    fun resolveLoginUserAgent_stripsWebViewTokensInMobileChromeProfile() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val cleanUa = resolveLoginUserAgent(context, LoginUaProfile.CLEAN_MOBILE)
+        val cleanUa = resolveLoginUserAgent(context, LoginUaProfile.MOBILE_CHROME)
         assertTrue(cleanUa.isNotBlank())
         assertFalse(cleanUa.contains("; wv", ignoreCase = true))
         assertFalse(cleanUa.contains("Version/", ignoreCase = true))

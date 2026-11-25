@@ -10,6 +10,8 @@ local.properties
 # Signing and local configuration
 *.jks
 *.keystore
+!debug.keystore.base64
+dist/
 .env
 .env.*
 !*.env.example

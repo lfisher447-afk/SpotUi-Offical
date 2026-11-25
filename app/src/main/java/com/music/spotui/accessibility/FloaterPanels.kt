@@ -53,13 +53,12 @@ import androidx.compose.material.icons.rounded.SportsEsports
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -719,7 +718,6 @@ internal fun FloaterToolsPanel(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun FloaterGameTranslatePanel(
     state: FloaterUiModel,
@@ -762,7 +760,11 @@ internal fun FloaterGameTranslatePanel(
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         if (translationBubble.isTranslating) {
-                            LoadingIndicator(modifier = Modifier.size(20.dp), color = cs.onTertiary)
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = cs.onTertiary,
+                                strokeWidth = 2.dp,
+                            )
                         } else {
                             Icon(
                                 imageVector = Icons.Rounded.SportsEsports,

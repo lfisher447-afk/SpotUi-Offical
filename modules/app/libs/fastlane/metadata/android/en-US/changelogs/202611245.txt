@@ -1,0 +1,5 @@
+SpotUI v2.5.5 (202611245)
+- Hardened Spotify WebView authentication: aligned default User-Agent with Sec-CH-UA Client Hints, stripped package X-Requested-With headers, cleaned stale storage before login, and added TOTP v61 + Auto-Recover.
+- Fixed GitHub Release Signing Key ID markdown parsing in UpdateChecker for reliable pre-flight PackageInstaller compatibility checks and unified persistent CI/local keystore scripts.
+- Polished Material 3 Expressive Accessibility Floater Studio with conditional Game-Only Live Teammate Translation bubble.
+- Aligned Build-Tools 36.0.0 across all Android modules, added 17-module & 21-point Health Probe telemetry, and refreshed store metadata.

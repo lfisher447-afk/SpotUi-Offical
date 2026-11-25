@@ -970,7 +970,7 @@ fun SettingsScreen(navController: NavController) {
                     Spacer(Modifier.height(2.dp))
                     Text(
                         text = if (advancedSettingsEnabled) {
-                            "Showing SpotUI v2.5.4 Style, UI Sounds, All 17 Library Modules, 3D DSP, Lossless, Network/DoH & NovaAc"
+                            "Showing SpotUI v${BuildConfig.VERSION_NAME} Style, UI Sounds, All 17 Library Modules, 3D DSP, Lossless, Network/DoH & NovaAc"
                         } else {
                             "Tap to unlock SongPlay UI Toggle, Tactile Sounds, 17 Library Modules, 7-Band EQ & 3D Studio"
                         },
@@ -1022,10 +1022,10 @@ fun SettingsScreen(navController: NavController) {
             }
 
             if (showTab(SettingsSideTab.MODULES)) {
-            SectionTitle("SpotUI 16 Library Submodules")
+            SectionTitle("SpotUI 17 Engine & Library Modules")
             CollapsibleSettingsSection(
-                title = "Library Submodules (16 Modules)",
-                subtitle = "Configure Spotify, InnerTube, LRCLIB, BetterLyrics, KuGou, SimpMusic, Paxsenix, Last.fm, ShazamKit, Fastlane, MrBean & Studio DSP",
+                title = "Engine & Library Modules (17 Modules)",
+                subtitle = "Configure Spotify, InnerTube, yt-dlp, LRCLIB, BetterLyrics, KuGou, SimpMusic, Paxsenix, Last.fm, ShazamKit, Fastlane, MrBean & Studio DSP",
                 expanded = moduleLibsExpanded,
                 onExpandedChange = { moduleLibsExpanded = it },
             ) {

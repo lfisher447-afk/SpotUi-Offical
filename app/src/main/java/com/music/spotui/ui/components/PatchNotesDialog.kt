@@ -53,28 +53,24 @@ private data class PatchNoteItem(
 
 private val v25IssuesFixed = listOf(
     PatchNoteItem(
-        title = "Samsung One UI Game Booster Floater & Now Playing Repair (v2.5.4)",
-        detail = "Fixed missing active/paused track info in the accessibility floater and repaired Play/Pause, Next, Previous, Shuffle, Loop, and Queue tap routing across cold-start, buffering, and background playback states.",
+        title = "Spotify WebView Anti-Bot, Client Hints & `; wv` Repair (v2.5.5)",
+        detail = "Aligned default User-Agent with Sec-CH-UA Client Hints, stripped `; wv` and X-Requested-With package leaks, removed prototype overrides that triggered reCAPTCHA Enterprise checks, and added XOR TOTP v61 + Auto-Recover.",
     ),
     PatchNoteItem(
-        title = "Spotify Login HTTP 400 / Storage Access Denial (v2.5.4)",
-        detail = "Stripped WebView `; wv` / legacy version tokens that caused accounts.spotify.com/login/code/send HTTP 400 errors and requestStorageAccess denials, added XOR TOTP v61 secret decoding, and added Auto-Recover cycling.",
+        title = "Auto-Updater Pre-Flight Signing Key Detection & Persistent CI Keystore (v2.5.5)",
+        detail = "Fixed GitHub Release markdown Signing Key ID parsing in UpdateChecker, unified CI & local keystore setup with keytool SHA-256 verification, and added Build-Tools 36.0.0 alignment for seamless in-place PackageInstaller upgrades.",
+    ),
+    PatchNoteItem(
+        title = "Samsung One UI Game Booster Floater & Now Playing Repair (v2.5.4)",
+        detail = "Fixed missing active/paused track info in the accessibility floater and repaired Play/Pause, Next, Previous, Shuffle, Loop, and Queue tap routing across cold-start, buffering, and background playback states.",
     ),
     PatchNoteItem(
         title = "InnerTube Stream Stalls & Client 403 Loops (v2.5.4)",
         detail = "Added per-client 90s circuit-breaker cooldowns, HTTP 429/5xx exponential backoff retries, MWEB/ANDROID_MUSIC/2026 client presets, NewPipe fallback activation, and HTML VISITOR_DATA extraction fallback.",
     ),
     PatchNoteItem(
-        title = "Accessibility Floater Play/Pause & Corner Resize (v2.5.3)",
-        detail = "All floater transport buttons now route straight through PlaybackService & SongPlayer with instant haptic feedback and smooth bottom-corner resize dragging.",
-    ),
-    PatchNoteItem(
         title = "3D Spatial Flatness & Audibility (v2.5.3)",
         detail = "Overhauled SpatialWideningAudioProcessor with stereo Haas micro-taps, upper-band Mid/Side expansion, tapped Early Reflections into the 3-stage Schroeder tank, stronger HRTF pinna peaks, and boosted 8D Binaural Orbit modulation.",
-    ),
-    PatchNoteItem(
-        title = "Sequential Downloads & Unpooled HTTP Bottlenecks (v2.5.2)",
-        detail = "Replaced single-thread HttpURLConnection transfers and low-concurrency pools with MrBean's pooled HTTP/2 + 206 multi-range downloader, parallel DASH-FLAC segment batches, and non-blocking metadata prefetch.",
     ),
     PatchNoteItem(
         title = "Bluetooth False-Positive SCO Call Mode & Route Probe Log Spam",
@@ -84,8 +80,12 @@ private val v25IssuesFixed = listOf(
 
 private val v25Improvements = listOf(
     PatchNoteItem(
-        title = "One UI Game Booster SpotUI Floater Studio (v2.5.4)",
-        detail = "Redesigned the floating overlay with a One UI Game Booster aesthetic featuring a collapsible docked sidebar rail (MEDIA, SOUND, PRO), 5 tabbed panels (Player, Queue, EQ, 3D, Tools), circular tile controls, shuffle/loop/like pills, 0-100% In-App Volume slider, corner-drag resize, and tactile vibration.",
+        title = "Unified SpotifyLogin Studio & Game-Only Live Translation Bubble (v2.5.5)",
+        detail = "Hardened SpotifyLogin/{page,module,helper}/ around Spotify.kt (SpotifyAuth) + SpotifyWebViewAdapter privacy shield, and added foreground game detection unlocking a live Top-Left auto-detect-to-English teammate translation bubble exclusively inside games.",
+    ),
+    PatchNoteItem(
+        title = "One UI Game Booster SpotUI Floater Studio (v2.5.4–v2.5.5)",
+        detail = "Rebuilt the floating overlay in Jetpack Compose Material 3 Expressive with morphing transport controls, collapsible docked rail (MEDIA, SOUND, PRO, conditional GAME), 6 live tabs (Player, Queue, EQ, 3D, Tools, Translate), 0-100% In-App Volume slider, corner-drag resize, and tactile vibration.",
     ),
     PatchNoteItem(
         title = "Embedded APK-Native yt-dlp + FFmpeg Engine (v2.5.4)",
@@ -100,18 +100,14 @@ private val v25Improvements = listOf(
         detail = "Upgraded connection pool (32 keep-alive sockets / 128 dispatcher), 512 KiB I/O buffers, 5 simultaneous tracks by default (up to 10), and 8 parallel HTTP 206 range slices kicking in for files >= 512 KiB with live peak MB/s tracking.",
     ),
     PatchNoteItem(
-        title = "Dedicated 2000-Entry Categorized Live Logger (v2.5.3)",
-        detail = "Expanded Dev Console into an 8-channel categorized telemetry stream (Playback, Audio DSP, Network/DL, Auth, Floater UI, Bluetooth, Modules, System) with real-time counters and live throughput badges.",
-    ),
-    PatchNoteItem(
-        title = "17 Integrated SpotUI Modules + Health Probe (v2.5.4)",
-        detail = "Added Embedded yt-dlp + FFmpeg runtime alongside MrBean Turbo Engine, Media3 DSP Studio, Floater Accessibility Service, NovaAc Vault, Glance Widgets, Android Auto, and all 10 lyric/discovery submodules.",
+        title = "Dedicated 2000-Entry Logger & 17-Module 21-Point Health Probe (v2.5.5)",
+        detail = "Expanded Dev Console into an 8-channel categorized telemetry stream paired with a 21-point SystemHealthChecker covering Embedded yt-dlp, MrBean Turbo, Media3 DSP Studio, Floater Studio, NovaAc Vault, Glance Widgets, Android Auto, and all 10 submodules.",
     ),
 )
 
 /**
  * First-login / post-update "What's New & Patch Notes" UI modal displaying explicit root-cause
- * fixes and feature improvements for SpotUI v2.5.4.
+ * fixes and feature improvements for SpotUI v2.5.5.
  */
 @Composable
 fun PatchNotesDialog(

@@ -62,9 +62,8 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
- * Full configuration panel inside Advanced Settings exposing all 10 submodules in
- * `modules/app/libs` (Spotify, InnerTube, LRCLIB, BetterLyrics, KuGou, SimpMusic,
- * Paxsenix, Last.fm, ShazamKit, and Fastlane).
+ * Full configuration panel inside Advanced Settings exposing all 17 SpotUI engine &
+ * library modules (including the 10 submodules in `modules/app/libs` plus core subsystems).
  */
 @Composable
 fun ModuleLibsSettingsSection() {
@@ -157,7 +156,7 @@ fun ModuleLibsSettingsSection() {
             )
         }
 
-        // ── All 16 Modules Inventory + Enable Toggles ──
+        // ── All 17 Modules Inventory + Enable Toggles ──
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             statuses.forEach { st ->
                 Row(
