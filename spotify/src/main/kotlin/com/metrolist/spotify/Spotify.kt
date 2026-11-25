@@ -3,7 +3,6 @@ package com.metrolist.spotify
 import com.metrolist.spotify.models.SpotifyAlbum
 import com.metrolist.spotify.models.SpotifyArtist
 import com.metrolist.spotify.models.SpotifyImage
-import com.metrolist.spotify.models.SpotifyInternalToken
 import com.metrolist.spotify.models.SpotifyPaging
 import com.metrolist.spotify.models.SpotifyPlaylist
 import com.metrolist.spotify.models.SpotifyPlaylistOwner
@@ -32,8 +31,6 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -62,106 +59,6 @@ object Spotify {
     @Volatile
     var accessToken: String? = null
 
-    /**
-     * Mints a fresh web-player token (or returns null when no session exists). When set, a 401
-     * from GraphQL/REST triggers exactly one transparent refresh + retry instead of surfacing
-     * "Token expired" to the UI. Install it with `installSpotifyTokenAutoRefresh`.
-     */
-    @Volatile
-    var tokenRefresher: (suspend () -> String?)? = null
-
-    const val LOGIN_URL: String = SpotifyAuth.LOGIN_URL
-    const val SIGNUP_URL: String = SpotifyAuth.SIGNUP_URL
-
-    data class SpotifyLoginSession(
-        val token: SpotifyInternalToken,
-        val user: SpotifyUser?,
-        val spDc: String,
-        val spKey: String,
-        val capturedFromWebSession: Boolean,
-    )
-
-    fun parseWebViewSessionScript(rawJson: String): SpotifyInternalToken? =
-        SpotifyAuth.parseSessionScriptJson(rawJson)
-
-    fun isLoginRetryable(error: Throwable?): Boolean = SpotifyAuth.isRetryable(error)
-
-    fun describeLoginFailure(error: Throwable?): String = SpotifyAuth.describeFailure(error)
-
-    fun clearAuthSession() {
-        accessToken = null
-    }
-
-    /**
-     * Unified WebView-first Spotify login entrypoint on [Spotify].
-     *
-     * Accepts either a pre-captured `<script id="session">` token from the embedded WebView
-     * or exchanges `sp_dc` (+ optional `sp_key`) via [SpotifyAuth.fetchAccessToken] with
-     * retry/backoff, arms [Spotify.accessToken], and resolves the signed-in [SpotifyUser] profile.
-     */
-    suspend fun loginWithWebViewSession(
-        spDc: String,
-        spKey: String = "",
-        preCapturedToken: SpotifyInternalToken? = null,
-        retryAttempts: Int = 3,
-    ): Result<SpotifyLoginSession> = runCatching {
-        val cleanDc = spDc.trim()
-        val cleanKey = spKey.trim()
-        if (cleanDc.isBlank()) throw SpotifyException(401, "No sp_dc cookie provided")
-
-        var token = preCapturedToken?.takeIf { !it.isAnonymous && it.accessToken.isNotBlank() }
-        val capturedFromWebSession = token != null
-        var lastError: Throwable? = null
-
-        if (token == null) {
-            var attempt = 0
-            while (token == null && attempt < retryAttempts.coerceAtLeast(1)) {
-                attempt++
-                val res = SpotifyAuth.fetchAccessToken(cleanDc, cleanKey)
-                token = res.getOrNull()?.takeIf { !it.isAnonymous && it.accessToken.isNotBlank() }
-                if (token != null) break
-                val err = res.exceptionOrNull()
-                lastError = err
-                if (!SpotifyAuth.isRetryable(err)) break
-                if (attempt < retryAttempts) delay(400L * attempt * attempt)
-            }
-        }
-
-        val verifiedToken = token ?: throw (lastError ?: SpotifyException(401, "Failed to verify Spotify WebView session"))
-        accessToken = verifiedToken.accessToken
-        val profile = me().getOrNull()
-        SpotifyLoginSession(
-            token = verifiedToken,
-            user = profile,
-            spDc = cleanDc,
-            spKey = cleanKey,
-            capturedFromWebSession = capturedFromWebSession,
-        )
-    }
-
-    private val refreshMutex = Mutex()
-
-    /** Single-flight refresh: concurrent 401s share one refresh instead of each minting a token. */
-    private suspend fun refreshToken(staleToken: String): String? =
-        refreshMutex.withLock {
-            val current = accessToken
-            if (current != null && current != staleToken) return@withLock current
-            val fresh =
-                try {
-                    tokenRefresher?.invoke()
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    log("W", "Token refresh failed: ${e.message}")
-                    null
-                }?.takeIf { it.isNotBlank() }
-            if (fresh != null) {
-                accessToken = fresh
-                log("D", "Access token refreshed after 401")
-            }
-            fresh
-        }
-
     private const val GQL_URL = "https://api-partner.spotify.com/pathfinder/v2/query"
 
     private fun randomUserAgent(): String {
@@ -178,13 +75,6 @@ object Spotify {
             "Chrome/$chromeMajor.0.$chromePatch.0 Safari/537.36"
     }
 
-    /**
-     * One browser fingerprint for the whole process. [randomUserAgent] used to be evaluated
-     * inside `defaultRequest {}` — i.e. on every request — so one session looked like a
-     * different browser on each call.
-     */
-    private val sessionUserAgent: String by lazy { randomUserAgent() }
-
     private val json =
         Json {
             isLenient = true
@@ -199,7 +89,7 @@ object Spotify {
             }
             defaultRequest {
                 url("https://api.spotify.com/v1/")
-                header("User-Agent", sessionUserAgent)
+                header("User-Agent", randomUserAgent())
                 header("app-platform", "WebPlayer")
                 header("Origin", "https://open.spotify.com")
                 header("Referer", "https://open.spotify.com/")
@@ -218,7 +108,7 @@ object Spotify {
                 }
             }
             defaultRequest {
-                header("User-Agent", sessionUserAgent)
+                header("User-Agent", randomUserAgent())
                 header("app-platform", "WebPlayer")
                 header("Origin", "https://open.spotify.com")
                 header("Referer", "https://open.spotify.com/")
@@ -287,7 +177,7 @@ object Spotify {
         operationName: String,
         variables: JsonObject = buildJsonObject {},
     ): JsonObject {
-        var token =
+        val token =
             accessToken ?: throw SpotifyException(401, "Not authenticated").also {
                 log("E", "GQL $operationName — no token")
             }
@@ -302,16 +192,7 @@ object Spotify {
 
         for ((hashIdx, sha256Hash) in hashCandidates.withIndex()) {
             val body = buildGqlBody(operationName, sha256Hash, variables)
-            val result =
-                try {
-                    executeGqlWithRetries(operationName, token, body)
-                } catch (e: SpotifyException) {
-                    val fresh = if (e.statusCode == 401) refreshToken(token) else null
-                    if (fresh == null) throw e
-                    log("W", "GQL $operationName -> 401, retrying with refreshed token")
-                    token = fresh
-                    executeGqlWithRetries(operationName, fresh, body)
-                }
+            val result = executeGqlWithRetries(operationName, token, body)
 
             if (result.isPersistedQueryNotFound) {
                 if (hashIdx < hashCandidates.lastIndex) {
@@ -359,7 +240,7 @@ object Spotify {
         for (attempt in 0 until maxRetries) {
             log(
                 "D",
-                "GQL POST $operationName" +
+                "GQL POST $operationName (token: ${token.take(8)}...)" +
                     if (attempt > 0) " [retry $attempt]" else "",
             )
 
@@ -381,8 +262,7 @@ object Spotify {
             }
             if (response.status == HttpStatusCode.TooManyRequests) {
                 val retryAfter = response.headers["Retry-After"]?.toLongOrNull() ?: (2L * (attempt + 1))
-                // Same cap as the REST path: never park a screen behind a long Retry-After.
-                if (retryAfter <= 3L && attempt < maxRetries - 1) {
+                if (attempt < maxRetries - 1) {
                     log("W", "GQL $operationName -> 429, waiting ${retryAfter}s (attempt ${attempt + 1}/$maxRetries)")
                     delay(retryAfter * 1000)
                     continue
@@ -418,23 +298,7 @@ object Spotify {
 
     // ── REST core (fallback for endpoints without GQL equivalent) ────────
 
-    /** REST GET with one transparent token refresh on 401 (see [tokenRefresher]). */
     private suspend inline fun <reified T> authenticatedGet(
-        endpoint: String,
-        failFastOn429: Boolean = false,
-        crossinline block: io.ktor.client.request.HttpRequestBuilder.() -> Unit = {},
-    ): T {
-        val staleToken = accessToken
-        return try {
-            authenticatedGetOnce<T>(endpoint, failFastOn429, block)
-        } catch (e: SpotifyException) {
-            if (e.statusCode != 401 || staleToken == null || refreshToken(staleToken) == null) throw e
-            log("W", "REST $endpoint -> 401, retrying with refreshed token")
-            authenticatedGetOnce<T>(endpoint, failFastOn429, block)
-        }
-    }
-
-    private suspend inline fun <reified T> authenticatedGetOnce(
         endpoint: String,
         failFastOn429: Boolean = false,
         crossinline block: io.ktor.client.request.HttpRequestBuilder.() -> Unit = {},
@@ -449,7 +313,7 @@ object Spotify {
         for (attempt in 0 until maxRetries) {
             log(
                 "D",
-                "REST GET $endpoint" +
+                "REST GET $endpoint (token: ${token.take(8)}...)" +
                     if (attempt > 0) " [retry $attempt]" else "",
             )
             val response =
@@ -550,12 +414,6 @@ object Spotify {
             artists = artists,
             album = album,
             durationMs = parseGqlTrackDurationMs(trackData),
-            // Spotify's GQL payload nests this value, unlike REST's flat
-            // `explicit` boolean. Without it every GQL track inherited the
-            // model default false and YouTube matching preferred clean edits.
-            explicit = trackData.obj("contentRating")
-                ?.str("label")
-                ?.equals("EXPLICIT", ignoreCase = true) == true,
             uri = uri.ifEmpty { null },
         )
     }
@@ -636,7 +494,6 @@ object Spotify {
             val lyricsObj =
                 root.obj("lyrics") ?: throw SpotifyException(500, "Invalid color-lyrics response")
             val synced = lyricsObj.str("syncType") == "LINE_SYNCED"
-            val language = lyricsObj.str("language")?.takeIf { it.isNotBlank() }
             val lines =
                 lyricsObj.arr("lines")?.mapNotNull { el ->
                     val o = el.jsonObject
@@ -648,51 +505,8 @@ object Spotify {
                 }.orEmpty()
             if (lines.isEmpty()) throw SpotifyException(404, "Empty lyrics for $trackId")
             log("D", "lyrics($trackId) OK — ${lines.size} lines, synced=$synced")
-            com.metrolist.spotify.models.SpotifyLyrics(
-                synced = synced,
-                lines = lines,
-                language = language,
-            )
+            com.metrolist.spotify.models.SpotifyLyrics(synced = synced, lines = lines)
         }
-
-
-    /**
-     * Shared plumbing for every `libraryV3` query (playlists, folders, artists, albums).
-     *
-     * [flatten] = true asks Spotify for every leaf playlist regardless of folder nesting;
-     * without it only root-level items come back and playlists inside folders are invisible
-     * (issues #46, #78). [folderUri] scopes a non-flattened query to one folder level.
-     */
-    private suspend fun fetchLibraryV3(
-        filter: String,
-        limit: Int,
-        offset: Int,
-        flatten: Boolean = false,
-        folderUri: String? = null,
-        includeFoldersWhenFlattening: Boolean = true,
-    ): JsonObject {
-        val vars =
-            buildJsonObject {
-                putJsonArray("filters") { add(filter) }
-                put("order", null as String?)
-                put("textFilter", "")
-                putJsonArray("features") {
-                    add("LIKED_SONGS")
-                    add("YOUR_EPISODES_V2")
-                    add("PRERELEASES")
-                    add("EVENTS")
-                }
-                put("limit", limit)
-                put("offset", offset)
-                put("flatten", flatten)
-                putJsonArray("expandedFolders") {}
-                put("folderUri", folderUri)
-                put("includeFoldersWhenFlattening", includeFoldersWhenFlattening)
-            }
-        val response = graphqlPost(operationName = "libraryV3", variables = vars)
-        return response.obj("data")?.obj("me")?.obj("libraryV3")
-            ?: throw SpotifyException(500, "Invalid libraryV3 response")
-    }
 
     // ── Playlists (GQL: libraryV3) ──────────────────────────────────────
 
@@ -701,7 +515,40 @@ object Spotify {
         offset: Int = 0,
     ): Result<SpotifyPaging<SpotifyPlaylist>> =
         runCatching {
-            val libraryData = fetchLibraryV3("Playlists", limit, offset, flatten = true, includeFoldersWhenFlattening = false)
+            val vars =
+                buildJsonObject {
+                    putJsonArray("filters") { add("Playlists") }
+                    put("order", null as String?)
+                    put("textFilter", "")
+                    putJsonArray("features") {
+                        add("LIKED_SONGS")
+                        add("YOUR_EPISODES_V2")
+                        add("PRERELEASES")
+                        add("EVENTS")
+                    }
+                    put("limit", limit)
+                    put("offset", offset)
+                    // Ask Spotify to return every leaf playlist regardless of folder
+                    // nesting. Without flatten=true the response only contains root-
+                    // level items: top-level playlists plus FolderResponseWrapper
+                    // entries whose contents are never expanded — the parser below
+                    // ignores non-PlaylistResponseWrapper items, so anything inside
+                    // a folder would otherwise be invisible (issues #46, #78).
+                    put("flatten", true)
+                    putJsonArray("expandedFolders") {}
+                    put("folderUri", null as String?)
+                    put("includeFoldersWhenFlattening", false)
+                }
+
+            val response =
+                graphqlPost(
+                    operationName = "libraryV3",
+                    variables = vars,
+                )
+
+            val libraryData =
+                response.obj("data")?.obj("me")?.obj("libraryV3")
+                    ?: throw SpotifyException(500, "Invalid libraryV3 response")
 
             val totalCount = libraryData.int("totalCount") ?: 0
             val pagingInfo = libraryData.obj("pagingInfo")
@@ -757,7 +604,36 @@ object Spotify {
         offset: Int = 0,
     ): Result<SpotifyPaging<com.metrolist.spotify.models.SpotifyLibraryItem>> =
         runCatching {
-            val libraryData = fetchLibraryV3("Playlists", limit, offset, folderUri = folderUri)
+            val vars =
+                buildJsonObject {
+                    putJsonArray("filters") { add("Playlists") }
+                    put("order", null as String?)
+                    put("textFilter", "")
+                    putJsonArray("features") {
+                        add("LIKED_SONGS")
+                        add("YOUR_EPISODES_V2")
+                        add("PRERELEASES")
+                        add("EVENTS")
+                    }
+                    put("limit", limit)
+                    put("offset", offset)
+                    // flatten=false preserves folder boundaries; folderUri scopes
+                    // the response to a single level (null = root).
+                    put("flatten", false)
+                    putJsonArray("expandedFolders") {}
+                    if (folderUri != null) put("folderUri", folderUri) else put("folderUri", null as String?)
+                    put("includeFoldersWhenFlattening", true)
+                }
+
+            val response =
+                graphqlPost(
+                    operationName = "libraryV3",
+                    variables = vars,
+                )
+
+            val libraryData =
+                response.obj("data")?.obj("me")?.obj("libraryV3")
+                    ?: throw SpotifyException(500, "Invalid libraryV3 response")
 
             val totalCount = libraryData.int("totalCount") ?: 0
             val pagingInfo = libraryData.obj("pagingInfo")
@@ -855,7 +731,34 @@ object Spotify {
         offset: Int = 0,
     ): Result<SpotifyPaging<SpotifyArtist>> =
         runCatching {
-            val libraryData = fetchLibraryV3("Artists", limit, offset)
+            val vars =
+                buildJsonObject {
+                    putJsonArray("filters") { add("Artists") }
+                    put("order", null as String?)
+                    put("textFilter", "")
+                    putJsonArray("features") {
+                        add("LIKED_SONGS")
+                        add("YOUR_EPISODES_V2")
+                        add("PRERELEASES")
+                        add("EVENTS")
+                    }
+                    put("limit", limit)
+                    put("offset", offset)
+                    put("flatten", false)
+                    putJsonArray("expandedFolders") {}
+                    put("folderUri", null as String?)
+                    put("includeFoldersWhenFlattening", true)
+                }
+
+            val response =
+                graphqlPost(
+                    operationName = "libraryV3",
+                    variables = vars,
+                )
+
+            val libraryData =
+                response.obj("data")?.obj("me")?.obj("libraryV3")
+                    ?: throw SpotifyException(500, "Invalid libraryV3 response")
 
             val totalCount = libraryData.int("totalCount") ?: 0
             val pagingInfo = libraryData.obj("pagingInfo")
@@ -902,7 +805,34 @@ object Spotify {
         offset: Int = 0,
     ): Result<SpotifyPaging<SpotifyAlbum>> =
         runCatching {
-            val libraryData = fetchLibraryV3("Albums", limit, offset)
+            val vars =
+                buildJsonObject {
+                    putJsonArray("filters") { add("Albums") }
+                    put("order", null as String?)
+                    put("textFilter", "")
+                    putJsonArray("features") {
+                        add("LIKED_SONGS")
+                        add("YOUR_EPISODES_V2")
+                        add("PRERELEASES")
+                        add("EVENTS")
+                    }
+                    put("limit", limit)
+                    put("offset", offset)
+                    put("flatten", false)
+                    putJsonArray("expandedFolders") {}
+                    put("folderUri", null as String?)
+                    put("includeFoldersWhenFlattening", true)
+                }
+
+            val response =
+                graphqlPost(
+                    operationName = "libraryV3",
+                    variables = vars,
+                )
+
+            val libraryData =
+                response.obj("data")?.obj("me")?.obj("libraryV3")
+                    ?: throw SpotifyException(500, "Invalid libraryV3 response")
 
             val totalCount = libraryData.int("totalCount") ?: 0
             val pagingInfo = libraryData.obj("pagingInfo")
@@ -1066,28 +996,38 @@ object Spotify {
         }
 
     /**
-     * Creates a new (private) playlist for the current user via the REST API
+     * Creates a new playlist for the current user via the REST API
      * and returns it. The web-player token carries the playlist-modify scopes.
      */
-    suspend fun createPlaylist(name: String): Result<SpotifyPlaylist> =
+    suspend fun createPlaylist(name: String, public: Boolean = false): Result<SpotifyPlaylist> =
         runCatching {
             val token = accessToken ?: throw SpotifyException(401, "Not authenticated")
-            val userId = me().getOrThrow().id
-            if (userId.isBlank()) throw SpotifyException(500, "No user id for createPlaylist")
             val body = buildJsonObject {
                 put("name", name)
-                put("public", false)
+                put("public", public)
             }
-            val response = restClient.post("users/$userId/playlists") {
-                header("Authorization", "Bearer $token")
-                setBody(TextContent(body.toString(), ContentType.Application.Json))
+            var response: io.ktor.client.statement.HttpResponse? = null
+            val maxRetries = 3
+            for (attempt in 0 until maxRetries) {
+                response = restClient.post("me/playlists") {
+                    header("Authorization", "Bearer $token")
+                    setBody(TextContent(body.toString(), ContentType.Application.Json))
+                }
+                if (response.status == HttpStatusCode.TooManyRequests) {
+                    val retryAfter = response.headers["Retry-After"]?.toLongOrNull() ?: (2L * (attempt + 1))
+                    log("W", "createPlaylist -> 429, waiting ${retryAfter}s (attempt ${attempt + 1}/$maxRetries)")
+                    delay(retryAfter * 1000)
+                    continue
+                }
+                break
             }
-            if (response.status.value !in 200..299) {
-                log("W", "createPlaylist($name) HTTP ${response.status.value}: ${response.bodyAsText().take(200)}")
-                throw SpotifyException(response.status.value, "createPlaylist HTTP ${response.status.value}")
+            val resp = response ?: throw SpotifyException(500, "No response from createPlaylist")
+            if (resp.status.value !in 200..299) {
+                log("W", "createPlaylist($name) HTTP ${resp.status.value}: ${resp.bodyAsText().take(200)}")
+                throw SpotifyException(resp.status.value, "createPlaylist HTTP ${resp.status.value}")
             }
-            val playlist = json.decodeFromString<SpotifyPlaylist>(response.bodyAsText())
-            log("D", "createPlaylist($name) OK — ${playlist.id}")
+            val playlist = json.decodeFromString<SpotifyPlaylist>(resp.bodyAsText())
+            log("D", "createPlaylist($name, public=$public) OK — ${playlist.id}")
             playlist
         }
 
@@ -1441,6 +1381,9 @@ object Spotify {
                     ?: throw SpotifyException(500, "Invalid searchDesktop response")
 
             log("D", "searchDesktop sections: ${searchData.keys}")
+            searchData.obj("podcasts")?.arr("items")?.firstOrNull()?.let { log("D", "PODITEM: ${it.toString().take(700)}") }
+            searchData.obj("episodes")?.arr("items")?.firstOrNull()?.let { log("D", "EPITEM: ${it.toString().take(700)}") }
+            searchData.obj("audiobooks")?.arr("items")?.firstOrNull()?.let { log("D", "ABITEM: ${it.toString().take(700)}") }
 
             val tracksSection = searchData.obj("tracksV2")
             val trackItems =
@@ -1718,7 +1661,7 @@ object Spotify {
             "PlaylistResponseWrapper" -> parseHomePlaylist(data)
             "AlbumResponseWrapper" -> parseHomeAlbum(data)
             "ArtistResponseWrapper" -> parseHomeArtist(data)
-            else -> null.also { log("D", "spotifyHome: skipped item type $wrapper") }
+            else -> null
         }
     }
 
