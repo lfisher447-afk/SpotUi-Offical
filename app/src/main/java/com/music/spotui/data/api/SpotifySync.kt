@@ -149,15 +149,15 @@ object SpotifySync {
 
     internal fun cachedPlaylistMembership(context: Context, id: String): Boolean? {
         val clean = cleanPlaylistId(id)
-        return SpotifyPendingWrites.desired(context, "playlist_library", clean)
+        return (SpotifyPendingWrites.desired(context, "playlist_library", clean) as? Boolean)
             ?: LibraryCatalogCache.peek(context)?.any { it.isPlaylist && it.spotifyId == clean }
     }
 
     internal suspend fun playlistMembership(context: Context, id: String): Boolean {
         val clean = cleanPlaylistId(id)
-        SpotifyPendingWrites.desired(context, "playlist_library", clean)?.let { return it }
+        (SpotifyPendingWrites.desired(context, "playlist_library", clean) as? Boolean)?.let { return it }
         val saved = allLibraryPlaylists(context).any { it.id == clean }
-        return SpotifyPendingWrites.desired(context, "playlist_library", clean) ?: saved
+        return (SpotifyPendingWrites.desired(context, "playlist_library", clean) as? Boolean) ?: saved
     }
 
     internal suspend fun savePlaylist(context: Context, id: String): Boolean {
