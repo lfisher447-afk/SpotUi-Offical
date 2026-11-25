@@ -1,6 +1,6 @@
 @file:Suppress("TooManyFunctions", "LargeClass", "LongMethod", "LongParameterList", "MagicNumber")
 
-package com.music.spotui.ui.screens
+package com.music.spotui.ui.screens.SpotifyLogin.module
 
 import android.content.Context
 import android.content.Intent
@@ -9,9 +9,6 @@ import android.util.Base64
 import com.music.spotui.audio.UiSoundEngine
 import com.music.spotui.data.api.SpotifySync
 import com.music.spotui.ui.screens.SpotifyLogin.helper.openSpotifyInChromeCustomTab
-import com.music.spotui.ui.screens.SpotifyLogin.module.LoginOutcome
-import com.music.spotui.ui.screens.SpotifyLogin.module.LoginStage
-import com.music.spotui.ui.screens.SpotifyLogin.module.launchLoginTask
 import com.music.spotui.util.DevConsoleManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -46,24 +43,6 @@ import java.net.URL
 import java.net.URLEncoder
 import java.security.MessageDigest
 import java.security.SecureRandom
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Official Spotify OAuth 2.0 — Authorization Code + PKCE, loopback redirect
-//
-// No cookies, no TOTP scraping, no embedded-WebView anti-bot problems:
-//   1. Opens accounts.spotify.com/authorize in Chrome Custom Tabs (real browser engine).
-//   2. Spotify redirects to http://127.0.0.1:<port>/callback, served by a tiny one-shot
-//      server bound to the loopback interface only.
-//   3. The code is exchanged (with the PKCE verifier) for access + refresh tokens.
-//   4. The library is imported through the official Web API (api.spotify.com/v1).
-//
-// One-time setup (developer.spotify.com/dashboard → your app → Settings):
-//   • Redirect URI:  http://127.0.0.1/callback   (no port — Spotify allows the port to vary
-//                    for loopback IP literals; https and 127.0.0.1 are the only accepted forms)
-//   • APIs used:     Web API
-//   • User Management: add the Spotify account(s) that will sign in (Development Mode: ≤ 5 users,
-//     app owner needs Premium).
-// ═══════════════════════════════════════════════════════════════════════════
 
 internal class SpotifyOAuthException(
     val status: Int,
@@ -183,8 +162,6 @@ internal object SpotifyOAuth {
     @Volatile
     private var activeReceiver: LoopbackReceiver? = null
 
-    // ── configuration & stored session ───────────────────────────────────────
-
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -198,7 +175,6 @@ internal object SpotifyOAuth {
         val previous = clientId(context)
         prefs(context).edit().apply {
             putString(KEY_CLIENT_ID, id)
-            // Tokens belong to one Client ID; switching IDs invalidates them.
             if (previous.isNotEmpty() && previous != id) {
                 remove(KEY_ACCESS)
                 remove(KEY_REFRESH)
@@ -238,8 +214,6 @@ internal object SpotifyOAuth {
     fun cancelLogin() {
         activeReceiver?.close()
     }
-
-    // ── sign-in ──────────────────────────────────────────────────────────────
 
     /** Opens Spotify's consent page in Chrome and suspends until the redirect arrives and tokens are stored. */
     suspend fun signIn(context: Context) {
@@ -315,8 +289,6 @@ internal object SpotifyOAuth {
         else -> "Spotify returned an error: $error"
     }
 
-    // ── tokens ───────────────────────────────────────────────────────────────
-
     private fun storeTokens(app: Context, tokens: JsonObject, previousRefresh: String?) {
         val access = tokens.str("access_token")
             ?: throw SpotifyOAuthException(500, "bad_token_response", "Spotify returned no access token.")
@@ -335,10 +307,6 @@ internal object SpotifyOAuth {
         prefs(app).edit().remove(KEY_ACCESS).remove(KEY_REFRESH).remove(KEY_EXPIRES_AT).apply()
     }
 
-    /**
-     * A valid access token, refreshed single-flight when it is about to expire. When [staleToken] is
-     * given and another caller already replaced it, that newer token is returned without a second refresh.
-     */
     suspend fun accessToken(context: Context, forceRefresh: Boolean = false, staleToken: String? = null): String {
         val app = context.applicationContext
         return refreshMutex.withLock {
@@ -370,13 +338,6 @@ internal object SpotifyOAuth {
         }
     }
 
-    // ── library import (official Web API) ────────────────────────────────────
-
-    /**
-     * Imports playlists (with tracks), liked songs, saved albums and followed artists. A section that
-     * fails (for example an endpoint Spotify disabled for Development Mode apps) is reported in
-     * [OAuthLibrary.warnings]; the import only fails when nothing at all could be read.
-     */
     suspend fun syncLibrary(
         context: Context,
         includePlaylistTracks: Boolean = true,
@@ -509,7 +470,6 @@ internal object SpotifyOAuth {
         for (path in candidates) {
             try {
                 return collectPages(app, path).mapNotNull { item ->
-                    // `track` on the classic endpoint; `item` on the renamed one.
                     parseTrack(item.obj("track") ?: item.obj("item"), item.str("added_at"))
                 }
             } catch (e: SpotifyOAuthException) {
@@ -519,8 +479,6 @@ internal object SpotifyOAuth {
         }
         throw lastError ?: SpotifyOAuthException(404, "not_found", "Playlist tracks unavailable.")
     }
-
-    // ── parsing helpers ──────────────────────────────────────────────────────
 
     private fun parseTrack(track: JsonObject?, addedAt: String?): OAuthTrack? {
         track ?: return null
@@ -544,7 +502,6 @@ internal object SpotifyOAuth {
     private fun firstImage(owner: JsonObject): String? =
         owner.arr("images")?.firstNotNullOfOrNull { (it as? JsonObject)?.str("url") }
 
-    /** Follows `next` links until exhausted. [rootKey] selects the paging object (e.g. `artists`). */
     private suspend fun collectPages(app: Context, firstPath: String, rootKey: String? = null): List<JsonObject> {
         val out = mutableListOf<JsonObject>()
         var next: String? = firstPath
@@ -559,11 +516,8 @@ internal object SpotifyOAuth {
         return out
     }
 
-    // ── HTTP ─────────────────────────────────────────────────────────────────
-
     private suspend fun apiGet(app: Context, pathOrUrl: String): JsonObject {
         val url = if (pathOrUrl.startsWith("https://")) pathOrUrl else API_BASE + pathOrUrl.trimStart('/')
-        // Never send the bearer token anywhere but Spotify's API host (a `next` URL is server-supplied data).
         if (!url.startsWith("https://api.spotify.com/")) {
             throw SpotifyOAuthException(0, "bad_url", "Refusing to call a non-Spotify URL.")
         }
@@ -647,8 +601,6 @@ internal object SpotifyOAuth {
         return RawResponse(status, body, retryAfter)
     }
 
-    // ── errors ───────────────────────────────────────────────────────────────
-
     fun isRetryable(error: Throwable?): Boolean = when (error) {
         is SpotifyOAuthException -> error.status == 408 || error.status == 429 || error.status in 500..599
         is IOException -> true
@@ -674,8 +626,6 @@ internal object SpotifyOAuth {
         else -> error.message ?: error.javaClass.simpleName
     }
 
-    // ── helpers ──────────────────────────────────────────────────────────────
-
     private fun randomUrlSafe(byteCount: Int): String {
         val bytes = ByteArray(byteCount)
         SecureRandom().nextBytes(bytes)
@@ -691,13 +641,6 @@ internal object SpotifyOAuth {
 
     private fun JsonObject.long(key: String): Long? = (this[key] as? JsonPrimitive)?.longOrNull
 
-    // ── loopback redirect receiver ───────────────────────────────────────────
-
-    /**
-     * One-shot HTTP server bound to 127.0.0.1 only. It answers the browser's redirect from Spotify and
-     * hands the `code` back. The `state` parameter is checked, and the code is useless to anyone without
-     * the PKCE verifier, which never leaves this process.
-     */
     private class LoopbackReceiver : AutoCloseable {
         private val server = ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"))
 
@@ -814,7 +757,6 @@ internal object SpotifyOAuth {
         private fun escape(text: String): String =
             text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 
-        /** Best effort: Android may refuse background activity starts, in which case the page's button does it. */
         private fun bringAppToFront(app: Context) {
             runCatching {
                 app.packageManager.getLaunchIntentForPackage(app.packageName)?.let { intent ->
@@ -831,11 +773,6 @@ internal object SpotifyOAuth {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// OAuth sign-in pipeline (same UI contract as processLoginSession)
-// ═══════════════════════════════════════════════════════════════════════════
-
-/** browser consent → token exchange → profile → full library import. */
 internal suspend fun runOAuthPipeline(
     context: Context,
     onStage: (LoginStage) -> Unit,
