@@ -4,124 +4,68 @@ import android.content.Context
 import android.util.Log
 import com.metrolist.spotify.Spotify
 import com.metrolist.spotify.SpotifyAuth
-import com.music.spotui.util.DevConsoleManager
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * Ensures the [Spotify] singleton holds a valid internal web-player access token before
- * any `api-partner.spotify.com` GraphQL or `spclient.wg.spotify.com` metadata call.
+ * Ensures the [Spotify] singleton holds a valid web access token before any
+ * metadata call. Mirrors how Meld authenticates: a logged-in `sp_dc` cookie is
+ * exchanged for a short-lived bearer token via [SpotifyAuth.fetchAccessToken].
  *
- * Exchanges the stored `sp_dc` (+ optional `sp_key`) cookie via [SpotifyAuth.fetchAccessToken]
- * (`open.spotify.com` `#session` extraction + `/api/server-time` TOTP `/api/token?reason=init`).
- * Exposes [isAuthenticated] so Guest/Authenticated transitions immediately update sync & UI state.
+ * The `sp_dc` cookie is read from [SpotifySession]; paste yours there (or via
+ * the in-app settings hook) to enable real Spotify data. Tokens are cached
+ * until ~1 minute before expiry and refreshed on demand.
  */
 object SpotifyTokenProvider {
     private const val TAG = "SpotifyTokenProvider"
     private val mutex = Mutex()
-
-    @Volatile
     private var expiresAtMs: Long = 0L
+    private var tokenAccount: String? = null
 
-    @Volatile
-    private var loggedMissingCookieOnce = false
-
-    private val _isAuthenticated = MutableStateFlow(false)
-    val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
-
-    fun syncAuthState(context: Context): Boolean {
-        val linked = SpotifySession.spDc(context.applicationContext).isNotBlank() ||
-            (Spotify.accessToken != null && System.currentTimeMillis() < expiresAtMs)
-        _isAuthenticated.value = linked
-        return linked
-    }
-
-    fun seedVerifiedToken(accessToken: String, expiresAtTimestampMs: Long) {
-        if (accessToken.isBlank()) return
-        val wasGuest = !_isAuthenticated.value
-        Spotify.accessToken = accessToken
-        expiresAtMs = if (expiresAtTimestampMs > System.currentTimeMillis()) {
-            expiresAtTimestampMs
-        } else {
-            System.currentTimeMillis() + 30 * 60_000L
-        }
-        loggedMissingCookieOnce = false
-        _isAuthenticated.value = true
-        if (wasGuest) {
-            DevConsoleManager.logAuth("SpotifyTokenProvider transitioned from Guest -> Authenticated")
-        }
-    }
-
-    fun clearSession() {
-        Spotify.accessToken = null
-        expiresAtMs = 0L
-        loggedMissingCookieOnce = false
-        _isAuthenticated.value = false
+    /** Validate before changing the account visible to navigation, caches or the outbox. */
+    suspend fun signIn(context:Context,spDc:String,spKey:String=""):Result<Unit> = mutex.withLock {
+        try {
+            require(spDc.isNotBlank()) {"Empty Spotify session"}
+            val app=context.applicationContext
+            val previous=SpotifySession.spDc(app)
+            val token=SpotifyAuth.fetchAccessToken(spDc.trim(),spKey).getOrThrow()
+            currentCoroutineContext().ensureActive()
+            check(SpotifySession.spDc(app)==previous) {"Spotify account changed during login"}
+            check(!token.isAnonymous && token.accessToken.isNotBlank() &&
+                token.accessTokenExpirationTimestampMs>System.currentTimeMillis()) {"Invalid Spotify token"}
+            SpotifySession.setSpDc(app,spDc.trim())
+            Spotify.accessToken=token.accessToken
+            expiresAtMs=token.accessTokenExpirationTimestampMs
+            tokenAccount=spDc.trim()
+            Result.success(Unit)
+        } catch(cancelled:CancellationException) {throw cancelled} catch(failure:Exception) {Result.failure(failure)}
     }
 
     suspend fun ensureToken(context: Context): Boolean = mutex.withLock {
-        val appCtx = context.applicationContext
         val now = System.currentTimeMillis()
-        if (Spotify.accessToken != null && now < expiresAtMs - 60_000L) {
-            _isAuthenticated.value = true
+        val spDc = SpotifySession.spDc(context)
+        if (tokenAccount == spDc && !Spotify.accessToken.isNullOrBlank() && now < expiresAtMs - 60_000L) {
             return@withLock true
         }
-        val spDc = SpotifySession.spDc(appCtx)
-        val spKey = SpotifySession.spKey(appCtx)
         if (spDc.isBlank()) {
-            Spotify.accessToken = null
-            expiresAtMs = 0L
-            _isAuthenticated.value = false
             Log.w(TAG, "No sp_dc cookie set — Spotify data unavailable")
-            if (!loggedMissingCookieOnce) {
-                loggedMissingCookieOnce = true
-                DevConsoleManager.logWarning(
-                    TAG,
-                    "No sp_dc cookie stored (running in Guest/unauthenticated mode)",
-                )
-            }
             return@withLock false
         }
-        loggedMissingCookieOnce = false
-        DevConsoleManager.logInfo(
-            TAG,
-            "Refreshing Spotify web bearer token (sp_dc len=${spDc.length}, sp_key=${if (spKey.isNotBlank()) "present" else "none"})…",
-        )
-        SpotifyAuth.fetchAccessToken(spDc, spKey).fold(
+        SpotifyAuth.fetchAccessToken(spDc).fold(
             onSuccess = { token ->
-                seedVerifiedToken(token.accessToken, token.accessTokenExpirationTimestampMs)
-                val ttlSec = ((expiresAtMs - System.currentTimeMillis()) / 1000L).coerceAtLeast(0L)
-                Log.d(TAG, "Spotify token refreshed (ttl=${ttlSec}s)")
-                DevConsoleManager.logInfo(
-                    TAG,
-                    "Spotify token refreshed cleanly (expires in ${ttlSec}s)",
-                )
-                true
-            },
-            onFailure = { err ->
-                val statusCode = (err as? Spotify.SpotifyException)?.statusCode ?: 0
-                if (statusCode == 401) {
-                    Spotify.accessToken = null
-                    expiresAtMs = 0L
-                    _isAuthenticated.value = false
+                if (SpotifySession.spDc(context) != spDc) false else {
+                    Spotify.accessToken = token.accessToken
+                    expiresAtMs = token.accessTokenExpirationTimestampMs
+                    tokenAccount = spDc
+                    Log.d(TAG, "Spotify token refreshed")
+                    true
                 }
-                val msg = err.message ?: err.javaClass.simpleName
-                Log.e(TAG, "Failed to fetch Spotify token: $msg", err)
-                DevConsoleManager.logError(
-                    TAG,
-                    "Token exchange failed: $msg",
-                    err,
-                )
-                DevConsoleManager.reportComponentFault(
-                    component = "SpotifyAuth",
-                    action = "EnsureToken",
-                    reason = "Spotify session token exchange failed: $msg",
-                    autoFixHint = "Use Open Spotify in Chrome + Paste Cookie to refresh sp_dc.",
-                    exception = err,
-                )
+            },
+            onFailure = {
+                Log.e(TAG, "Failed to fetch Spotify token", it)
                 false
             },
         )
