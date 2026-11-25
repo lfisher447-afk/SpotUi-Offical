@@ -24,9 +24,18 @@ object SpotifyTokenProvider {
     private val mutex = Mutex()
     private var expiresAtMs: Long = 0L
     private var tokenAccount: String? = null
-    val isAuthenticated: kotlinx.coroutines.flow.StateFlow<Boolean> = kotlinx.coroutines.flow.MutableStateFlow(true)
-    fun syncAuthState() {}
-    fun notifyAuthStateChanged() {}
+    private val _isAuthenticated = kotlinx.coroutines.flow.MutableStateFlow(true)
+    val isAuthenticated: kotlinx.coroutines.flow.StateFlow<Boolean> = _isAuthenticated
+    private var authContext: Context? = null
+
+    fun syncAuthState(context: Context) {
+        authContext = context.applicationContext
+        _isAuthenticated.value = SpotifySession.hasSession(context)
+    }
+
+    fun notifyAuthStateChanged() {
+        authContext?.let { _isAuthenticated.value = SpotifySession.hasSession(it) }
+    }
 
     /** Validate before changing the account visible to navigation, caches or the outbox. */
     suspend fun signIn(context:Context,spDc:String,spKey:String=""):Result<Unit> = mutex.withLock {
