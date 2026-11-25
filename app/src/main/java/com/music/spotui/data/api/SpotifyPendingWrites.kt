@@ -18,6 +18,6 @@ object SpotifyPendingWrites {
         return true
     }
     fun entries(context: Context): List<PendingWriteEntry> = emptyList()
-    fun desired(context: Context, kind: String, target: String): Any? = null
+    fun desired(context: Context, kind: String, target: String): Boolean? = null
     fun removePlaylistConfirmed(context: Context, session: String?, target: String) {}
 }
