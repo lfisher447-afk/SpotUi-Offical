@@ -4639,7 +4639,6 @@ fun SettingsScreen(navController: NavController) {
             )
         }
         }
-        }
     }
 }
 
