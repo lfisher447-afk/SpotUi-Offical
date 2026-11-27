@@ -53,6 +53,10 @@ private data class PatchNoteItem(
 
 private val v25IssuesFixed = listOf(
     PatchNoteItem(
+        title = "GitHub Actions CI Missing Kotlin Models Fix (v2.5.7)",
+        detail = "Anchored /models/ and vosk-model*/ in .gitignore so :simpmusic, :shazamkit, :spotify, :innertube, :kugou, :lrclib, and :lastfm Kotlin models packages always commit and compile cleanly in release CI.",
+    ),
+    PatchNoteItem(
         title = "In-Game Mic Translator Detection & Speech Service Fix (v2.5.6)",
         detail = "Added Android Speech Recognition package query visibility, immediate foreground window inspection on service connect/open, Android 13+ on-device recognizer fallback, RMS VU feedback, single-shot & continuous modes, and reusable ML Kit translator pooling.",
     ),
@@ -92,6 +96,10 @@ private val v25IssuesFixed = listOf(
 
 private val v25Improvements = listOf(
     PatchNoteItem(
+        title = "Multi-Tab Auth Browser Engine, Bookmarks & Web Libs Studio (v2.5.7)",
+        detail = "Upgraded Spotify Login into a full Chromium browser engine with multi-tab SSO popups, persistent Bookmarks (folders, pins, JSON import/export), Find-in-Page, Zoom, Incognito, History, Cookie/Session Inspector, DomReady, MobileFuse SecureNativeBridge + AdvancedMRAID + PerformanceMonitor + AccessibilityManager, SecurityManager DoS/Whitelist/Blocklist, SSLManager X.509 Inspector, BrowserController, and interactive Terminal & Stream Sniffer Studio.",
+    ),
+    PatchNoteItem(
         title = "SpotFlac Binary Verification Lab & Adaptive Settings Studio (v2.5.6)",
         detail = "Added SpotiFlac.verifyLosslessPipeline() verifying SpotBye, Monochrome, Odesli ISRC bridge, Qobuz, Deezer ARL, and stream magic bytes (fLaC / ftyp / <MPD>); upgraded Settings with live search quick-jump, telemetry ribbon, adaptive rail widths, and dedicated In-Game Mic Translator + offline ML Kit pack manager.",
     ),
@@ -119,7 +127,7 @@ private val v25Improvements = listOf(
 
 /**
  * First-login / post-update "What's New & Patch Notes" UI modal displaying explicit root-cause
- * fixes and feature improvements for SpotUI v2.5.6.
+ * fixes and feature improvements for SpotUI v2.5.7.
  */
 @Composable
 fun PatchNotesDialog(

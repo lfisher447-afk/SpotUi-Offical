@@ -460,7 +460,7 @@ class PlaybackDspHealthUpgradeTest {
     @Test
     fun v256_advanced8dPreferences_legacyOrbitMigration_andTranslatorEngineSettingsWork() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        assertTrue(BuildConfig.VERSION_NAME.startsWith("2.5.6"))
+        assertTrue(BuildConfig.VERSION_NAME.startsWith("2.5.7"))
 
         // Legacy orbit key migrates seamlessly to Advanced 8D and clears on write
         val rawPrefs = context.getSharedPreferences("spotui_settings", Context.MODE_PRIVATE)

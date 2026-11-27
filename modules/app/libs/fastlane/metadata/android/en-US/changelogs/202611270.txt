@@ -1,0 +1,6 @@
+SpotUI v2.5.7 (202611270)
+- Fixed GitHub Actions release build by anchoring /models/ in .gitignore so :simpmusic, :shazamkit, and :spotify models packages are tracked cleanly
+- Upgraded Spotify Login WebView into a full Multi-Tab Auth Browser Engine with persistent Bookmarks, folders, pinned quick-bar, Omnibox search, Find-in-Page, Zoom, Incognito mode, History, and live Cookie/Session Inspector
+- Integrated the SpotUI Auth Browser Web Libs Studio: DomReady, MobileFuse SecureNativeBridge + AdvancedMRAID + MRAIDAnalytics + PerformanceMonitor + AccessibilityManager, SecurityManager (DoS, Blocklist, Whitelist), SSLManager (X.509 cert inspector), BrowserController, and WebVideoCaster Stream Sniffer + JMX Telemetry + Interactive Terminal Console
+- Enhanced Local URL Login Portal with embedded Security, SSL, and Session Controller HUD
+- Refreshed README.md documentation and architecture inventory for v2.5.7

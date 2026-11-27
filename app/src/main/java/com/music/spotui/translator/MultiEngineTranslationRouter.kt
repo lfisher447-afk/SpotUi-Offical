@@ -303,7 +303,7 @@ object MultiEngineTranslationRouter {
         val url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=$sourceLang&tl=$targetLang&dt=t&q=$encoded"
         val req = Request.Builder()
             .url(url)
-            .header("User-Agent", "SpotUI/2.5.6")
+            .header("User-Agent", "SpotUI/2.5.7")
             .get()
             .build()
         return httpClient.newCall(req).execute().use { resp ->

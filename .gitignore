@@ -20,7 +20,8 @@ dist/
 *.zip
 *.onnx
 *.tflite
-models/
+/models/
+vosk-model*/
 
 # IDE state
 .idea/

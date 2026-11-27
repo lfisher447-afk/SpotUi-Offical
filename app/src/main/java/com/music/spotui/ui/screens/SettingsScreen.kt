@@ -232,7 +232,7 @@ private enum class SettingsSideTab(
     MODULES("Modules", "17 Library Modules", "Toggle & verify Spotify, InnerTube, yt-dlp, Lyrics & Shazam", "17", Icons.Rounded.Extension, listOf("module", "yt-dlp", "ffmpeg", "innertube", "newpipe", "shazam", "lyrics", "spotify", "library")),
     TURBO("Turbo", "MrBean & Storage", "8x HTTP/2 slices, connection pool & NovaAc cache", "8x", Icons.Rounded.Bolt, listOf("mrbean", "download", "cache", "novaac", "storage", "slice", "chunk", "pool")),
     NETWORK("Network", "DNS, Auth & Sync", "DoH resolver, PoToken, proxy pool & YTM sync", "DoH", Icons.Rounded.Public, listOf("dns", "doh", "proxy", "potoken", "youtube", "cookie", "sync", "oauth", "explicit")),
-    SYSTEM("System", "System, Updates & Account", "Permissions, battery guard, v2.5.6 updater & backup", "OS", Icons.Rounded.Tune, listOf("update", "updater", "backup", "restore", "battery", "permission", "roadmap", "patch")),
+    SYSTEM("System", "System, Updates & Account", "Permissions, battery guard, v2.5.7 updater & backup", "OS", Icons.Rounded.Tune, listOf("update", "updater", "backup", "restore", "battery", "permission", "roadmap", "patch")),
     LOGS("Logs", "Logger & Telemetry", "2000-entry 8-channel developer diagnostics console", "LOG", Icons.Rounded.Terminal, listOf("log", "console", "health", "diagnostic", "telemetry", "bluetooth", "fault")),
     ALL("All", "All SpotUI Settings", "Full scrollable configuration dashboard", "ALL", Icons.Rounded.Apps, emptyList());
 }
@@ -250,7 +250,7 @@ private val settingsQuickTopics = listOf(
     SettingsQuickTopic("Floater Overlay", "floater accessibility volume resize haptic", SettingsSideTab.FLOATER),
     SettingsQuickTopic("yt-dlp & Modules", "ytdlp ffmpeg innertube newpipe modules", SettingsSideTab.MODULES),
     SettingsQuickTopic("MrBean 8x Turbo", "mrbean cache storage novaac download speed", SettingsSideTab.TURBO),
-    SettingsQuickTopic("Updater v2.5.6", "update apk patch notes backup permissions", SettingsSideTab.SYSTEM),
+    SettingsQuickTopic("Updater v2.5.7", "update apk patch notes backup permissions", SettingsSideTab.SYSTEM),
 )
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)

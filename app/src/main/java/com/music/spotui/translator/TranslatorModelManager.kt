@@ -194,7 +194,7 @@ object TranslatorModelManager {
             onProgress(1)
             val request = Request.Builder()
                 .url(cleanUrl)
-                .header("User-Agent", "SpotUI/2.5.6")
+                .header("User-Agent", "SpotUI/2.5.7")
                 .build()
 
             httpClient.newCall(request).execute().use { response ->

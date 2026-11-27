@@ -106,10 +106,9 @@ import com.music.spotui.ui.screens.SpotifyLogin.helper.LOGIN_CARD_DARK
 import com.music.spotui.ui.screens.SpotifyLogin.helper.LOGIN_SPOTIFY_GREEN
 import com.music.spotui.ui.screens.SpotifyLogin.helper.LOGIN_TEXT_SECONDARY
 import com.music.spotui.ui.screens.SpotifyLogin.helper.LoginSessionInspector
-import com.music.spotui.ui.screens.SpotifyLogin.helper.LoginUaProfile
 import com.music.spotui.ui.screens.SpotifyLogin.helper.openSpotifyInChromeCustomTab
 import com.music.spotui.ui.screens.SpotifyLogin.helper.parseSpotifyCookiesFromText
-import com.music.spotui.ui.screens.SpotifyLogin.helper.resolveLoginUserAgent
+import com.music.spotui.ui.screens.SpotifyLogin.module.AuthBrowserEnginePanel
 import com.music.spotui.ui.screens.SpotifyLogin.module.AuthEcosystemStatusBanner
 import com.music.spotui.ui.screens.SpotifyLogin.module.ChromeCustomTabAuthCard
 import com.music.spotui.ui.screens.SpotifyLogin.module.LocalUrlLoginCard
@@ -119,7 +118,6 @@ import com.music.spotui.ui.screens.SpotifyLogin.page.LocalLoginWebServer
 import com.music.spotui.util.localizedUiText
 import com.music.spotui.util.uiLocalized
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -132,8 +130,8 @@ private enum class AuthMethodTab(
     val tag: String,
 ) {
     LOCAL_URL("Local URL", Icons.Default.Http, "login_tab_local_url"),
-    BROWSER("Browser", Icons.Default.Language, "login_tab_browser"),
-    WEBVIEW("WebView", Icons.Default.Public, "login_tab_webview"),
+    BROWSER("Chrome Tab", Icons.Default.Language, "login_tab_browser"),
+    WEBVIEW("Browser Engine", Icons.Default.Public, "login_tab_webview"),
     OAUTH_PKCE("OAuth PKCE", Icons.Default.VerifiedUser, "login_tab_oauth"),
     TOKENS("Tokens", Icons.Default.Key, "login_tab_tokens"),
 }
@@ -156,20 +154,12 @@ fun SpotifyLoginScreen(navController: NavController) {
 
     var selectedTab by remember { mutableStateOf(AuthMethodTab.LOCAL_URL) }
     var rejectedCookie by remember { mutableStateOf<String?>(null) }
-    var webViewGeneration by remember { mutableIntStateOf(0) }
-    var uaProfile by remember { mutableStateOf(LoginUaProfile.DESKTOP_CHROME) }
 
     var isProcessing by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf("") }
     var hasError by remember { mutableStateOf(false) }
-
-    var isLoadingPage by remember { mutableStateOf(true) }
-    var loadingProgress by remember { mutableFloatStateOf(0f) }
-    var hasPageError by remember { mutableStateOf(false) }
-    var pageErrorMessage by remember { mutableStateOf("") }
     var authStatusRefreshTick by remember { mutableIntStateOf(0) }
 
-    val pageReady = remember { AtomicBoolean(false) }
     val tokenFetchStarted = remember { AtomicBoolean(false) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
@@ -248,33 +238,7 @@ fun SpotifyLoginScreen(navController: NavController) {
         }
     }
 
-    // WebView sp_dc watcher when user uses the embedded WebView tab
-    LaunchedEffect(selectedTab, webViewGeneration) {
-        if (selectedTab != AuthMethodTab.WEBVIEW) return@LaunchedEffect
-        while (selectedTab == AuthMethodTab.WEBVIEW) {
-            delay(1000)
-            if (tokenFetchStarted.get() || webViewRef == null) continue
-            val spDc = extractWebViewCookie("sp_dc")
-            val spKey = extractWebViewCookie("sp_key") ?: ""
-            if (!spDc.isNullOrBlank() && spDc != rejectedCookie && tokenFetchStarted.compareAndSet(false, true)) {
-                finishLogin(
-                    spDc = spDc,
-                    spKey = spKey,
-                    view = webViewRef,
-                    context = context.applicationContext,
-                    scope = scope,
-                    setProcessing = { isProcessing = it },
-                    setStatus = { statusMessage = it },
-                    setError = { hasError = it },
-                    tokenFetchStarted = tokenFetchStarted,
-                    onSuccess = navigateToHome,
-                    localize = ::message,
-                    isActive = { active },
-                    onRejected = { rejectedCookie = it },
-                )
-            }
-        }
-    }
+    // Session capture for Auth Browser Engine runs inside AuthBrowserEnginePanel.
 
     Column(
         modifier = Modifier
@@ -354,7 +318,6 @@ fun SpotifyLoginScreen(navController: NavController) {
                         rejectedCookie = null
                         hasError = false
                         statusMessage = "Browser cookies cleared"
-                        if (selectedTab == AuthMethodTab.WEBVIEW) webViewGeneration++
                     },
                     modifier = Modifier.size(48.dp).testTag("login_clear_cookies_button"),
                 ) {
@@ -446,186 +409,45 @@ fun SpotifyLoginScreen(navController: NavController) {
             }
 
             AuthMethodTab.WEBVIEW -> {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    // UA Switcher & Reload Strip
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        LoginUaProfile.entries.forEach { profile ->
-                            val label = when (profile) {
-                                LoginUaProfile.DESKTOP_CHROME -> "Desktop UA"
-                                LoginUaProfile.MOBILE_CHROME -> "Mobile UA"
-                                LoginUaProfile.SYSTEM_DEFAULT -> "System UA"
-                            }
-                            FilterChip(
-                                selected = uaProfile == profile,
-                                onClick = {
-                                    uaProfile = profile
-                                    webViewGeneration++
-                                },
-                                label = { Text(label, fontSize = 11.sp) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = Color(0xFF143521),
-                                    selectedLabelColor = Color(LOGIN_SPOTIFY_GREEN),
-                                ),
+                AuthBrowserEnginePanel(
+                    context = context,
+                    localPortalUrl = if (serverState.isRunning) serverState.loopbackUrl else null,
+                    isProcessingAuth = isProcessing,
+                    rejectedSpotifyCookie = rejectedCookie,
+                    onSpotifySessionCaptured = { spDc, spKey, wv ->
+                        webViewRef = wv
+                        if (tokenFetchStarted.compareAndSet(false, true)) {
+                            finishLogin(
+                                spDc = spDc,
+                                spKey = spKey,
+                                view = wv,
+                                context = context.applicationContext,
+                                scope = scope,
+                                setProcessing = { isProcessing = it },
+                                setStatus = { statusMessage = it },
+                                setError = { hasError = it },
+                                tokenFetchStarted = tokenFetchStarted,
+                                onSuccess = navigateToHome,
+                                localize = ::message,
+                                isActive = { active },
+                                onRejected = { rejectedCookie = it },
                             )
                         }
-                        Spacer(Modifier.weight(1f))
-                        IconButton(
-                            onClick = {
-                                hasPageError = false
-                                isLoadingPage = true
-                                rejectedCookie = null
-                                hasError = false
-                                if (webViewRef == null) webViewGeneration++ else webViewRef?.loadUrl(SpotifyAuth.LOGIN_URL)
-                            },
-                            modifier = Modifier.size(48.dp),
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Reload Spotify", tint = Color.White)
-                        }
-                    }
-
-                    if (isLoadingPage && !isProcessing) {
-                        LinearProgressIndicator(
-                            progress = { loadingProgress },
-                            modifier = Modifier.fillMaxWidth().height(2.dp),
-                            color = Color(LOGIN_SPOTIFY_GREEN),
-                            trackColor = Color.Transparent,
-                        )
-                    }
-
-                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        key(webViewGeneration) {
-                            AndroidView(
-                                modifier = Modifier.fillMaxSize(),
-                                factory = { ctx ->
-                                    FrameLayout(ctx).apply {
-                                        try {
-                                            val cookieManager = CookieManager.getInstance()
-                                            cookieManager.setAcceptCookie(true)
-                                            val loginView = WebView(ctx).apply {
-                                                layoutParams = ViewGroup.LayoutParams(
-                                                    ViewGroup.LayoutParams.MATCH_PARENT,
-                                                    ViewGroup.LayoutParams.MATCH_PARENT,
-                                                )
-                                                webViewRef = this
-                                                cookieManager.setAcceptThirdPartyCookies(this, true)
-                                                setBackgroundColor(android.graphics.Color.BLACK)
-                                                settings.apply {
-                                                    javaScriptEnabled = true
-                                                    domStorageEnabled = true
-                                                    databaseEnabled = true
-                                                    loadWithOverviewMode = true
-                                                    useWideViewPort = true
-                                                    mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                                                    javaScriptCanOpenWindowsAutomatically = true
-                                                    @Suppress("DEPRECATION")
-                                                    setSupportMultipleWindows(false)
-                                                    cacheMode = WebSettings.LOAD_DEFAULT
-                                                    userAgentString = resolveLoginUserAgent(ctx, uaProfile)
-                                                }
-                                                webChromeClient = object : WebChromeClient() {
-                                                    override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                                        loadingProgress = newProgress / 100f
-                                                        if (newProgress >= 100) isLoadingPage = false
-                                                    }
-
-                                                    override fun onConsoleMessage(m: ConsoleMessage): Boolean = true
-                                                }
-                                                webViewClient = object : WebViewClient() {
-                                                    override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                                        pageReady.set(false)
-                                                        isLoadingPage = true
-                                                        hasPageError = false
-                                                    }
-
-                                                    override fun onPageFinished(view: WebView?, url: String?) {
-                                                        if (!active) return
-                                                        if (!hasPageError) pageReady.set(true)
-                                                        isLoadingPage = false
-                                                    }
-
-                                                    override fun onReceivedError(
-                                                        view: WebView?,
-                                                        request: WebResourceRequest?,
-                                                        error: WebResourceError?,
-                                                    ) {
-                                                        if (request?.isForMainFrame == true) {
-                                                            pageErrorMessage = error?.description?.toString() ?: "Connection error"
-                                                            pageReady.set(false)
-                                                            isLoadingPage = false
-                                                            hasPageError = true
-                                                        }
-                                                    }
-                                                }
-                                                loadUrl(SpotifyAuth.LOGIN_URL)
-                                            }
-                                            addView(loginView)
-                                        } catch (failure: RuntimeException) {
-                                            webViewRef = null
-                                            if (active) {
-                                                isLoadingPage = false
-                                                pageReady.set(false)
-                                                hasPageError = true
-                                                pageErrorMessage = "WebView unavailable. Switch to Local URL or Browser tab."
-                                            }
-                                            Timber.w(failure, "Spotify WebView failed")
-                                        }
-                                    }
-                                },
-                                onRelease = { container ->
-                                    val view = container.getChildAt(0) as? WebView
-                                    if (webViewRef === view) webViewRef = null
-                                    container.removeAllViews()
-                                    view?.let {
-                                        it.webViewClient = WebViewClient()
-                                        it.webChromeClient = null
-                                        runCatching { it.stopLoading(); it.destroy() }
-                                    }
-                                },
-                            )
-                        }
-
-                        if (hasPageError && !pageReady.get()) {
-                            Box(
-                                modifier = Modifier.fillMaxSize().background(Color(LOGIN_BACKGROUND_DARK)).padding(24.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(
-                                        text = "WebView sign-in blocked or offline",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 17.sp,
-                                        textAlign = TextAlign.Center,
-                                    )
-                                    Spacer(Modifier.height(8.dp))
-                                    Text(
-                                        text = pageErrorMessage,
-                                        color = Color(LOGIN_TEXT_SECONDARY),
-                                        fontSize = 13.sp,
-                                        textAlign = TextAlign.Center,
-                                    )
-                                    Spacer(Modifier.height(20.dp))
-                                    Button(
-                                        onClick = { selectedTab = AuthMethodTab.LOCAL_URL },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = Color(LOGIN_SPOTIFY_GREEN),
-                                            contentColor = Color.Black,
-                                        ),
-                                        modifier = Modifier.height(48.dp),
-                                    ) {
-                                        Text("Use Local URL Login", fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                    },
+                    onYoutubeCookieCaptured = { cookieHeader ->
+                        setYoutubeCookie(context.applicationContext, cookieHeader)
+                        authStatusRefreshTick++
+                        statusMessage = "YouTube Music session synced from Browser Engine"
+                        hasError = false
+                    },
+                    onDeezerArlCaptured = { arl ->
+                        setDeezerArl(context.applicationContext, arl)
+                        authStatusRefreshTick++
+                        statusMessage = "Deezer ARL synced from Browser Engine"
+                        hasError = false
+                    },
+                    onSwitchToLocalUrl = { selectedTab = AuthMethodTab.LOCAL_URL },
+                )
             }
 
             AuthMethodTab.OAUTH_PKCE -> {
