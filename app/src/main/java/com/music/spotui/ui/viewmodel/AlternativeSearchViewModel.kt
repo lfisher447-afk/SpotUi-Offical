@@ -108,6 +108,26 @@ class AlternativeSearchViewModel @Inject constructor(
         error = null
         statusNote = null
         try {
+            val directVideoId = com.music.spotui.data.preferences.normalizeYouTubeVideoId(query)
+            if (directVideoId != null) {
+                val directItem = withContext(Dispatchers.IO) {
+                    val nextMeta = YouTube.next(com.metrolist.innertube.models.WatchEndpoint(videoId = directVideoId))
+                        .getOrNull()
+                        ?.items
+                        ?.firstOrNull { it.id == directVideoId }
+                    nextMeta ?: SongItem(
+                        id = directVideoId,
+                        title = "YouTube Video ($directVideoId)",
+                        artists = listOf(com.metrolist.innertube.models.Artist("Direct link", null)),
+                        thumbnail = "https://img.youtube.com/vi/$directVideoId/hqdefault.jpg",
+                    )
+                }
+                searchResults = listOf(directItem)
+                statusNote = "Direct link locked · ID: $directVideoId"
+                error = null
+                return
+            }
+
             val allowExplicit = isExplicitContentAllowed(context)
             val preferExplicit = isPreferExplicitVersions(context)
 

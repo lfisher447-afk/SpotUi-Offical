@@ -51,8 +51,8 @@ import com.music.spotui.data.preferences.getEqTreble
 import com.music.spotui.data.preferences.getEqVocal
 import com.music.spotui.data.preferences.getFloaterAutoHideMs
 import com.music.spotui.data.preferences.getFloaterHapticStrength
+import com.music.spotui.data.preferences.getSpatial8dIntensity
 import com.music.spotui.data.preferences.getSpatialElevationDepth
-import com.music.spotui.data.preferences.getSpatialOrbitSpeed
 import com.music.spotui.data.preferences.getSpatialProfile
 import com.music.spotui.data.preferences.getSpatialRoomDelayMs
 import com.music.spotui.data.preferences.getSpatialStrength
@@ -65,7 +65,7 @@ import com.music.spotui.data.preferences.isFloaterStartExpanded
 import com.music.spotui.data.preferences.isHeadphoneCrossfeedEnabled
 import com.music.spotui.data.preferences.isLimiterEnabled
 import com.music.spotui.data.preferences.isSkipSilenceEnabled
-import com.music.spotui.data.preferences.isSpatial8dOrbitEnabled
+import com.music.spotui.data.preferences.isSpatial8dEnabled
 import com.music.spotui.data.preferences.isSpatialCorrelationGuardEnabled
 import com.music.spotui.data.preferences.resetFloaterGeometry
 import com.music.spotui.data.preferences.setAudioNormalizerEnabled
@@ -88,10 +88,10 @@ import com.music.spotui.data.preferences.setLimiterEnabled
 import com.music.spotui.data.preferences.setPlaybackPitchPref
 import com.music.spotui.data.preferences.setPlaybackSpeedPref
 import com.music.spotui.data.preferences.setSkipSilenceEnabled
-import com.music.spotui.data.preferences.setSpatial8dOrbitEnabled
+import com.music.spotui.data.preferences.setSpatial8dEnabled
+import com.music.spotui.data.preferences.setSpatial8dIntensity
 import com.music.spotui.data.preferences.setSpatialCorrelationGuardEnabled
 import com.music.spotui.data.preferences.setSpatialElevationDepth
-import com.music.spotui.data.preferences.setSpatialOrbitSpeed
 import com.music.spotui.data.preferences.setSpatialProfile
 import com.music.spotui.data.preferences.setSpatialRoomDelayMs
 import com.music.spotui.data.preferences.setSpatialStrength
@@ -167,11 +167,14 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
         currentOrientation = resources.configuration.orientation
         AudioEffectController.refreshOutputRoute(applicationContext)
         GameTranslatorEngine.hydratePreferences(applicationContext)
+        inspectCurrentWindowsForGame()
 
         activeTab = FloaterTab.entries.firstOrNull {
             it.key == prefs.getString(KEY_ACTIVE_TAB, FloaterTab.PLAYER.key)
         } ?: FloaterTab.PLAYER
-        if (activeTab == FloaterTab.TRANSLATE && !GameTranslatorEngine.isGameActiveFlow.value) {
+        val translateUnlocked = GameTranslatorEngine.isGameActiveFlow.value ||
+            GameTranslatorEngine.alwaysUnlockTranslatorFlow.value
+        if (activeTab == FloaterTab.TRANSLATE && !translateUnlocked) {
             activeTab = FloaterTab.PLAYER
         }
         isSidebarCompact = prefs.getBoolean(KEY_SIDEBAR_COMPACT, false)
@@ -194,7 +197,9 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
                 rawPackage = event.packageName,
                 rawClassName = event.className,
             )
-            if (!GameTranslatorEngine.isGameActiveFlow.value && activeTab == FloaterTab.TRANSLATE) {
+            val translateUnlocked = GameTranslatorEngine.isGameActiveFlow.value ||
+                GameTranslatorEngine.alwaysUnlockTranslatorFlow.value
+            if (!translateUnlocked && activeTab == FloaterTab.TRANSLATE) {
                 activeTab = FloaterTab.PLAYER
                 val v = overlayView
                 val p = overlayParams
@@ -204,6 +209,23 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
                 }
             }
             refreshUiState()
+        }
+    }
+
+    private fun inspectCurrentWindowsForGame() {
+        val candidates = mutableListOf<Pair<String?, String?>>()
+        runCatching {
+            windows?.forEach { info ->
+                val pkg = info.root?.packageName?.toString()
+                if (!pkg.isNullOrBlank()) candidates.add(pkg to null)
+            }
+        }
+        runCatching {
+            val activePkg = rootInActiveWindow?.packageName?.toString()
+            if (!activePkg.isNullOrBlank()) candidates.add(0, activePkg to null)
+        }
+        if (candidates.isNotEmpty()) {
+            GameTranslatorEngine.inspectActiveWindows(applicationContext, candidates)
         }
     }
 
@@ -244,10 +266,15 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
         serviceScope.launch {
             combine(
                 GameTranslatorEngine.isGameActiveFlow,
+                GameTranslatorEngine.alwaysUnlockTranslatorFlow,
                 GameTranslatorEngine.bubbleEnabledFlow,
-            ) { isGame, bubbleOn -> isGame to (isGame && bubbleOn) }
-                .collectLatest { (isGame, shouldShowBubble) ->
-                    if (!isGame && activeTab == FloaterTab.TRANSLATE) {
+                GameTranslatorEngine.isListeningFlow,
+            ) { isGame, alwaysUnlocked, bubbleOn, listening ->
+                val unlocked = isGame || alwaysUnlocked
+                unlocked to ((isGame || (alwaysUnlocked && listening)) && bubbleOn)
+            }
+                .collectLatest { (unlocked, shouldShowBubble) ->
+                    if (!unlocked && activeTab == FloaterTab.TRANSLATE) {
                         activeTab = FloaterTab.PLAYER
                         val v = overlayView
                         val p = overlayParams
@@ -304,8 +331,12 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
         } ?: return
 
         GameTranslatorEngine.refreshMicPermission(applicationContext)
+        GameTranslatorEngine.refreshTranslatorReadiness(applicationContext)
+        inspectCurrentWindowsForGame()
         isDrawerExpanded = isFloaterEqAnd3dEnabled(this) && isFloaterStartExpanded(this)
-        if (activeTab == FloaterTab.TRANSLATE && !GameTranslatorEngine.isGameActiveFlow.value) {
+        val translateUnlocked = GameTranslatorEngine.isGameActiveFlow.value ||
+            GameTranslatorEngine.alwaysUnlockTranslatorFlow.value
+        if (activeTab == FloaterTab.TRANSLATE && !translateUnlocked) {
             activeTab = FloaterTab.PLAYER
         }
 
@@ -536,6 +567,23 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
                 refreshUiState()
             }
         }
+        scope.launch {
+            GameTranslatorEngine.micRmsNormalizedFlow.collectLatest {
+                if (overlayView != null && activeTab == FloaterTab.TRANSLATE) {
+                    refreshUiState()
+                }
+            }
+        }
+        scope.launch {
+            combine(
+                GameTranslatorEngine.targetLangFlow,
+                GameTranslatorEngine.continuousListenFlow,
+                GameTranslatorEngine.downloadedModelsFlow,
+                GameTranslatorEngine.modelDownloadBusyFlow,
+            ) { _, _, _, _ -> }.collectLatest {
+                if (overlayView != null) refreshUiState()
+            }
+        }
     }
 
     private fun refreshUiState() {
@@ -553,7 +601,8 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
         val hDp = (((if ((params?.height ?: -1) > 0) params!!.height else overlayView?.height ?: dpToPx(220))) / density).roundToInt()
 
         val isGame = GameTranslatorEngine.isGameActiveFlow.value
-        val effectiveTab = if (activeTab == FloaterTab.TRANSLATE && !isGame) FloaterTab.PLAYER else activeTab
+        val alwaysUnlock = GameTranslatorEngine.alwaysUnlockTranslatorFlow.value
+        val effectiveTab = if (activeTab == FloaterTab.TRANSLATE && !(isGame || alwaysUnlock)) FloaterTab.PLAYER else activeTab
 
         uiStateFlow.value = FloaterUiModel(
             songId = snap.songId,
@@ -597,8 +646,8 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
             spatialStrength = getSpatialStrength(this),
             spatialRoomDelayMs = getSpatialRoomDelayMs(this),
             spatialElevationDepth = getSpatialElevationDepth(this),
-            orbit8dEnabled = isSpatial8dOrbitEnabled(this),
-            orbit8dSpeedHz = getSpatialOrbitSpeed(this),
+            advanced8dEnabled = isSpatial8dEnabled(this),
+            advanced8dDepth = getSpatial8dIntensity(this),
             crossfeedEnabled = isHeadphoneCrossfeedEnabled(this),
             correlationGuardEnabled = isSpatialCorrelationGuardEnabled(this),
             audioRouteLabel = route.route.label,
@@ -613,6 +662,14 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
             hapticsEnabled = isFloaterHapticsEnabled(this),
             isGameActive = isGame,
             activeGameLabel = GameTranslatorEngine.activeGameLabelFlow.value,
+            alwaysUnlockTranslator = alwaysUnlock,
+            targetLangCode = GameTranslatorEngine.targetLangFlow.value,
+            continuousListen = GameTranslatorEngine.continuousListenFlow.value,
+            micRmsNormalized = GameTranslatorEngine.micRmsNormalizedFlow.value,
+            speechEngineAvailable = GameTranslatorEngine.speechEngineAvailableFlow.value,
+            speechEngineLabel = GameTranslatorEngine.speechEngineLabelFlow.value,
+            downloadedModelLangs = GameTranslatorEngine.downloadedModelsFlow.value,
+            modelDownloadBusyLang = GameTranslatorEngine.modelDownloadBusyFlow.value,
         )
     }
 
@@ -626,7 +683,8 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
     }
 
     private fun updateWindowFocusableMode(params: WindowManager.LayoutParams) {
-        val allowKeyboardInput = isDrawerExpanded && activeTab == FloaterTab.TRANSLATE && GameTranslatorEngine.isGameActiveFlow.value
+        val unlocked = GameTranslatorEngine.isGameActiveFlow.value || GameTranslatorEngine.alwaysUnlockTranslatorFlow.value
+        val allowKeyboardInput = isDrawerExpanded && activeTab == FloaterTab.TRANSLATE && unlocked
         if (allowKeyboardInput) {
             params.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
@@ -684,6 +742,21 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
         isSidebarCompact = !isSidebarCompact
         prefs.edit().putBoolean(KEY_SIDEBAR_COMPACT, isSidebarCompact).apply()
         refreshUiState()
+    }
+
+    override fun onSnapOverlayToEdge() {
+        resetAutoDismissTimer()
+        val v = overlayView ?: return
+        val p = overlayParams ?: return
+        val metrics = resources.displayMetrics
+        val margin = dpToPx(8)
+        val maxX = (metrics.widthPixels - p.width - margin).coerceAtLeast(margin)
+        val center = p.x + p.width / 2
+        p.x = if (center < metrics.widthPixels / 2) margin else maxX
+        val h = if (p.height > 0) p.height else v.height.coerceAtLeast(dpToPx(220))
+        runCatching { if (v.isAttachedToWindow) windowManager?.updateViewLayout(v, p) }
+        saveDragCoordinates(currentOrientation, p.x, p.y, h, p.width)
+        performHaptic(isAccent = true)
     }
 
     override fun onTogglePlayPause() {
@@ -865,15 +938,15 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
         refreshUiState()
     }
 
-    override fun onToggle8dOrbit(enabled: Boolean) {
-        setSpatial8dOrbitEnabled(applicationContext, enabled)
+    override fun onToggle8dAudio(enabled: Boolean) {
+        setSpatial8dEnabled(applicationContext, enabled)
         if (enabled && !isEqSpatialEnabled(applicationContext)) setEqSpatialEnabled(applicationContext, true)
         SongPlayer.refreshAudioEffects(applicationContext)
         refreshUiState()
     }
 
-    override fun onOrbitSpeedChange(hz: Float) {
-        setSpatialOrbitSpeed(applicationContext, hz)
+    override fun on8dDepthChange(depth: Float) {
+        setSpatial8dIntensity(applicationContext, depth)
         SongPlayer.refreshAudioEffects(applicationContext)
         refreshUiState()
     }
@@ -1041,6 +1114,31 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
     override fun onSelectTranslateSource(code: String) {
         resetAutoDismissTimer()
         GameTranslatorEngine.setSourceLanguage(applicationContext, code)
+        refreshUiState()
+    }
+
+    override fun onSelectTranslateTarget(code: String) {
+        resetAutoDismissTimer()
+        GameTranslatorEngine.setTargetLanguage(applicationContext, code)
+        refreshUiState()
+    }
+
+    override fun onSwapTranslateLanguages() {
+        resetAutoDismissTimer()
+        GameTranslatorEngine.swapLanguages(applicationContext)
+        refreshUiState()
+    }
+
+    override fun onToggleContinuousListen(continuous: Boolean) {
+        resetAutoDismissTimer()
+        GameTranslatorEngine.setContinuousListen(applicationContext, continuous)
+        refreshUiState()
+    }
+
+    override fun onDownloadLanguagePack(code: String) {
+        resetAutoDismissTimer()
+        GameTranslatorEngine.downloadLanguagePack(applicationContext, code)
+        refreshUiState()
     }
 
     override fun onTranslateManualText(text: String) {

@@ -64,8 +64,8 @@ data class FloaterUiModel(
     val spatialStrength: Int = 900,
     val spatialRoomDelayMs: Float = 12f,
     val spatialElevationDepth: Float = 0.7f,
-    val orbit8dEnabled: Boolean = false,
-    val orbit8dSpeedHz: Float = 0.32f,
+    val advanced8dEnabled: Boolean = false,
+    val advanced8dDepth: Float = 0.85f,
     val crossfeedEnabled: Boolean = false,
     val correlationGuardEnabled: Boolean = true,
     val audioRouteLabel: String = "Phone Speaker",
@@ -81,9 +81,17 @@ data class FloaterUiModel(
     val autoHideMs: Long = 12_000L,
     val hapticsEnabled: Boolean = true,
 
-    // Foreground Game Detection (Translation tab ONLY shows when isGameActive == true)
+    // Foreground Game Detection & Live Translator State
     val isGameActive: Boolean = false,
     val activeGameLabel: String? = null,
+    val alwaysUnlockTranslator: Boolean = false,
+    val targetLangCode: String = "en",
+    val continuousListen: Boolean = true,
+    val micRmsNormalized: Float = 0f,
+    val speechEngineAvailable: Boolean = true,
+    val speechEngineLabel: String = "",
+    val downloadedModelLangs: Set<String> = emptySet(),
+    val modelDownloadBusyLang: String? = null,
 )
 
 interface FloaterCallbacks {
@@ -95,6 +103,7 @@ interface FloaterCallbacks {
     fun onToggleExpand()
     fun onSelectTab(tab: FloaterTab)
     fun onToggleSidebarCompact()
+    fun onSnapOverlayToEdge()
 
     // Transport
     fun onTogglePlayPause()
@@ -122,14 +131,14 @@ interface FloaterCallbacks {
     fun onToggleLimiter(enabled: Boolean)
     fun onResetEqFlat()
 
-    // 3D Spatial
+    // 3D Spatial & Advanced 8D
     fun onToggleSpatial(enabled: Boolean)
     fun onSelectSpatialProfile(profile: SpatialProfile)
     fun onSpatialStrengthChange(strength: Int)
     fun onSpatialDelayChange(delayMs: Float)
     fun onSpatialElevationChange(depth: Float)
-    fun onToggle8dOrbit(enabled: Boolean)
-    fun onOrbitSpeedChange(hz: Float)
+    fun onToggle8dAudio(enabled: Boolean)
+    fun on8dDepthChange(depth: Float)
     fun onToggleCrossfeed(enabled: Boolean)
     fun onToggleCorrelationGuard(enabled: Boolean)
 
@@ -156,6 +165,10 @@ interface FloaterCallbacks {
     fun onRequestMicPermission()
     fun onToggleListening()
     fun onSelectTranslateSource(code: String)
+    fun onSelectTranslateTarget(code: String)
+    fun onSwapTranslateLanguages()
+    fun onToggleContinuousListen(continuous: Boolean)
+    fun onDownloadLanguagePack(code: String)
     fun onTranslateManualText(text: String)
     fun onToggleBubbleVisible(enabled: Boolean)
     fun onBubbleWidthChange(widthDp: Float)

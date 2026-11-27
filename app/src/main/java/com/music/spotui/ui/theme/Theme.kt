@@ -63,7 +63,13 @@ fun SpotuiTheme(
     val view = LocalView.current
     if (!view.isInEditMode) {
         LaunchedEffect(colorScheme, spec.dark) {
-            PaletteBridge.apply(colorScheme.primary, colorScheme.background, colorScheme.surface)
+            PaletteBridge.apply(
+                accentColor = colorScheme.primary,
+                backgroundColor = colorScheme.background,
+                surfaceColor = colorScheme.surface,
+                secondaryColor = colorScheme.secondary,
+                tertiaryColor = colorScheme.tertiary,
+            )
             val activity = generateSequence(view.context) { (it as? android.content.ContextWrapper)?.baseContext }
                 .filterIsInstance<Activity>()
                 .firstOrNull()
@@ -97,32 +103,44 @@ fun SpotuiTheme(
     }
 }
 
-private fun expressiveDarkScheme(spec: SpotuiThemeSpec): ColorScheme = darkColorScheme(
-    primary = Color(spec.primaryArgb),
-    onPrimary = Color(spec.onPrimaryArgb),
-    primaryContainer = Color(spec.secondaryArgb).copy(alpha = 0.28f),
-    onPrimaryContainer = Color.White,
-    secondary = Color(spec.secondaryArgb),
-    onSecondary = contrastFor(Color(spec.secondaryArgb)),
-    secondaryContainer = Color(spec.secondaryArgb).copy(alpha = 0.20f),
-    onSecondaryContainer = Color.White,
-    tertiary = Color(spec.tertiaryArgb),
-    onTertiary = contrastFor(Color(spec.tertiaryArgb)),
-    tertiaryContainer = Color(spec.tertiaryArgb).copy(alpha = 0.22f),
-    onTertiaryContainer = Color.White,
-    background = Color(spec.backgroundArgb),
-    onBackground = Color(spec.onBackgroundArgb),
-    surface = Color(spec.surfaceArgb),
-    onSurface = Color(spec.onBackgroundArgb),
-    surfaceVariant = Color(spec.surfaceArgb).copy(alpha = 0.88f),
-    surfaceContainerLowest = Color(0xFF07090E),
-    surfaceContainerLow = Color(0xFF0F121B),
-    surfaceContainer = Color(0xFF151926),
-    surfaceContainerHigh = Color(0xFF1C2232),
-    surfaceContainerHighest = Color(0xFF232A3D),
-    outline = Color(spec.secondaryArgb).copy(alpha = 0.65f),
-    outlineVariant = Color.White.copy(alpha = 0.14f),
+private fun tintContainer(base: Color, tint: Color, alpha: Float): Color = Color(
+    red = (base.red * (1f - alpha) + tint.red * alpha).coerceIn(0f, 1f),
+    green = (base.green * (1f - alpha) + tint.green * alpha).coerceIn(0f, 1f),
+    blue = (base.blue * (1f - alpha) + tint.blue * alpha).coerceIn(0f, 1f),
+    alpha = 1f,
 )
+
+private fun expressiveDarkScheme(spec: SpotuiThemeSpec): ColorScheme {
+    val primary = Color(spec.primaryArgb)
+    val bg = Color(spec.backgroundArgb)
+    val surf = Color(spec.surfaceArgb)
+    return darkColorScheme(
+        primary = primary,
+        onPrimary = Color(spec.onPrimaryArgb),
+        primaryContainer = Color(spec.secondaryArgb).copy(alpha = 0.28f),
+        onPrimaryContainer = Color.White,
+        secondary = Color(spec.secondaryArgb),
+        onSecondary = contrastFor(Color(spec.secondaryArgb)),
+        secondaryContainer = Color(spec.secondaryArgb).copy(alpha = 0.20f),
+        onSecondaryContainer = Color.White,
+        tertiary = Color(spec.tertiaryArgb),
+        onTertiary = contrastFor(Color(spec.tertiaryArgb)),
+        tertiaryContainer = Color(spec.tertiaryArgb).copy(alpha = 0.22f),
+        onTertiaryContainer = Color.White,
+        background = bg,
+        onBackground = Color(spec.onBackgroundArgb),
+        surface = surf,
+        onSurface = Color(spec.onBackgroundArgb),
+        surfaceVariant = tintContainer(surf, primary, 0.08f),
+        surfaceContainerLowest = tintContainer(bg, Color.Black, 0.35f),
+        surfaceContainerLow = tintContainer(bg, primary, 0.04f),
+        surfaceContainer = tintContainer(surf, primary, 0.06f),
+        surfaceContainerHigh = tintContainer(surf, primary, 0.11f),
+        surfaceContainerHighest = tintContainer(surf, primary, 0.16f),
+        outline = Color(spec.secondaryArgb).copy(alpha = 0.65f),
+        outlineVariant = Color.White.copy(alpha = 0.14f),
+    )
+}
 
 private fun expressiveLightScheme(spec: SpotuiThemeSpec): ColorScheme = lightColorScheme(
     primary = Color(spec.primaryArgb),

@@ -16,7 +16,7 @@ import com.music.spotui.data.preferences.isEqEnabled
 import com.music.spotui.data.preferences.isEqSpatialEnabled
 import com.music.spotui.data.preferences.isFloaterEqAnd3dEnabled
 import com.music.spotui.data.preferences.isFloaterHapticsEnabled
-import com.music.spotui.data.preferences.isSpatial8dOrbitEnabled
+import com.music.spotui.data.preferences.isSpatial8dEnabled
 import com.music.spotui.di.SongPlayer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -340,7 +340,7 @@ object DevConsoleManager {
         appendLine("EQ: enabled=${isEqEnabled(appCtx)} preset=${getEqPreset(appCtx)} bassBoost=${getBassBoostStrength(appCtx) / 10}%")
         appendLine(
             "3D Spatial: enabled=${isEqSpatialEnabled(appCtx)} profile=${getSpatialProfile(appCtx).label} " +
-                "depth=${getSpatialStrength(appCtx) / 10}% 8D=${isSpatial8dOrbitEnabled(appCtx)}",
+                "depth=${getSpatialStrength(appCtx) / 10}% adv8D=${isSpatial8dEnabled(appCtx)}",
         )
         appendLine("Output Route: ${route.route.label} (${route.deviceName})")
         if (telemetry != null) {

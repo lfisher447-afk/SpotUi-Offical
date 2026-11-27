@@ -16,8 +16,8 @@ android {
         applicationId = "com.music.spotui"
         minSdk = 26
         targetSdk = 36
-        versionCode = 202611245
-        versionName = "2.5.5"
+        versionCode = 202611260
+        versionName = "2.5.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -99,6 +99,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material3.windowsizeclass)
     implementation(libs.androidx.compose.material.icons.extended)
     // Spotify metadata + YouTube streaming, ported from Meld (replaces Firebase data layer)
     implementation(project(":spotify"))

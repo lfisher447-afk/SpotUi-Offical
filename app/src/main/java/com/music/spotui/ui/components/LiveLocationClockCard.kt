@@ -118,12 +118,15 @@ fun LiveLocationClockCard(
         }
     }
 
-    val cardGradient = remember {
+    val primary = AppPalette
+    val surface = com.music.spotui.ui.theme.GridBackground
+    val bg = com.music.spotui.ui.theme.AppBackground
+    val cardGradient = remember(primary, surface, bg) {
         Brush.horizontalGradient(
             colors = listOf(
-                Color(0xFF171E28),
-                Color(0xFF141720),
-                Color(0xFF1A1624),
+                surface.copy(alpha = 0.94f),
+                bg.copy(alpha = 0.96f),
+                primary.copy(alpha = 0.14f),
             ),
         )
     }
@@ -132,11 +135,11 @@ fun LiveLocationClockCard(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(20.dp))
             .background(cardGradient)
-            .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(18.dp))
+            .border(1.dp, primary.copy(alpha = 0.24f), RoundedCornerShape(20.dp))
             .testTag("home_live_location_clock")
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {

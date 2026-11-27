@@ -33,17 +33,21 @@ object YouTubeUrlParser {
     /**
      * Pattern for matching YouTube video URLs.
      * Matches:
-     * - https://www.youtube.com/watch?v=VIDEO_ID
+     * - https://www.youtube.com/watch?v=VIDEO_ID (including &v= query order)
+     * - https://m.youtube.com/watch?v=VIDEO_ID
      * - https://music.youtube.com/watch?v=VIDEO_ID
      * - https://youtu.be/VIDEO_ID
      * - https://www.youtube.com/shorts/VIDEO_ID
+     * - https://www.youtube.com/live/VIDEO_ID
+     * - https://www.youtube.com/embed/VIDEO_ID
      */
     private val VIDEO_URL_PATTERNS =
         listOf(
-            Regex("""(?:https?://)?(?:www\.)?(?:music\.)?youtube\.com/watch\?.*v=([a-zA-Z0-9_-]{11})"""),
-            Regex("""(?:https?://)?(?:www\.)?(?:music\.)?youtube\.com/watch\?v=([a-zA-Z0-9_-]{11})"""),
+            Regex("""(?:https?://)?(?:(?:www|m|music)\.)?youtube\.com/watch\?(?:[^#]*&)?v=([a-zA-Z0-9_-]{11})"""),
+            Regex("""(?:https?://)?(?:(?:www|m|music)\.)?youtube-nocookie\.com/watch\?(?:[^#]*&)?v=([a-zA-Z0-9_-]{11})"""),
             Regex("""(?:https?://)?youtu\.be/([a-zA-Z0-9_-]{11})"""),
-            Regex("""(?:https?://)?(?:www\.)?youtube\.com/shorts/([a-zA-Z0-9_-]{11})"""),
+            Regex("""(?:https?://)?(?:(?:www|m|music)\.)?youtube\.com/(?:shorts|live|embed|v)/([a-zA-Z0-9_-]{11})"""),
+            Regex("""(?:https?://)?(?:www\.)?youtube-nocookie\.com/embed/([a-zA-Z0-9_-]{11})"""),
         )
 
     /**

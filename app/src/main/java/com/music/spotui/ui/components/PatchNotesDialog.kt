@@ -53,6 +53,22 @@ private data class PatchNoteItem(
 
 private val v25IssuesFixed = listOf(
     PatchNoteItem(
+        title = "In-Game Mic Translator Detection & Speech Service Fix (v2.5.6)",
+        detail = "Added Android Speech Recognition package query visibility, immediate foreground window inspection on service connect/open, Android 13+ on-device recognizer fallback, RMS VU feedback, single-shot & continuous modes, and reusable ML Kit translator pooling.",
+    ),
+    PatchNoteItem(
+        title = "8D Audio Reworked to Stationary Advanced 8D (v2.5.6)",
+        detail = "Removed circular left-right orbital panning completely in favor of stationary holographic 8D externalization with mono-bass anchoring, focused vocal center, harmonic side widening, dual Pinna ITD taps, and diffuse surround room feel.",
+    ),
+    PatchNoteItem(
+        title = "YouTube Alternative Stream URL Mismatch & Search Fallback",
+        detail = "Fixed pasting YouTube, YouTube Music, Shorts, live, and youtu.be links as alternative streams—now extracts exact 11-character video IDs cleanly, prevents song:0 collisions, bypasses text search & cached matches, and switches the active track immediately.",
+    ),
+    PatchNoteItem(
+        title = "Tactile Button & UI Sound Truncation",
+        detail = "Rebuilt UiSoundEngine with preloaded SoundPool PCM WAV synthesis routed on USAGE_MEDIA so tab chimes, toggle tones, button clicks, and slider ticks play cleanly without Android HAL cutoffs.",
+    ),
+    PatchNoteItem(
         title = "Spotify WebView Anti-Bot, Client Hints & `; wv` Repair (v2.5.5)",
         detail = "Aligned default User-Agent with Sec-CH-UA Client Hints, stripped `; wv` and X-Requested-With package leaks, removed prototype overrides that triggered reCAPTCHA Enterprise checks, and added XOR TOTP v61 + Auto-Recover.",
     ),
@@ -69,10 +85,6 @@ private val v25IssuesFixed = listOf(
         detail = "Added per-client 90s circuit-breaker cooldowns, HTTP 429/5xx exponential backoff retries, MWEB/ANDROID_MUSIC/2026 client presets, NewPipe fallback activation, and HTML VISITOR_DATA extraction fallback.",
     ),
     PatchNoteItem(
-        title = "3D Spatial Flatness & Audibility (v2.5.3)",
-        detail = "Overhauled SpatialWideningAudioProcessor with stereo Haas micro-taps, upper-band Mid/Side expansion, tapped Early Reflections into the 3-stage Schroeder tank, stronger HRTF pinna peaks, and boosted 8D Binaural Orbit modulation.",
-    ),
-    PatchNoteItem(
         title = "Bluetooth False-Positive SCO Call Mode & Route Probe Log Spam",
         detail = "Fixed dual-profile Bluetooth headsets (A2DP + HFP) flagging 'SCO Call' when media A2DP was active, added real SCO communication-device release, and eliminated duplicate BT probe log entries.",
     ),
@@ -80,34 +92,34 @@ private val v25IssuesFixed = listOf(
 
 private val v25Improvements = listOf(
     PatchNoteItem(
-        title = "Unified SpotifyLogin Studio & Game-Only Live Translation Bubble (v2.5.5)",
-        detail = "Hardened SpotifyLogin/{page,module,helper}/ around Spotify.kt (SpotifyAuth) + SpotifyWebViewAdapter privacy shield, and added foreground game detection unlocking a live Top-Left auto-detect-to-English teammate translation bubble exclusively inside games.",
+        title = "SpotFlac Binary Verification Lab & Adaptive Settings Studio (v2.5.6)",
+        detail = "Added SpotiFlac.verifyLosslessPipeline() verifying SpotBye, Monochrome, Odesli ISRC bridge, Qobuz, Deezer ARL, and stream magic bytes (fLaC / ftyp / <MPD>); upgraded Settings with live search quick-jump, telemetry ribbon, adaptive rail widths, and dedicated In-Game Mic Translator + offline ML Kit pack manager.",
     ),
     PatchNoteItem(
-        title = "One UI Game Booster SpotUI Floater Studio (v2.5.4–v2.5.5)",
-        detail = "Rebuilt the floating overlay in Jetpack Compose Material 3 Expressive with morphing transport controls, collapsible docked rail (MEDIA, SOUND, PRO, conditional GAME), 6 live tabs (Player, Queue, EQ, 3D, Tools, Translate), 0-100% In-App Volume slider, corner-drag resize, and tactile vibration.",
+        title = "Winter Noel Countdown, Cyber Prism Icon & Expressive Themes",
+        detail = "Launched a live Christmas Countdown targeting December 25, custom adaptive Cyber Prism launcher artwork, and Cyber Prism, Winter Noel, and Velvet Crimson Material 3 Expressive themes.",
+    ),
+    PatchNoteItem(
+        title = "Enhanced Floater Edge-Snap & Multi-Language Live Bubble (v2.5.6)",
+        detail = "Upgraded the Compose Accessibility Floater with 1-tap edge docking, stationary 8-node holographic radar, target language selection, swap languages, offline pack downloads, and live mic RMS level indicator.",
     ),
     PatchNoteItem(
         title = "Embedded APK-Native yt-dlp + FFmpeg Engine (v2.5.4)",
         detail = "Integrated on-device youtubedl-android 0.18.1 + FFmpeg directly inside the APK (no PC or external server required) with primary extraction toggle, live binary updater, and automatic fallback when InnerTube clients fail.",
     ),
     PatchNoteItem(
-        title = "Material 3 Expressive Overhaul & Side-Tab Settings (v2.5.3)",
-        detail = "Redesigned SpotUI with a luminous Material 3 Expressive palette, animated Navigation Rail side-tab switcher in Settings, expressive Mini-Player & Bottom Navigation dock, and upgraded Home & Downloads hero cards.",
-    ),
-    PatchNoteItem(
-        title = "Turbo 8x MrBean Download Engine (v2.5.3)",
+        title = "Turbo 8x MrBean Download Engine & Unified Network Pool (v2.5.3)",
         detail = "Upgraded connection pool (32 keep-alive sockets / 128 dispatcher), 512 KiB I/O buffers, 5 simultaneous tracks by default (up to 10), and 8 parallel HTTP 206 range slices kicking in for files >= 512 KiB with live peak MB/s tracking.",
     ),
     PatchNoteItem(
-        title = "Dedicated 2000-Entry Logger & 17-Module 21-Point Health Probe (v2.5.5)",
-        detail = "Expanded Dev Console into an 8-channel categorized telemetry stream paired with a 21-point SystemHealthChecker covering Embedded yt-dlp, MrBean Turbo, Media3 DSP Studio, Floater Studio, NovaAc Vault, Glance Widgets, Android Auto, and all 10 submodules.",
+        title = "Dedicated 2000-Entry Logger & 17-Module Health Probe",
+        detail = "Expanded Dev Console into an 8-channel categorized telemetry stream paired with SystemHealthChecker covering Embedded yt-dlp, MrBean Turbo, Media3 DSP Studio, Floater Studio, NovaAc Vault, Glance Widgets, Android Auto, and all 10 submodules.",
     ),
 )
 
 /**
  * First-login / post-update "What's New & Patch Notes" UI modal displaying explicit root-cause
- * fixes and feature improvements for SpotUI v2.5.5.
+ * fixes and feature improvements for SpotUI v2.5.6.
  */
 @Composable
 fun PatchNotesDialog(

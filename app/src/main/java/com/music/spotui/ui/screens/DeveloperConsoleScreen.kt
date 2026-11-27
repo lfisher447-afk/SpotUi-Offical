@@ -97,7 +97,7 @@ import com.music.spotui.data.preferences.isEqEnabled
 import com.music.spotui.data.preferences.isEqSpatialEnabled
 import com.music.spotui.data.preferences.isFloaterEqAnd3dEnabled
 import com.music.spotui.data.preferences.isFloaterHapticsEnabled
-import com.music.spotui.data.preferences.isSpatial8dOrbitEnabled
+import com.music.spotui.data.preferences.isSpatial8dEnabled
 import com.music.spotui.data.preferences.resetFloaterGeometry
 import com.music.spotui.di.SongPlayer
 import com.music.spotui.ui.theme.AppBackground
@@ -1069,7 +1069,7 @@ private fun TelemetryAndCrashesTab(
         val spatialOn = remember(dspRevision) { isEqSpatialEnabled(context) }
         val spatialProf = remember(dspRevision) { getSpatialProfile(context) }
         val spatialStrengthPct = remember(dspRevision) { (getSpatialStrength(context) / 10).coerceIn(0, 100) }
-        val orbitOn = remember(dspRevision) { isSpatial8dOrbitEnabled(context) }
+        val adv8dOn = remember(dspRevision) { isSpatial8dEnabled(context) }
 
         Column(
             modifier = Modifier
@@ -1090,7 +1090,7 @@ private fun TelemetryAndCrashesTab(
                 DiagnosticBadge("FX Hook", if (fxHookOn) "Shown" else "Hidden")
                 DiagnosticBadge("Haptics", if (hapticsOn) hapticStrength.label else "Off")
                 DiagnosticBadge("Auto-Hide", if (autoHideMs <= 0L) "Stay Open" else "${autoHideMs / 1000L}s")
-                DiagnosticBadge("8D / Depth", if (spatialOn) "${if (orbitOn) "8D" else "Static"} $spatialStrengthPct%" else "Idle")
+                DiagnosticBadge("8D / Depth", if (spatialOn) "${if (adv8dOn) "Adv 8D" else "3D Stage"} $spatialStrengthPct%" else "Idle")
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(

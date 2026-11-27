@@ -24,7 +24,10 @@ import com.music.spotui.data.preferences.setPlaybackSpeedPref
 import com.music.spotui.data.preferences.setProxyUrls
 import com.music.spotui.data.preferences.setSkipSilenceEnabled
 import com.music.spotui.data.preferences.setStreamBypassProxyEnabled
+import com.music.spotui.data.preferences.clearAlternativeStream
+import com.music.spotui.data.preferences.getAlternativeStream
 import com.music.spotui.data.preferences.setWebClientPoTokenEnabled
+import com.music.spotui.data.preferences.setYouTubeAlternativeStream
 import com.music.spotui.data.update.UpdateChecker
 import com.music.spotui.ui.theme.ExpressiveThemePreset
 import com.music.spotui.ui.theme.ThemePreferences
@@ -54,7 +57,7 @@ class IntentAndPermissionTest {
         setPlaybackSpeedPref(context, 1.0f)
         setPlaybackPitchPref(context, 1.0f)
         setSkipSilenceEnabled(context, false)
-        ThemePreferences.setPreset(context, ExpressiveThemePreset.SPOTUI_BLUE)
+        ThemePreferences.setPreset(context, ExpressiveThemePreset.CYBER_PRISM)
     }
 
     @Test
@@ -135,15 +138,39 @@ class IntentAndPermissionTest {
     }
 
     @Test
-    fun thanksgivingTheme_andPlaybackTuningPreferences_persistAndClampCleanly() {
+    fun expressiveThemes_christmasMigration_andAlternativeStreamUrlNormalization_workCleanly() {
         val context = ApplicationProvider.getApplicationContext<Context>()
 
-        val spec = ThemePreferences.presetSpec(ExpressiveThemePreset.THANKSGIVING)
-        assertEquals("Harvest Gold", spec.name)
-        assertEquals(0xFFE87A24.toInt(), spec.primaryArgb)
-        assertEquals(0xFFFFB74D.toInt(), spec.secondaryArgb)
-        ThemePreferences.setPreset(context, ExpressiveThemePreset.THANKSGIVING)
-        assertEquals(ExpressiveThemePreset.THANKSGIVING, ThemePreferences.currentSpec(context).preset)
+        val noelSpec = ThemePreferences.presetSpec(ExpressiveThemePreset.CHRISTMAS)
+        assertEquals("Winter Noel", noelSpec.name)
+        ThemePreferences.setPreset(context, ExpressiveThemePreset.CHRISTMAS)
+        assertEquals(ExpressiveThemePreset.CHRISTMAS, ThemePreferences.currentSpec(context).preset)
+
+        // Legacy stored THANKSGIVING preset migrates seamlessly to CHRISTMAS
+        context.getSharedPreferences("spotui_theme_studio", Context.MODE_PRIVATE)
+            .edit()
+            .putString("preset", "THANKSGIVING")
+            .apply()
+        assertEquals(ExpressiveThemePreset.CHRISTMAS, ThemePreferences.preset(context))
+
+        val cyberSpec = ThemePreferences.presetSpec(ExpressiveThemePreset.CYBER_PRISM)
+        assertEquals("Cyber Prism", cyberSpec.name)
+        ThemePreferences.setPreset(context, ExpressiveThemePreset.CYBER_PRISM)
+        assertEquals(ExpressiveThemePreset.CYBER_PRISM, ThemePreferences.currentSpec(context).preset)
+
+        // Full YouTube Music URL normalizes to exact 11-char video ID
+        val key = "url:spotify:track:test_yt_override"
+        setYouTubeAlternativeStream(
+            context,
+            key,
+            "https://music.youtube.com/watch?v=9bZkp7q19f0&list=RDAMVM9bZkp7q19f0",
+        )
+        val stored = getAlternativeStream(context, key)
+        assertNotNull(stored)
+        assertTrue(stored!!.isYouTube)
+        assertEquals("9bZkp7q19f0", stored.value)
+        clearAlternativeStream(context, key)
+        assertNull(getAlternativeStream(context, key))
 
         setPlaybackSpeedPref(context, 1.35f)
         assertEquals(1.35f, getPlaybackSpeedPref(context), 0.001f)

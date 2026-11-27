@@ -21,11 +21,26 @@ data class AlternativeStream(
 
 private const val PREF = "AlternativeStreams"
 
+private val RAW_YOUTUBE_VIDEO_ID_REGEX = Regex("""[A-Za-z0-9_-]{11}""")
+
+fun normalizeYouTubeVideoId(input: String): String? {
+    val trimmed = input.trim()
+    if (trimmed.isBlank()) return null
+    return com.metrolist.innertube.utils.YouTubeUrlParser.extractVideoId(trimmed)
+        ?: trimmed.takeIf { it.matches(RAW_YOUTUBE_VIDEO_ID_REGEX) }
+}
+
 fun alternativeStreamKey(song: SongsModel): String =
-    song.spotifyTrackId.takeIf { it.isNotBlank() }?.let { "spotify:$it" } ?: "song:${song.id}"
+    song.spotifyTrackId.takeIf { it.isNotBlank() }?.let { "spotify:$it" }
+        ?: song.id.takeIf { it > 0 }?.let { "song:$it" }
+        ?: song.url.takeIf { it.isNotBlank() }?.let { "url:${it.trim()}" }
+        ?: "song:${song.id}"
 
 fun alternativeStreamKeyForSpotifyId(spotifyTrackId: String): String =
     "spotify:$spotifyTrackId"
+
+fun alternativeStreamKeyForUrl(url: String): String =
+    "url:${url.trim()}"
 
 private fun AlternativeStream.toJson(): String = JSONObject().apply {
     put("type", type)
@@ -48,9 +63,10 @@ fun getAlternativeStream(context: Context, key: String): AlternativeStream? =
         ?.let(::parseAlternativeStream)
 
 fun setYouTubeAlternativeStream(context: Context, key: String, videoId: String) {
+    val normalizedId = normalizeYouTubeVideoId(videoId) ?: videoId.trim()
     val stream = AlternativeStream(
         type = AlternativeStream.TYPE_YOUTUBE,
-        value = videoId,
+        value = normalizedId,
         label = "YouTube video",
     )
     context.getSharedPreferences(PREF, Context.MODE_PRIVATE)

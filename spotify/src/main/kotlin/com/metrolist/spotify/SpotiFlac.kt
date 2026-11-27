@@ -355,6 +355,403 @@ object SpotiFlac {
         return list
     }
 
+    data class SpotFlacStageCheck(
+        val id: String,
+        val label: String,
+        val passed: Boolean,
+        val latencyMs: Long,
+        val detail: String,
+    )
+
+    data class SpotFlacProviderProbe(
+        val providerId: String,
+        val providerName: String,
+        val resolvedId: String?,
+        val streamFound: Boolean,
+        val container: String,
+        val qualityBitDepth: String,
+        val headerSignature: String,
+        val contentLengthBytes: Long?,
+        val httpStatus: Int?,
+        val latencyMs: Long,
+        val detail: String,
+    )
+
+    data class SpotFlacVerificationReport(
+        val spotifyTrackId: String,
+        val isrcUsed: String?,
+        val totalDurationMs: Long,
+        val stages: List<SpotFlacStageCheck>,
+        val providerProbes: List<SpotFlacProviderProbe>,
+        val verifiedStreamsCount: Int,
+        val summary: String,
+    )
+
+    private const val CANONICAL_VERIFY_TRACK_ID = "0VjIjW4GlUZAMYd2vX5bxg" // Blinding Lights (well-indexed across mirrors)
+    private const val CANONICAL_VERIFY_ISRC = "USUG11904206"
+
+    /** Extract a 22-char Spotify track ID from a track URL, URI, or bare ID. */
+    fun extractSpotifyTrackId(rawInput: String?): String? {
+        val raw = rawInput?.trim().orEmpty()
+        if (raw.isBlank()) return null
+        Regex("(?:spotify:track:|open\\.spotify\\.com/(?:intl-[a-z-]+/)?track/)([A-Za-z0-9]{22})")
+            .find(raw)?.groupValues?.getOrNull(1)?.let { return it }
+        Regex("^[A-Za-z0-9]{22}$").find(raw)?.value?.let { return it }
+        return null
+    }
+
+    /** Sniff binary container signature from an initial audio byte slice (fLaC, MP4 ftyp, ID3, or <MPD>). */
+    fun inspectBinaryMagicSignature(bytes: ByteArray): String {
+        if (bytes.isEmpty()) return "Empty response"
+        if (bytes.size >= 4 &&
+            bytes[0] == 0x66.toByte() && bytes[1] == 0x4C.toByte() &&
+            bytes[2] == 0x61.toByte() && bytes[3] == 0x43.toByte()
+        ) {
+            return "FLAC verified (fLaC 0x664C6143)"
+        }
+        if (bytes.size >= 8 &&
+            bytes[4] == 0x66.toByte() && bytes[5] == 0x74.toByte() &&
+            bytes[6] == 0x79.toByte() && bytes[7] == 0x70.toByte()
+        ) {
+            return "ISO-BMFF Hi-Res container (ftyp)"
+        }
+        val textPrefix = bytes.decodeToString(0, minOf(bytes.size, 64))
+        if (textPrefix.contains("<MPD", ignoreCase = true) || textPrefix.contains("<?xml", ignoreCase = true)) {
+            return "DASH FLAC manifest (<MPD>)"
+        }
+        if (bytes.size >= 3 &&
+            bytes[0] == 0x49.toByte() && bytes[1] == 0x44.toByte() && bytes[2] == 0x33.toByte()
+        ) {
+            return "ID3v2 stream (non-FLAC)"
+        }
+        return "Stream 200/206 (${bytes.take(4).joinToString("") { "%02X".format(it) }})"
+    }
+
+    /**
+     * Runs a comprehensive multi-stage verification across the entire SpotiFLAC stack:
+     * 1. SpotBye community status API (`/api/status`)
+     * 2. Monochrome / Squid.wtf live Hi-Fi uptime tracker (`tidal-uptime.geeked.wtf`)
+     * 3. Odesli (`api.song.link`) cross-platform ID resolver
+     * 4. Qobuz signed ISRC search API (`md5Hex` signature)
+     * 5. Deezer public ISRC + optional ARL account check
+     * 6. End-to-end sample stream resolution + HTTP Range `bytes=0-63` binary header sniff per provider
+     */
+    suspend fun verifyLosslessPipeline(
+        trackUrlOrId: String? = null,
+        isrc: String? = null,
+        enabledProviders: Set<String> = allProviders,
+        preferHiRes: Boolean = true,
+    ): SpotFlacVerificationReport = coroutineScope {
+        val suiteStart = System.currentTimeMillis()
+        val trackId = extractSpotifyTrackId(trackUrlOrId) ?: CANONICAL_VERIFY_TRACK_ID
+        val effectiveIsrc = isrc?.trim()?.takeIf { it.isNotBlank() }
+            ?: if (trackId == CANONICAL_VERIFY_TRACK_ID) CANONICAL_VERIFY_ISRC else null
+        val quality = if (preferHiRes) "24" else "16"
+        val allowed = enabledProviders.map { it.lowercase() }.toSet().ifEmpty { allProviders }
+
+        // Clear caches so verification reflects live network truth
+        clearStatusCache()
+
+        val statusStageDeferred = async {
+            val t0 = System.currentTimeMillis()
+            val up = runCatching { upLosslessProviders() }.getOrDefault(emptySet())
+            val dt = (System.currentTimeMillis() - t0).coerceAtLeast(1L)
+            SpotFlacStageCheck(
+                id = "spotbye_status",
+                label = "SpotBye Proxy Status API",
+                passed = up.isNotEmpty(),
+                latencyMs = dt,
+                detail = if (up.isNotEmpty()) "${up.size}/4 proxies reported online (${up.sorted().joinToString(", ")})" else "Unreachable",
+            )
+        }
+
+        val monochromeStageDeferred = async {
+            val t0 = System.currentTimeMillis()
+            cachedInstancesAt = 0L
+            val instances = runCatching { monochromeInstances() }.getOrDefault(emptyList())
+            val dt = (System.currentTimeMillis() - t0).coerceAtLeast(1L)
+            SpotFlacStageCheck(
+                id = "monochrome_uptime",
+                label = "Monochrome / Squid.wtf Uptime",
+                passed = instances.isNotEmpty(),
+                latencyMs = dt,
+                detail = "${instances.size} no-login TIDAL Hi-Fi mirrors available",
+            )
+        }
+
+        val idsStart = System.currentTimeMillis()
+        val ids = runCatching { resolveProviderIds(trackId, effectiveIsrc) }.getOrDefault(ProviderIds())
+        val idsDt = (System.currentTimeMillis() - idsStart).coerceAtLeast(1L)
+
+        val statusStage = statusStageDeferred.await()
+        val monochromeStage = monochromeStageDeferred.await()
+
+        val odesliPassed = !ids.tidalId.isNullOrBlank() || !ids.amazonId.isNullOrBlank() || !ids.deezerId.isNullOrBlank()
+        val odesliStage = SpotFlacStageCheck(
+            id = "odesli_bridge",
+            label = "Odesli (song.link) ID Bridge",
+            passed = odesliPassed,
+            latencyMs = idsDt,
+            detail = "Tidal=${ids.tidalId ?: "—"} · Amazon=${ids.amazonId ?: "—"} · Deezer=${ids.deezerId ?: "—"}",
+        )
+
+        val qobuzStage = SpotFlacStageCheck(
+            id = "qobuz_isrc",
+            label = "Qobuz Signed ISRC Search",
+            passed = !ids.qobuzId.isNullOrBlank() || effectiveIsrc == null,
+            latencyMs = idsDt,
+            detail = when {
+                !ids.qobuzId.isNullOrBlank() -> "ISRC $effectiveIsrc → Qobuz track #${ids.qobuzId}"
+                effectiveIsrc != null -> "No signed match for ISRC $effectiveIsrc"
+                else -> "Skipped (no ISRC supplied for track)"
+            },
+        )
+
+        val arlSnapshot = deezerArl
+        val deezerArlStage = if (!arlSnapshot.isNullOrBlank()) {
+            val t0 = System.currentTimeMillis()
+            val arlStatus = validateDeezerArl(arlSnapshot)
+            val dt = (System.currentTimeMillis() - t0).coerceAtLeast(1L)
+            SpotFlacStageCheck(
+                id = "deezer_arl",
+                label = "Deezer Direct HiFi Session",
+                passed = arlStatus.valid,
+                latencyMs = dt,
+                detail = arlStatus.detail,
+            )
+        } else {
+            SpotFlacStageCheck(
+                id = "deezer_arl",
+                label = "Deezer Direct HiFi Session",
+                passed = !ids.deezerId.isNullOrBlank(),
+                latencyMs = 0L,
+                detail = if (!ids.deezerId.isNullOrBlank()) "Public proxy mode (ISRC #${ids.deezerId}); link ARL for direct CDN" else "No ARL configured",
+            )
+        }
+
+        val customBase = customMirrorBaseUrl
+        val probeJobs = buildList {
+            if ("tidal" in allowed) {
+                add(async {
+                    probeSingleProvider(
+                        providerId = "tidal_mono",
+                        providerName = "Tidal (Monochrome Direct)",
+                        resolvedId = ids.tidalId,
+                        quality = quality,
+                    ) { id -> resolveTidalMonochrome(id, preferHiRes, rejectPreviewLength = false) }
+                })
+                add(async {
+                    probeSingleProvider(
+                        providerId = "tidal",
+                        providerName = "Tidal (SpotBye / Custom)",
+                        resolvedId = ids.tidalId,
+                        quality = quality,
+                    ) { id -> communityDownload("tidal", customBase ?: TIDAL_BASE, id, quality, rejectPreviewLength = false) }
+                })
+            }
+            if ("qobuz" in allowed) {
+                add(async {
+                    probeSingleProvider(
+                        providerId = "qobuz",
+                        providerName = "Qobuz (${quality}-bit Hi-Res)",
+                        resolvedId = ids.qobuzId,
+                        quality = quality,
+                    ) { id -> communityDownload("qobuz", customBase ?: QOBUZ_BASE, id, quality, rejectPreviewLength = false) }
+                })
+            }
+            if ("amazon" in allowed) {
+                add(async {
+                    probeSingleProvider(
+                        providerId = "amazon",
+                        providerName = "Amazon Music UHD",
+                        resolvedId = ids.amazonId,
+                        quality = quality,
+                    ) { id -> communityDownload("amazon", customBase ?: AMAZON_BASE, id, quality, rejectPreviewLength = false) }
+                })
+            }
+            if ("deezer" in allowed) {
+                add(async {
+                    probeSingleProvider(
+                        providerId = "deezer",
+                        providerName = if (arlSnapshot.isNullOrBlank()) "Deezer (Community)" else "Deezer (+ARL)",
+                        resolvedId = ids.deezerId,
+                        quality = "16",
+                    ) { id -> communityDownload("deezer", customBase ?: DEEZER_BASE, id, "16", rejectPreviewLength = false, arl = arlSnapshot) }
+                })
+            }
+        }
+
+        val probes = probeJobs.map { it.await() }
+        val verifiedCount = probes.count { it.streamFound }
+        val totalMs = (System.currentTimeMillis() - suiteStart).coerceAtLeast(1L)
+        val stages = listOf(statusStage, monochromeStage, odesliStage, qobuzStage, deezerArlStage)
+
+        val summary = buildString {
+            append("$verifiedCount/${probes.size} providers verified live")
+            append(" · ${stages.count { it.passed }}/${stages.size} pipeline checks OK")
+            append(" (${totalMs}ms)")
+        }
+
+        SpotFlacVerificationReport(
+            spotifyTrackId = trackId,
+            isrcUsed = effectiveIsrc,
+            totalDurationMs = totalMs,
+            stages = stages,
+            providerProbes = probes,
+            verifiedStreamsCount = verifiedCount,
+            summary = summary,
+        )
+    }
+
+    private suspend fun probeSingleProvider(
+        providerId: String,
+        providerName: String,
+        resolvedId: String?,
+        quality: String,
+        resolver: suspend (String) -> Result,
+    ): SpotFlacProviderProbe {
+        if (resolvedId.isNullOrBlank()) {
+            return SpotFlacProviderProbe(
+                providerId = providerId,
+                providerName = providerName,
+                resolvedId = null,
+                streamFound = false,
+                container = "—",
+                qualityBitDepth = "$quality-bit",
+                headerSignature = "No provider ID",
+                contentLengthBytes = null,
+                httpStatus = null,
+                latencyMs = 0L,
+                detail = "Track ID bridge did not return an ID for this service",
+            )
+        }
+        val t0 = System.currentTimeMillis()
+        val result = withTimeoutOrNull(6500L) { resolver(resolvedId) } ?: Result.Error("Timed out (6.5s)")
+        val resolveMs = (System.currentTimeMillis() - t0).coerceAtLeast(1L)
+
+        return when (result) {
+            is Result.Success -> {
+                val track = result.track
+                if (track.url.startsWith("data:application/dash+xml")) {
+                    val decoded = dashMpdFromUrl(track.url).orEmpty()
+                    val dur = mpdDurationSeconds(decoded)
+                    val durLabel = dur?.let { "${it.toInt()}s DASH" } ?: "Segmented DASH"
+                    SpotFlacProviderProbe(
+                        providerId = providerId,
+                        providerName = providerName,
+                        resolvedId = resolvedId,
+                        streamFound = true,
+                        container = "DASH-FLAC",
+                        qualityBitDepth = "${track.quality}-bit",
+                        headerSignature = if (decoded.contains("<MPD")) "DASH FLAC manifest (<MPD> · $durLabel)" else "DASH manifest",
+                        contentLengthBytes = null,
+                        httpStatus = 200,
+                        latencyMs = resolveMs,
+                        detail = "Verified $durLabel stream for ID $resolvedId",
+                    )
+                } else {
+                    val headerCheck = verifyStreamByteHeader(track.url)
+                    SpotFlacProviderProbe(
+                        providerId = providerId,
+                        providerName = providerName,
+                        resolvedId = resolvedId,
+                        streamFound = headerCheck.httpStatus in 200..299,
+                        container = track.container.uppercase(),
+                        qualityBitDepth = "${track.quality}-bit",
+                        headerSignature = headerCheck.signature,
+                        contentLengthBytes = headerCheck.totalBytes,
+                        httpStatus = headerCheck.httpStatus,
+                        latencyMs = resolveMs + headerCheck.probeMs,
+                        detail = headerCheck.detail,
+                    )
+                }
+            }
+            is Result.Cooldown -> SpotFlacProviderProbe(
+                providerId = providerId,
+                providerName = providerName,
+                resolvedId = resolvedId,
+                streamFound = false,
+                container = "—",
+                qualityBitDepth = "$quality-bit",
+                headerSignature = "Cooldown (HTTP 503)",
+                contentLengthBytes = null,
+                httpStatus = 503,
+                latencyMs = resolveMs,
+                detail = result.message,
+            )
+            Result.NotFound -> SpotFlacProviderProbe(
+                providerId = providerId,
+                providerName = providerName,
+                resolvedId = resolvedId,
+                streamFound = false,
+                container = "—",
+                qualityBitDepth = "$quality-bit",
+                headerSignature = "Not Found",
+                contentLengthBytes = null,
+                httpStatus = 404,
+                latencyMs = resolveMs,
+                detail = "Mirror returned no lossless stream for ID $resolvedId",
+            )
+            is Result.Error -> SpotFlacProviderProbe(
+                providerId = providerId,
+                providerName = providerName,
+                resolvedId = resolvedId,
+                streamFound = false,
+                container = "—",
+                qualityBitDepth = "$quality-bit",
+                headerSignature = "Error",
+                contentLengthBytes = null,
+                httpStatus = null,
+                latencyMs = resolveMs,
+                detail = result.message,
+            )
+        }
+    }
+
+    private data class ByteHeaderProbe(
+        val httpStatus: Int,
+        val signature: String,
+        val totalBytes: Long?,
+        val probeMs: Long,
+        val detail: String,
+    )
+
+    private suspend fun verifyStreamByteHeader(url: String): ByteHeaderProbe {
+        val t0 = System.currentTimeMillis()
+        return runCatching {
+            val resp = client.get(url) {
+                header("User-Agent", UA)
+                header("Range", "bytes=0-63")
+            }
+            val dt = (System.currentTimeMillis() - t0).coerceAtLeast(1L)
+            val status = resp.status.value
+            val bytes = runCatching { resp.readRawBytes() }.getOrDefault(ByteArray(0))
+            val contentRange = resp.headers["Content-Range"]
+            val totalFromRange = contentRange?.substringAfter('/')?.toLongOrNull()
+            val contentLen = totalFromRange ?: resp.headers["Content-Length"]?.toLongOrNull()
+            val sig = inspectBinaryMagicSignature(bytes)
+            val sizeStr = contentLen?.let {
+                String.format(java.util.Locale.US, "%.2f MiB", it / (1024.0 * 1024.0))
+            } ?: "streamed"
+            ByteHeaderProbe(
+                httpStatus = status,
+                signature = sig,
+                totalBytes = contentLen,
+                probeMs = dt,
+                detail = "HTTP $status · $sizeStr · $sig",
+            )
+        }.getOrElse { err ->
+            val dt = (System.currentTimeMillis() - t0).coerceAtLeast(1L)
+            ByteHeaderProbe(
+                httpStatus = 0,
+                signature = "Network error",
+                totalBytes = null,
+                probeMs = dt,
+                detail = err.message ?: "Header probe failed",
+            )
+        }
+    }
+
     /** True if any lossless resolver path (community or public Monochrome mirrors) can be queried. */
     suspend fun anyLosslessServerUp(): Boolean =
         upLosslessProviders().isNotEmpty() || TIDAL_MONOCHROME_INSTANCES.isNotEmpty()

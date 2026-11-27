@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
 import androidx.test.core.app.ApplicationProvider
+import com.music.spotui.accessibility.GameTranslatorEngine
 import com.music.spotui.audio.SpatialWideningAudioProcessor
 import com.music.spotui.audio.SpotuiDspAudioProcessor
 import com.music.spotui.data.entity.SongsModel
@@ -21,6 +22,7 @@ import com.music.spotui.data.preferences.getEqSubBass
 import com.music.spotui.data.preferences.getSeekStepSeconds
 import com.music.spotui.data.preferences.getSpatialProfile
 import com.music.spotui.data.preferences.getSpatialRoomDelayMs
+import com.music.spotui.data.preferences.getSpatial8dIntensity
 import com.music.spotui.data.preferences.isAdvancedSettingsEnabled
 import com.music.spotui.data.preferences.isAudioOffloadEnabled
 import com.music.spotui.data.preferences.isAutoResumeOnBluetooth
@@ -36,6 +38,7 @@ import com.music.spotui.data.preferences.isMiniPlayerProgressVisible
 import com.music.spotui.data.preferences.isPauseOnUnplugEnabled
 import com.music.spotui.data.preferences.isPauseOnZeroVolume
 import com.music.spotui.data.preferences.isSearchExplicitFilter
+import com.music.spotui.data.preferences.isSpatial8dEnabled
 import com.music.spotui.data.preferences.isSpectrumVisualizerEnabled
 import com.music.spotui.data.preferences.setAdvancedSettingsEnabled
 import com.music.spotui.data.preferences.setAudioFocusMode
@@ -59,6 +62,8 @@ import com.music.spotui.data.preferences.setSearchExplicitFilter
 import com.music.spotui.data.preferences.setSeekStepSeconds
 import com.music.spotui.data.preferences.setSpatialProfile
 import com.music.spotui.data.preferences.setSpatialRoomDelayMs
+import com.music.spotui.data.preferences.setSpatial8dEnabled
+import com.music.spotui.data.preferences.setSpatial8dIntensity
 import com.music.spotui.data.preferences.setSpectrumVisualizerEnabled
 import com.music.spotui.data.preferences.setAutoResumeOnBluetooth
 import com.music.spotui.data.preferences.setAutoSkipUnavailable
@@ -108,6 +113,8 @@ class PlaybackDspHealthUpgradeTest {
         setLimiterEnabled(context, true)
         setHeadphoneCrossfeedEnabled(context, false)
         setSpatialRoomDelayMs(context, 12f)
+        setSpatial8dEnabled(context, false)
+        setSpatial8dIntensity(context, 0.85f)
         setAudioNormalizerTargetLufs(context, -14f)
         setBufferProfile(context, BufferProfile.BALANCED)
         setAudioFocusMode(context, AudioFocusMode.PAUSE_AND_DUCK)
@@ -121,6 +128,10 @@ class PlaybackDspHealthUpgradeTest {
             ProviderRoutingPreferences.setProviderEnabled(context, it, true)
         }
         ProviderRoutingPreferences.setSoloProvider(context, false)
+        GameTranslatorEngine.setSourceLanguage(context, "auto")
+        GameTranslatorEngine.setTargetLanguage(context, "en")
+        GameTranslatorEngine.setAlwaysUnlockTranslator(context, false)
+        GameTranslatorEngine.setContinuousListen(context, true)
     }
 
     @Test
@@ -353,15 +364,15 @@ class PlaybackDspHealthUpgradeTest {
     }
 
     @Test
-    fun systemHealthChecker_returnsAll18DistinctChecksAndRemediations() = runBlocking {
+    fun systemHealthChecker_returnsAll21DistinctChecksAndRemediations() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val report = SystemHealthChecker.runFullScan(context)
 
-        assertEquals(18, report.checks.size)
-        assertEquals(18, report.checks.map { it.id }.toSet().size)
+        assertEquals(21, report.checks.size)
+        assertEquals(21, report.checks.map { it.id }.toSet().size)
         assertTrue(report.durationMs >= 1L)
         assertEquals(
-            18,
+            21,
             report.okCount + report.warnCount + report.failCount,
         )
         assertTrue(report.checks.all { it.title.isNotBlank() && it.summary.isNotBlank() })
@@ -442,7 +453,43 @@ class PlaybackDspHealthUpgradeTest {
         }
         SystemHealthChecker.resetCooldownForTest()
         val report = SystemHealthChecker.runFullScan(context, skipNetworkProbesForTest = true)
-        assertEquals(18, report.checks.size)
+        assertEquals(21, report.checks.size)
         org.robolectric.shadows.ShadowLooper.idleMainLooper()
+    }
+
+    @Test
+    fun v256_advanced8dPreferences_legacyOrbitMigration_andTranslatorEngineSettingsWork() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        assertTrue(BuildConfig.VERSION_NAME.startsWith("2.5.6"))
+
+        // Legacy orbit key migrates seamlessly to Advanced 8D and clears on write
+        val rawPrefs = context.getSharedPreferences("spotui_settings", Context.MODE_PRIVATE)
+        rawPrefs.edit().remove("audio_spatial_8d_advanced").putBoolean("audio_spatial_8d_orbit", true).apply()
+        assertTrue(isSpatial8dEnabled(context))
+
+        setSpatial8dEnabled(context, false)
+        assertFalse(isSpatial8dEnabled(context))
+        assertFalse(rawPrefs.contains("audio_spatial_8d_orbit"))
+
+        setSpatial8dIntensity(context, 1.35f)
+        assertEquals(1.35f, getSpatial8dIntensity(context), 0.01f)
+        setSpatial8dIntensity(context, 9.99f)
+        assertEquals(1.50f, getSpatial8dIntensity(context), 0.01f)
+
+        // GameTranslatorEngine persistence + swap + target languages
+        GameTranslatorEngine.hydratePreferences(context)
+        GameTranslatorEngine.setSourceLanguage(context, "es")
+        GameTranslatorEngine.setTargetLanguage(context, "ja")
+        GameTranslatorEngine.setAlwaysUnlockTranslator(context, true)
+        GameTranslatorEngine.setContinuousListen(context, false)
+        assertEquals("es", GameTranslatorEngine.sourceLangFlow.value)
+        assertEquals("ja", GameTranslatorEngine.targetLangFlow.value)
+        assertTrue(GameTranslatorEngine.alwaysUnlockTranslatorFlow.value)
+        assertFalse(GameTranslatorEngine.continuousListenFlow.value)
+
+        GameTranslatorEngine.swapLanguages(context)
+        assertEquals("ja", GameTranslatorEngine.sourceLangFlow.value)
+        assertEquals("es", GameTranslatorEngine.targetLangFlow.value)
+        assertTrue(GameTranslatorEngine.supportedTargetLanguages.none { it.code == "auto" })
     }
 }

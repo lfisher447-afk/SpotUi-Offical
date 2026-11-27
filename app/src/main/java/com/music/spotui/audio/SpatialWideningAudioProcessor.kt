@@ -17,19 +17,21 @@ import kotlin.math.sqrt
 import kotlin.math.tanh
 
 /**
- * SpotUI 3D Holographic Binaural Soundstage & 8D Orbit Audio Processor (v2.5.5).
+ * SpotUI 3D Holographic Binaural Soundstage & Advanced 8D Audio Processor (v2.5.6).
  *
- * Delivers an unmistakable, studio-grade out-of-head 3D soundstage over headphones,
- * Bluetooth earbuds, and stereo speakers without hollowness or bass smear:
- * 1. Sub-100 Hz Mono-Bass Anchor keeps kick/sub punch tight and centered.
+ * Delivers an unmistakable, studio-grade out-of-head 3D & Advanced 8D soundstage over headphones,
+ * Bluetooth earbuds, and stereo speakers without hollowness, bass smear, or dizzying rotation:
+ * 1. Sub-110 Hz Mono-Bass Anchor keeps kick/sub punch tight and centered.
  * 2. Bold Mid/Side Soundstage Expansion + Asymmetric Haas Micro-Delay widens the stereo
  *    horizon vividly beyond the ears as [width] and [profile] increase.
  * 3. Tapped Early-Reflection Acoustic Matrix + 3-Stage Schroeder All-Pass Diffuser builds
  *    genuine physical hall/cinema/room depth scaled by [roomDelayMs] and [elevationDepth].
  * 4. Outer-Ear Pinna HRTF Contours (+concha presence ~3.2 kHz / elevation notch ~7.6 kHz)
  *    externalize instruments out in front and above the listener.
- * 5. Deep 360-degree 8D Binaural Orbit LFO sweeps constant-power pan, fractional Woodworth
- *    ITD ear delay, and rear-hemisphere head-shadowing when [orbit8dEnabled] is active.
+ * 5. Stationary Advanced 8D Holographic Immersion ([advanced8dEnabled] & [advanced8dDepth])
+ *    adds zero-orbit 3D acoustic externalization: anchored front vocal clarity paired with an
+ *    expansive upper-band stereo arc, micro-asymmetric Woodworth ITD, dual front/rear Pinna
+ *    depth blending, diffused ambient enclosure, and silky harmonic air shimmer.
  */
 @UnstableApi
 class SpatialWideningAudioProcessor : BaseAudioProcessor() {
@@ -41,8 +43,8 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
     @Volatile var headphoneCrossfeed: Boolean = false
     @Volatile var autoHeadphoneHrtf: Boolean = false
     @Volatile var roomDelayMs: Float = 12f
-    @Volatile var orbit8dEnabled: Boolean = false
-    @Volatile var orbitSpeedHz: Float = 0.32f
+    @Volatile var advanced8dEnabled: Boolean = false
+    @Volatile var advanced8dDepth: Float = 0.85f
     @Volatile var elevationDepth: Float = 0.70f
     @Volatile var correlationGuard: Boolean = true
 
@@ -103,8 +105,7 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
     private var corrLR = 0f
     private var corrPower = 1e-6f
 
-    // 8D Binaural Orbit LFO phase (radians)
-    private var orbitPhase = 0.0
+    // Stationary Advanced 8D state (no circular orbit LFO)
     private var lastFilterSampleRate = 0
     private var lastFilterProfile: SpatialProfile? = null
     private var lastFilterElevation = -1f
@@ -114,7 +115,7 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
     private var smoothedWidth = 0f
     private var smoothedCrossfeed = 0f
     private var smoothedBalance = 0f
-    private var smoothedOrbit = 0f
+    private var smoothedAdvanced8d = 0f
     private var smoothedElevation = 0.70f
     private var smoothedHeadphoneMode = 1f
 
@@ -170,6 +171,8 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
         val isHeadphoneTarget = autoHeadphoneHrtf || headphoneCrossfeed || profile == SpatialProfile.BINAURAL_HEADPHONES
         spatialModeLabel = when {
             monoMix -> "Mono Mix"
+            enabled && advanced8dEnabled && isHeadphoneTarget -> "Advanced 8D Binaural Stage"
+            enabled && advanced8dEnabled -> "Advanced 8D Speaker Stage"
             enabled && isHeadphoneTarget -> "Headphone Binaural HRTF"
             enabled -> "Speaker Stereo Stage"
             headphoneCrossfeed -> "HRTF Crossfeed"
@@ -183,7 +186,7 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
                     val label = if (profile.label.contains("3D", ignoreCase = true)) profile.label else "${profile.label} 3D"
                     append("$label (${(width.coerceIn(0f, 1f) * 100).roundToInt()}%)")
                     append(if (isHeadphoneTarget) " · Headphones HRTF" else " · Speaker Stage")
-                    if (orbit8dEnabled) append(" · 8D Orbit")
+                    if (advanced8dEnabled) append(" · Advanced 8D")
                 }
                 headphoneCrossfeed -> append("HRTF Crossfeed")
                 else -> append("Stereo balance")
@@ -204,17 +207,17 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
             else -> 0f
         }
         val targetBal = balance.coerceIn(-1f, 1f)
-        val targetOrbit = if (enabled && !monoMix && orbit8dEnabled) 1f else 0f
+        val targetAdvanced8d = if (enabled && !monoMix && advanced8dEnabled) advanced8dDepth.coerceIn(0.25f, 1.50f) else 0f
         val targetElev = elevationDepth.coerceIn(0f, 1f)
         val targetHpMode = if (isHeadphoneTarget) 1f else 0f
 
         inputBuffer.order(ByteOrder.nativeOrder())
         val output = replaceOutputBuffer(bytes).order(ByteOrder.nativeOrder())
         when (encoding) {
-            C.ENCODING_PCM_FLOAT -> processFloat(inputBuffer, output, targetMix, targetWidth, targetCf, targetBal, targetOrbit, targetElev, targetHpMode)
-            C.ENCODING_PCM_16BIT -> processPcm16(inputBuffer, output, targetMix, targetWidth, targetCf, targetBal, targetOrbit, targetElev, targetHpMode)
-            C.ENCODING_PCM_24BIT -> processPcm24(inputBuffer, output, targetMix, targetWidth, targetCf, targetBal, targetOrbit, targetElev, targetHpMode)
-            C.ENCODING_PCM_32BIT -> processPcm32(inputBuffer, output, targetMix, targetWidth, targetCf, targetBal, targetOrbit, targetElev, targetHpMode)
+            C.ENCODING_PCM_FLOAT -> processFloat(inputBuffer, output, targetMix, targetWidth, targetCf, targetBal, targetAdvanced8d, targetElev, targetHpMode)
+            C.ENCODING_PCM_16BIT -> processPcm16(inputBuffer, output, targetMix, targetWidth, targetCf, targetBal, targetAdvanced8d, targetElev, targetHpMode)
+            C.ENCODING_PCM_24BIT -> processPcm24(inputBuffer, output, targetMix, targetWidth, targetCf, targetBal, targetAdvanced8d, targetElev, targetHpMode)
+            C.ENCODING_PCM_32BIT -> processPcm32(inputBuffer, output, targetMix, targetWidth, targetCf, targetBal, targetAdvanced8d, targetElev, targetHpMode)
             else -> copyBuffer(inputBuffer, output, bytes)
         }
         output.flip()
@@ -335,7 +338,7 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
         targetWidth: Float,
         targetCf: Float,
         targetBal: Float,
-        targetOrbit: Float,
+        targetAdvanced8d: Float,
         targetElev: Float,
         targetHpMode: Float,
     ): Pair<Float, Float> {
@@ -348,7 +351,7 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
         smoothedWidth += (targetWidth - smoothedWidth) * ctrlAlpha
         smoothedCrossfeed += (targetCf - smoothedCrossfeed) * ctrlAlpha
         smoothedBalance += (targetBal - smoothedBalance) * ctrlAlpha
-        smoothedOrbit += (targetOrbit - smoothedOrbit) * ctrlAlpha
+        smoothedAdvanced8d += (targetAdvanced8d - smoothedAdvanced8d) * ctrlAlpha
         smoothedElevation += (targetElev - smoothedElevation) * ctrlAlpha
         smoothedHeadphoneMode += (targetHpMode - smoothedHeadphoneMode) * ctrlAlpha
 
@@ -473,41 +476,32 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
                     stageR += (hpTargetR - stageR) * pinnaMix * 0.90f
                 }
 
-                // 4. Click-free 360° 8D Binaural Orbit LFO (smooth Woodworth ITD, constant-power pan & crossfaded rear HRTF)
-                if (smoothedOrbit > 0.002f) {
-                    val hz = orbitSpeedHz.coerceIn(0.10f, 1.50f).toDouble()
-                    orbitPhase += (2.0 * PI * hz) / sr.toDouble()
-                    if (orbitPhase >= 2.0 * PI) orbitPhase -= 2.0 * PI
+                // 4. Stationary Advanced 8D Holographic Binaural Immersion (Zero dizzying orbit panning)
+                if (smoothedAdvanced8d > 0.002f) {
+                    val holoDepth = (smoothedAdvanced8d * corrFactor * (0.55f + 0.45f * smoothedWidth)).coerceIn(0f, 1.35f)
+                    val stMid = (stageL + stageR) * 0.5f
+                    val stSide = (stageL - stageR) * 0.5f
+                    val stHighMid = stMid - lowMono
+                    val stHighSide = stSide - (bassLp2L - bassLp2R) * 0.25f
 
-                    val azSin = sin(orbitPhase).toFloat() // -1 (Left) .. +1 (Right)
-                    val azCos = cos(orbitPhase).toFloat() // +1 (Front) .. -1 (Rear)
-                    val orbitDepth = smoothedOrbit * (0.65f + 0.35f * smoothedWidth)
+                    // Micro-asymmetric Woodworth ITD (~0.34ms L, ~0.49ms R) creates wide out-of-head binaural anchor
+                    val microItdL = readDelayInterp(reflectBufL, (0.00034f * sr).coerceIn(2f, 96f))
+                    val microItdR = readDelayInterp(reflectBufR, (0.00049f * sr).coerceIn(3f, 128f))
 
-                    val maxItdSamples = (0.00095f * sr * (0.45f + 0.55f * hpFactor)).coerceIn(2f, 160f)
-                    val delayLeftSamples = if (azSin > 0f) azSin * maxItdSamples * smoothedOrbit else 0f
-                    val delayRightSamples = if (azSin < 0f) (-azSin) * maxItdSamples * smoothedOrbit else 0f
+                    // Subtle cross-channel diffuse surround envelope + dual front/rear Pinna externalization
+                    val surroundDiffL = (airLpL * 0.62f - airLpR * 0.38f) * (0.24f * holoDepth)
+                    val surroundDiffR = (airLpR * 0.62f - airLpL * 0.38f) * (0.24f * holoDepth)
+                    val rearShadowL = (rearPinnaL - stMid) * (0.14f * hpFactor * holoDepth)
+                    val rearShadowR = (rearPinnaR - stMid) * (0.14f * hpFactor * holoDepth)
 
-                    val panShift = (azSin * 0.76f * orbitDepth).coerceIn(-0.82f, 0.82f)
-                    val leftGain = sqrt((1f - panShift).coerceIn(0.14f, 1.85f))
-                    val rightGain = sqrt((1f + panShift).coerceIn(0.14f, 1.85f))
-                    val rearBias = ((1f - azCos) * 0.5f).coerceIn(0f, 1f)
-                    val rearShadow = (rearBias * 0.42f * smoothedOrbit).coerceIn(0f, 0.45f)
+                    // Anchored center vocals + saturated upper-band M/S holographic arc + silky air shimmer
+                    val vocalFocusGain = 1f + (0.06f * holoDepth).coerceAtMost(0.08f)
+                    val wideSideArc = tanh((stHighSide * (1f + 0.42f * holoDepth)).toDouble()).toFloat()
+                    val airHarmonicL = (microItdL - shadowL * 0.16f) * (0.18f * holoDepth)
+                    val airHarmonicR = (microItdR - shadowR * 0.16f) * (0.18f * holoDepth)
 
-                    // Smoothly crossfade front pinna contour -> rear-hemisphere dipped contour without biquad clicks
-                    val rearPinnaBlend = (rearBias * hpFactor * smoothedElevation * smoothedOrbit).coerceIn(0f, 0.85f)
-                    val contouredStageL = stageL + (rearPinnaL - stageL) * rearPinnaBlend * 0.55f
-                    val contouredStageR = stageR + (rearPinnaR - stageR) * rearPinnaBlend * 0.55f
-
-                    val itdL = readDelayInterp(delayL, delayLeftSamples)
-                    val itdR = readDelayInterp(delayR, delayRightSamples)
-                    val stageHighL = contouredStageL - lowMono
-                    val stageHighR = contouredStageR - lowMono
-                    val itdBlend = 0.65f * smoothedOrbit
-                    val orbL = (stageHighL * (1f - itdBlend) + (itdL - lowMono) * itdBlend) * leftGain
-                    val orbR = (stageHighR * (1f - itdBlend) + (itdR - lowMono) * itdBlend) * rightGain
-
-                    stageL = lowMono + orbL * (1f - rearShadow) + (shadowL - lowMono) * rearShadow
-                    stageR = lowMono + orbR * (1f - rearShadow) + (shadowR - lowMono) * rearShadow
+                    stageL = lowMono + stHighMid * vocalFocusGain + wideSideArc + surroundDiffL + rearShadowL + airHarmonicL
+                    stageR = lowMono + stHighMid * vocalFocusGain - wideSideArc + surroundDiffR + rearShadowR + airHarmonicR
                 }
 
                 // Makeup gain preserving perceived punch when ambient room spreads energy

@@ -54,6 +54,7 @@ import androidx.compose.material.icons.automirrored.rounded.VolumeMute
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.CenterFocusWeak
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -302,6 +303,18 @@ internal fun FloaterExpressiveConsole(
                                 )
                             }
                         }
+                    }
+
+                    IconButton(
+                        onClick = { callbacks.onHaptic(true); callbacks.onSnapOverlayToEdge() },
+                        modifier = Modifier.size(48.dp).testTag("floater_snap_edge_button"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.CenterFocusWeak,
+                            contentDescription = "Snap Floater to Screen Edge",
+                            tint = cs.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
                     }
 
                     IconButton(
@@ -741,9 +754,10 @@ internal fun FloaterExpressiveConsole(
                                     onClick = { callbacks.onHaptic(true); callbacks.onSelectTab(FloaterTab.TOOLS) },
                                 )
 
-                                // ONLY shown when user is actively in a detected Game!
-                                if (state.isGameActive) {
-                                    SidebarSectionHeader("GAME", state.isSidebarCompact)
+                                // Shown when user is in a detected Game OR Always-Unlock Translator is active
+                                val translateUnlocked = state.isGameActive || state.alwaysUnlockTranslator
+                                if (translateUnlocked) {
+                                    SidebarSectionHeader(if (state.isGameActive) "GAME" else "LIVE", state.isSidebarCompact)
                                     SidebarNavPill(
                                         tab = FloaterTab.TRANSLATE,
                                         icon = Icons.Rounded.Translate,
@@ -756,7 +770,8 @@ internal fun FloaterExpressiveConsole(
                             }
 
                             // Active Tab Body Content with Expressive Transition
-                            val effectiveTab = if (state.activeTab == FloaterTab.TRANSLATE && !state.isGameActive) {
+                            val translateUnlocked = state.isGameActive || state.alwaysUnlockTranslator
+                            val effectiveTab = if (state.activeTab == FloaterTab.TRANSLATE && !translateUnlocked) {
                                 FloaterTab.PLAYER
                             } else {
                                 state.activeTab
@@ -929,7 +944,7 @@ internal fun TranslationBubbleOverlayContent(
                                 )
                             }
                             Text(
-                                text = "${bubble.detectedLangCode.uppercase(Locale.US)} → EN",
+                                text = "${bubble.detectedLangCode.uppercase(Locale.US)} → ${bubble.targetLangCode.uppercase(Locale.US)}",
                                 color = if (bubble.isListening) cs.onPrimaryContainer else cs.onSecondaryContainer,
                                 fontSize = 9.5.sp,
                                 fontWeight = FontWeight.ExtraBold,

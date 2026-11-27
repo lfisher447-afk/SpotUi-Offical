@@ -1,5 +1,6 @@
 package com.music.spotui.ui.screens
 
+import android.Manifest
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -12,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -36,18 +38,32 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Clear
+import androidx.compose.material.icons.rounded.CloudDone
+import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PictureInPictureAlt
 import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Verified
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import com.music.spotui.accessibility.GameTranslatorEngine
 import com.music.spotui.data.preferences.BackupPref
 import com.music.spotui.data.preferences.LosslessTimeout
+import com.music.spotui.data.preferences.ProviderRoutingPreferences
 import com.music.spotui.data.preferences.getCellularLosslessTimeout
 import com.music.spotui.data.preferences.getDownloadLosslessTimeout
 import com.music.spotui.data.preferences.getWifiLosslessTimeout
+import com.music.spotui.data.preferences.isEqSpatialEnabled
+import com.music.spotui.data.preferences.isSpatial8dEnabled
 import com.music.spotui.data.preferences.setCellularLosslessTimeout
 import com.music.spotui.data.preferences.setDownloadLosslessTimeout
 import com.music.spotui.data.preferences.setWifiLosslessTimeout
@@ -204,24 +220,42 @@ private enum class SettingsSideTab(
     val subtitle: String,
     val badge: String,
     val icon: ImageVector,
+    val searchKeywords: List<String> = emptyList(),
 ) {
-    STYLE("Style", "Expressive Style & UI", "Themes, SongPlay shapes, tactile chimes & AI", "M3E", Icons.Rounded.Palette),
-    AUDIO("Audio", "3D Studio & Quality", "7-Band EQ, 3D Spatial Orbit, Lossless & Crossfade", "3D", Icons.Rounded.GraphicEq),
-    FLOATER("Floater", "Accessibility Floater", "In-app volume, corner resize, haptics & EQ/3D hook", "A11Y", Icons.Rounded.PictureInPictureAlt),
-    MODULES("Modules", "17 Library Modules", "Toggle & verify Spotify, InnerTube, yt-dlp, Lyrics & Shazam", "17", Icons.Rounded.Extension),
-    TURBO("Turbo", "MrBean & Storage", "8x HTTP/2 slices, connection pool & NovaAc cache", "8x", Icons.Rounded.Bolt),
-    NETWORK("Network", "DNS, Auth & Sync", "DoH resolver, PoToken, proxy pool & YTM sync", "DoH", Icons.Rounded.Public),
-    SYSTEM("System", "System, Updates & Account", "Permissions, battery guard, v2.5.5 updater & backup", "OS", Icons.Rounded.Tune),
-    LOGS("Logs", "Logger & Telemetry", "2000-entry 8-channel developer diagnostics console", "LOG", Icons.Rounded.Terminal),
-    ALL("All", "All SpotUI Settings", "Full scrollable configuration dashboard", "ALL", Icons.Rounded.Apps),
+    STYLE("Style", "Expressive Style & UI", "Themes, SongPlay shapes, tactile chimes & AI", "M3E", Icons.Rounded.Palette, listOf("theme", "noel", "prism", "color", "sound", "chime", "icon", "font", "ui", "gemini")),
+    AUDIO("Audio", "3D Studio & Quality", "7-Band EQ, Advanced 8D Audio, SpotFlac & Crossfade", "8D", Icons.Rounded.GraphicEq, listOf("eq", "8d", "spatial", "spotflac", "lossless", "deezer", "qobuz", "tidal", "crossfade", "volume", "quality", "verify")),
+    FLOATER("Floater", "Floater & Translator", "In-app volume, snap-edge, haptics & Live Mic Translator", "A11Y", Icons.Rounded.PictureInPictureAlt, listOf("floater", "overlay", "mic", "translate", "translation", "game", "ml kit", "pack", "bubble", "haptic", "accessibility")),
+    MODULES("Modules", "17 Library Modules", "Toggle & verify Spotify, InnerTube, yt-dlp, Lyrics & Shazam", "17", Icons.Rounded.Extension, listOf("module", "yt-dlp", "ffmpeg", "innertube", "newpipe", "shazam", "lyrics", "spotify", "library")),
+    TURBO("Turbo", "MrBean & Storage", "8x HTTP/2 slices, connection pool & NovaAc cache", "8x", Icons.Rounded.Bolt, listOf("mrbean", "download", "cache", "novaac", "storage", "slice", "chunk", "pool")),
+    NETWORK("Network", "DNS, Auth & Sync", "DoH resolver, PoToken, proxy pool & YTM sync", "DoH", Icons.Rounded.Public, listOf("dns", "doh", "proxy", "potoken", "youtube", "cookie", "sync", "oauth", "explicit")),
+    SYSTEM("System", "System, Updates & Account", "Permissions, battery guard, v2.5.6 updater & backup", "OS", Icons.Rounded.Tune, listOf("update", "updater", "backup", "restore", "battery", "permission", "roadmap", "patch")),
+    LOGS("Logs", "Logger & Telemetry", "2000-entry 8-channel developer diagnostics console", "LOG", Icons.Rounded.Terminal, listOf("log", "console", "health", "diagnostic", "telemetry", "bluetooth", "fault")),
+    ALL("All", "All SpotUI Settings", "Full scrollable configuration dashboard", "ALL", Icons.Rounded.Apps, emptyList());
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+private data class SettingsQuickTopic(
+    val label: String,
+    val keywords: String,
+    val tab: SettingsSideTab,
+)
+
+private val settingsQuickTopics = listOf(
+    SettingsQuickTopic("Advanced 8D Audio", "8d spatial holographic binaural eq", SettingsSideTab.AUDIO),
+    SettingsQuickTopic("SpotFlac Verify", "spotflac lossless verify mirror deezer qobuz", SettingsSideTab.AUDIO),
+    SettingsQuickTopic("Mic Translator", "in game mic translator language mlkit bubble", SettingsSideTab.FLOATER),
+    SettingsQuickTopic("Floater Overlay", "floater accessibility volume resize haptic", SettingsSideTab.FLOATER),
+    SettingsQuickTopic("yt-dlp & Modules", "ytdlp ffmpeg innertube newpipe modules", SettingsSideTab.MODULES),
+    SettingsQuickTopic("MrBean 8x Turbo", "mrbean cache storage novaac download speed", SettingsSideTab.TURBO),
+    SettingsQuickTopic("Updater v2.5.6", "update apk patch notes backup permissions", SettingsSideTab.SYSTEM),
+)
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(navController: NavController) {
     val context = LocalContext.current
 
     var activeSideTab by rememberSaveable { mutableStateOf(SettingsSideTab.STYLE) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     val rightPaneScrollState = rememberScrollState()
     val railScrollState = rememberScrollState()
     fun showTab(vararg tabs: SettingsSideTab): Boolean =
@@ -263,6 +297,8 @@ fun SettingsScreen(navController: NavController) {
     var showProviderStatusDialog by remember { mutableStateOf(false) }
     var providerStatuses by remember { mutableStateOf(emptyList<com.metrolist.spotify.SpotiFlac.ProviderStatus>()) }
     var isRefreshingStatuses by remember { mutableStateOf(false) }
+    var dialogPipelineReport by remember { mutableStateOf<com.metrolist.spotify.SpotiFlac.SpotFlacVerificationReport?>(null) }
+    var dialogPipelineBusy by remember { mutableStateOf(false) }
 
     var backupDirUri by remember { mutableStateOf(BackupPref.getDirectoryUri(context)) }
     var folderName by remember(backupDirUri) { mutableStateOf(BackupHelper.getFolderDisplayName(context, backupDirUri)) }
@@ -357,8 +393,23 @@ fun SettingsScreen(navController: NavController) {
     var settingsInstallError by remember { mutableStateOf<String?>(null) }
     var showPatchNotesModal by remember { mutableStateOf(false) }
 
+    val hasMicTranslatorPerm by GameTranslatorEngine.hasMicPermissionFlow.collectAsStateWithLifecycle()
+    val translatorSpeechReady by GameTranslatorEngine.speechEngineAvailableFlow.collectAsStateWithLifecycle()
+    val translatorSpeechLabel by GameTranslatorEngine.speechEngineLabelFlow.collectAsStateWithLifecycle()
+    val translatorSourceLang by GameTranslatorEngine.sourceLangFlow.collectAsStateWithLifecycle()
+    val translatorTargetLang by GameTranslatorEngine.targetLangFlow.collectAsStateWithLifecycle()
+    val translatorAlwaysUnlocked by GameTranslatorEngine.alwaysUnlockTranslatorFlow.collectAsStateWithLifecycle()
+    val translatorContinuous by GameTranslatorEngine.continuousListenFlow.collectAsStateWithLifecycle()
+    val translatorDownloadedPacks by GameTranslatorEngine.downloadedModelsFlow.collectAsStateWithLifecycle()
+    val translatorBusyPack by GameTranslatorEngine.modelDownloadBusyFlow.collectAsStateWithLifecycle()
+    val translatorBubbleState by GameTranslatorEngine.bubbleStateFlow.collectAsStateWithLifecycle()
+    val translatorActiveGameLabel by GameTranslatorEngine.activeGameLabelFlow.collectAsStateWithLifecycle()
+    val translatorIsGameActive by GameTranslatorEngine.isGameActiveFlow.collectAsStateWithLifecycle()
+    var translatorTestDraft by remember { mutableStateOf("") }
+
     LaunchedEffect(Unit) {
         com.music.spotui.data.update.AutoUpdaterLogger.initialize(context)
+        GameTranslatorEngine.hydratePreferences(context)
     }
 
     val settingsUnknownSourcesLauncher = rememberLauncherForActivityResult(
@@ -595,6 +646,12 @@ fun SettingsScreen(navController: NavController) {
         hasMediaPerm = PermissionHelper.hasMediaReadPermission(context)
         hasBluetoothPerm = PermissionHelper.hasBluetoothConnectPermission(context)
     }
+    val translatorMicPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) {
+        GameTranslatorEngine.refreshMicPermission(context)
+        GameTranslatorEngine.refreshTranslatorReadiness(context)
+    }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -643,8 +700,11 @@ fun SettingsScreen(navController: NavController) {
                 },
                 navigationIcon = {
                     IconButton(
-                        onClick = { navController.popBackStack() },
-                        modifier = Modifier.testTag("settings_back_button"),
+                        onClick = {
+                            UiSoundEngine.playTapChime(context)
+                            navController.popBackStack()
+                        },
+                        modifier = Modifier.size(48.dp).testTag("settings_back_button"),
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -656,16 +716,30 @@ fun SettingsScreen(navController: NavController) {
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = AppBackground)
             )
         }
-    ) { padding ->
-        Row(
+    } { padding ->
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(top = padding.calculateTopPadding()),
         ) {
-            // Material 3 Expressive Vertical Side-Tab Rail Switcher
+            val isExpandedScreen = maxWidth >= 840.dp
+            val isMediumScreen = maxWidth >= 600.dp
+            val adaptiveRailWidth = when {
+                isExpandedScreen -> 116.dp
+                isMediumScreen -> 96.dp
+                else -> 78.dp
+            }
+            val layoutTierLabel = when {
+                isExpandedScreen -> "Expanded Studio"
+                isMediumScreen -> "Medium Pane"
+                else -> "Compact Handheld"
+            }
+
+            Row(modifier = Modifier.fillMaxSize()) {
+            // Material 3 Expressive Adaptive Vertical Side-Tab Rail Switcher
             Column(
                 modifier = Modifier
-                    .width(78.dp)
+                    .width(adaptiveRailWidth)
                     .fillMaxHeight()
                     .background(Color(0xFF0C0F16))
                     .verticalScroll(railScrollState)
@@ -806,6 +880,127 @@ fun SettingsScreen(navController: NavController) {
                                 lineHeight = 15.sp,
                             )
                         }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+
+                // Live Settings Search & Quick-Jump Bar + Studio Telemetry Ribbon
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    singleLine = true,
+                    leadingIcon = {
+                        Icon(Icons.Rounded.Search, contentDescription = "Search settings", tint = AppPalette, modifier = Modifier.size(18.dp))
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(
+                                onClick = { searchQuery = "" },
+                                modifier = Modifier.size(40.dp),
+                            ) {
+                                Icon(Icons.Rounded.Clear, contentDescription = "Clear search", tint = Color(0xFFB3B3B3), modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    },
+                    placeholder = { Text("Jump to 8D Audio, SpotFlac, Mic Translator, yt-dlp…", fontSize = 11.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    shape = RoundedCornerShape(16.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = AppPalette,
+                        unfocusedBorderColor = Color(0xFF282E40),
+                        focusedContainerColor = Color(0xFF121622),
+                        unfocusedContainerColor = Color(0xFF10131D),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                    ),
+                    modifier = Modifier.fillMaxWidth().testTag("settings_search_input"),
+                )
+
+                val trimmedQuery = searchQuery.trim().lowercase()
+                if (trimmedQuery.isNotEmpty()) {
+                    val matchedTabs = SettingsSideTab.entries.filter { tab ->
+                        tab != SettingsSideTab.ALL && (
+                            tab.title.lowercase().contains(trimmedQuery) ||
+                                tab.subtitle.lowercase().contains(trimmedQuery) ||
+                                tab.searchKeywords.any { kw -> kw.contains(trimmedQuery) || trimmedQuery.contains(kw) }
+                            )
+                    }
+                    val matchedTopics = settingsQuickTopics.filter {
+                        it.label.lowercase().contains(trimmedQuery) || it.keywords.contains(trimmedQuery)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Surface(
+                        color = Color(0xFF151926),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, AppPalette.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Quick Jump Matches", color = AppPalette, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                matchedTopics.forEach { topic ->
+                                    FilterChip(
+                                        selected = activeSideTab == topic.tab,
+                                        onClick = {
+                                            UiSoundEngine.playTapChime(context)
+                                            activeSideTab = topic.tab
+                                        },
+                                        label = { Text(topic.label, fontSize = 11.sp) },
+                                        modifier = Modifier.heightIn(min = 48.dp),
+                                    )
+                                }
+                                matchedTabs.forEach { tab ->
+                                    FilterChip(
+                                        selected = activeSideTab == tab,
+                                        onClick = {
+                                            UiSoundEngine.playTapChime(context)
+                                            activeSideTab = tab
+                                        },
+                                        label = { Text("${tab.shortLabel} (${tab.badge})", fontSize = 11.sp) },
+                                        modifier = Modifier.heightIn(min = 48.dp),
+                                    )
+                                }
+                            }
+                            if (matchedTopics.isEmpty() && matchedTabs.isEmpty()) {
+                                Text("No exact section match — tap All to view every setting.", color = Color(0xFFB3B3B3), fontSize = 11.sp)
+                            }
+                        }
+                    }
+                } else {
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        val eightDActive = isEqSpatialEnabled(context) && isSpatial8dEnabled(context)
+                        TelemetryStatusPill(
+                            label = if (eightDActive) "DSP: Adv 8D On" else "DSP: Stereo",
+                            active = eightDActive,
+                            onClick = { activeSideTab = SettingsSideTab.AUDIO },
+                        )
+                        TelemetryStatusPill(
+                            label = "Route #1: ${ProviderRoutingPreferences.losslessOrder(context).firstOrNull()?.uppercase() ?: "TIDAL"}",
+                            active = true,
+                            onClick = { activeSideTab = SettingsSideTab.AUDIO },
+                        )
+                        TelemetryStatusPill(
+                            label = if (accessibilityMiniPlayerEnabled) "Floater: Ready" else "Floater: Off",
+                            active = accessibilityMiniPlayerEnabled,
+                            onClick = { activeSideTab = SettingsSideTab.FLOATER },
+                        )
+                        TelemetryStatusPill(
+                            label = if (hasMicTranslatorPerm && translatorSpeechReady) "Translator: Ready" else "Translator: Setup",
+                            active = hasMicTranslatorPerm && translatorSpeechReady,
+                            onClick = { activeSideTab = SettingsSideTab.FLOATER },
+                        )
+                        TelemetryStatusPill(
+                            label = layoutTierLabel,
+                            active = isMediumScreen,
+                            onClick = {},
+                        )
                     }
                 }
                 Spacer(Modifier.height(10.dp))
@@ -1412,6 +1607,224 @@ fun SettingsScreen(navController: NavController) {
                                         .testTag("floater_open_dsp_hook_button"),
                                 ) {
                                     Text("Tune EQ & 3D", color = AppPalette, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    if (showTab(SettingsSideTab.FLOATER)) {
+                        Spacer(Modifier.height(14.dp))
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = Color(0xFF1F2330),
+                            border = BorderStroke(
+                                1.dp,
+                                if (hasMicTranslatorPerm && translatorSpeechReady) AppPalette.copy(alpha = 0.45f) else Color(0xFF393E52),
+                            ),
+                            modifier = Modifier.fillMaxWidth().testTag("settings_translator_studio_card"),
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(CircleShape)
+                                            .background(AppPalette.copy(alpha = 0.2f)),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(Icons.Rounded.Translate, contentDescription = null, tint = AppPalette, modifier = Modifier.size(20.dp))
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("In-Game Mic Translator Studio", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                                        Text(
+                                            text = if (translatorIsGameActive) {
+                                                "Game active: ${translatorActiveGameLabel ?: "Detected"} · ${translatorSpeechLabel}"
+                                            } else {
+                                                "${translatorSpeechLabel} · ${translatorDownloadedPacks.size} offline packs installed"
+                                            },
+                                            color = Color(0xFFB7C0D1),
+                                            fontSize = 11.sp,
+                                        )
+                                    }
+                                    Surface(
+                                        color = if (hasMicTranslatorPerm) Color(0xFF1E3A24) else Color(0xFF3D2A1C),
+                                        shape = RoundedCornerShape(10.dp),
+                                    ) {
+                                        Text(
+                                            text = if (hasMicTranslatorPerm) "MIC OK" else "MIC OFF",
+                                            color = if (hasMicTranslatorPerm) Color(0xFF81C784) else Color(0xFFFFB74D),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        )
+                                    }
+                                }
+
+                                if (!hasMicTranslatorPerm) {
+                                    Button(
+                                        onClick = { translatorMicPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = AppPalette, contentColor = Color.Black),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("settings_translator_grant_mic"),
+                                    ) {
+                                        Icon(Icons.Rounded.Mic, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Grant Microphone Permission for Live Translator", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+
+                                SettingsSwitchRow(
+                                    title = "Keep Translator Unlocked Outside Games",
+                                    subtitle = "Pin the Translate tab inside the Floater for Discord, lobby chat, or unsupported games",
+                                    checked = translatorAlwaysUnlocked,
+                                ) { enabled ->
+                                    GameTranslatorEngine.setAlwaysUnlockTranslator(context, enabled)
+                                }
+                                SettingsSwitchRow(
+                                    title = "Continuous Hands-Free Listening",
+                                    subtitle = "Automatically restarts speech recognizer after each teammate callout",
+                                    checked = translatorContinuous,
+                                ) { continuous ->
+                                    GameTranslatorEngine.setContinuousListen(context, continuous)
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = "Source (${translatorSourceLang.uppercase()}) → Target (${translatorTargetLang.uppercase()})",
+                                        color = Color.White,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    TextButton(
+                                        enabled = translatorSourceLang != "auto",
+                                        onClick = { GameTranslatorEngine.swapLanguages(context) },
+                                        modifier = Modifier.heightIn(min = 48.dp),
+                                    ) {
+                                        Icon(Icons.Rounded.SwapHoriz, contentDescription = "Swap languages", tint = AppPalette, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Swap", color = AppPalette, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+
+                                Text("Source Voice Language", color = Color(0xFFB3B3B3), fontSize = 11.sp)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    GameTranslatorEngine.supportedLanguages.forEach { lang ->
+                                        FilterChip(
+                                            selected = translatorSourceLang == lang.code,
+                                            onClick = { GameTranslatorEngine.setSourceLanguage(context, lang.code) },
+                                            label = { Text("${lang.shortLabel} · ${lang.fullName}", fontSize = 11.sp) },
+                                            modifier = Modifier.heightIn(min = 48.dp),
+                                        )
+                                    }
+                                }
+
+                                Text("Target Output Language", color = Color(0xFFB3B3B3), fontSize = 11.sp)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    GameTranslatorEngine.supportedTargetLanguages.forEach { lang ->
+                                        FilterChip(
+                                            selected = translatorTargetLang == lang.code,
+                                            onClick = { GameTranslatorEngine.setTargetLanguage(context, lang.code) },
+                                            label = { Text("${lang.shortLabel} · ${lang.fullName}", fontSize = 11.sp) },
+                                            modifier = Modifier.heightIn(min = 48.dp),
+                                        )
+                                    }
+                                }
+
+                                Text("Offline ML Kit Language Packs (Tap to Download)", color = Color(0xFFD0D6E0), fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                                FlowRow(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    GameTranslatorEngine.supportedTargetLanguages.forEach { lang ->
+                                        val downloaded = lang.code in translatorDownloadedPacks
+                                        val isBusy = translatorBusyPack == lang.code
+                                        FilterChip(
+                                            selected = downloaded,
+                                            enabled = !isBusy,
+                                            onClick = { GameTranslatorEngine.downloadLanguagePack(context, lang.code) },
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = if (downloaded) Icons.Rounded.CloudDone else Icons.Rounded.CloudDownload,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(14.dp),
+                                                )
+                                            },
+                                            label = {
+                                                Text(
+                                                    if (isBusy) "${lang.shortLabel}…" else "${lang.shortLabel} ${if (downloaded) "✓" else ""}",
+                                                    fontSize = 10.5.sp,
+                                                )
+                                            },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = Color(0xFF1E3A24),
+                                                selectedLabelColor = Color(0xFF81C784),
+                                            ),
+                                            modifier = Modifier.heightIn(min = 48.dp),
+                                        )
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    OutlinedTextField(
+                                        value = translatorTestDraft,
+                                        onValueChange = { translatorTestDraft = it },
+                                        singleLine = true,
+                                        placeholder = { Text("Test phrase (e.g. Hola amigos, يلا)", fontSize = 11.sp) },
+                                        modifier = Modifier.weight(1f).testTag("settings_translator_test_input"),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = AppPalette,
+                                            unfocusedBorderColor = Color(0xFF34343F),
+                                            focusedTextColor = Color.White,
+                                            unfocusedTextColor = Color.White,
+                                        ),
+                                    )
+                                    Button(
+                                        onClick = {
+                                            if (translatorTestDraft.isNotBlank()) {
+                                                GameTranslatorEngine.translateTextNow(translatorTestDraft, recordHistory = true)
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = AppPalette, contentColor = Color.Black),
+                                        modifier = Modifier.heightIn(min = 48.dp).testTag("settings_translator_test_button"),
+                                    ) {
+                                        Text("Test", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                                if (translatorBubbleState.translatedEnglish.isNotBlank()) {
+                                    Text(
+                                        text = "[${translatorBubbleState.detectedLangCode.uppercase()} → ${translatorBubbleState.targetLangCode.uppercase()}] ${translatorBubbleState.translatedEnglish}",
+                                        color = Color(0xFF81C784),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                } else {
+                                    Text(
+                                        text = translatorBubbleState.statusHint,
+                                        color = Color(0xFFA8B0C2),
+                                        fontSize = 11.sp,
+                                    )
                                 }
                             }
                         }
@@ -2371,8 +2784,12 @@ fun SettingsScreen(navController: NavController) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = 48.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .clickable { navController.navigate(com.music.spotui.ui.navigation.Routes.DeveloperConsole.route) }
+                        .clickable {
+                            UiSoundEngine.playTapChime(context)
+                            navController.navigate(com.music.spotui.ui.navigation.Routes.DeveloperConsole.route)
+                        }
                         .background(Color(0xFF1A1A20))
                         .padding(14.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -2413,13 +2830,16 @@ fun SettingsScreen(navController: NavController) {
                             val selected = navigationMode == mode
                             Box(
                                 modifier = Modifier
+                                    .heightIn(min = 48.dp)
                                     .clip(RoundedCornerShape(20.dp))
                                     .background(if (selected) AppPalette else Color.White.copy(alpha = 0.08f))
                                     .clickable {
+                                        UiSoundEngine.playTapChime(context)
                                         navigationMode = mode
                                         com.music.spotui.data.preferences.setNavigationMode(context, mode)
                                     }
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                contentAlignment = Alignment.Center,
                             ) {
                                 Text(mode.label, color = if (selected) Color.Black else Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
@@ -2439,6 +2859,7 @@ fun SettingsScreen(navController: NavController) {
                         Switch(
                             checked = compactUi,
                             onCheckedChange = {
+                                UiSoundEngine.playToggleSound(context, it)
                                 compactUi = it
                                 com.music.spotui.data.preferences.setCompactUiEnabled(context, it)
                             },
@@ -2455,6 +2876,7 @@ fun SettingsScreen(navController: NavController) {
                         onValueChange = {
                             cornerRadiusDp = it
                             com.music.spotui.data.preferences.setCornerRadiusDp(context, it)
+                            UiSoundEngine.playSliderTick(context, it / 48f)
                         },
                         valueRange = 0f..48f,
                         steps = 47,
@@ -2494,10 +2916,19 @@ fun SettingsScreen(navController: NavController) {
                     ) {
                         com.music.spotui.ui.theme.ExpressiveThemePreset.entries.forEach { preset ->
                             val selected = activeThemePreset == preset
-                            Box(
-                                modifier = Modifier.clip(RoundedCornerShape(20.dp))
+                            val seedColor = Color(preset.seed)
+                            Row(
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .clip(RoundedCornerShape(22.dp))
                                     .background(if (selected) AppPalette else Color.White.copy(alpha = 0.08f))
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (selected) Color.White.copy(alpha = 0.45f) else seedColor.copy(alpha = 0.42f),
+                                        shape = RoundedCornerShape(22.dp),
+                                    )
                                     .clickable {
+                                        UiSoundEngine.playTapChime(context)
                                         when (preset) {
                                             com.music.spotui.ui.theme.ExpressiveThemePreset.CUSTOM_JSON -> themeJsonLauncher.launch(arrayOf("application/json", "text/json", "text/plain"))
                                             com.music.spotui.ui.theme.ExpressiveThemePreset.IMAGE_DERIVED -> themeImageLauncher.launch(arrayOf("image/*"))
@@ -2507,31 +2938,90 @@ fun SettingsScreen(navController: NavController) {
                                                 themeStatus = "Applied ${preset.label}."
                                             }
                                         }
-                                    }.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    }
+                                    .testTag("theme_preset_${preset.name.lowercase()}")
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .clip(CircleShape)
+                                        .background(if (selected) Color.Black.copy(alpha = 0.85f) else seedColor)
+                                        .border(1.dp, Color.White.copy(alpha = 0.35f), CircleShape),
+                                )
                                 Text(preset.label, color = if (selected) Color.Black else Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
                     val activeSpec = com.music.spotui.ui.theme.ThemePreferences.currentSpec(context)
                     Row(
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color(activeSpec.primaryArgb).copy(alpha = 0.22f)).padding(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(
+                                Brush.horizontalGradient(
+                                    colors = listOf(
+                                        Color(activeSpec.primaryArgb).copy(alpha = 0.24f),
+                                        Color(activeSpec.secondaryArgb).copy(alpha = 0.14f),
+                                    ),
+                                ),
+                            )
+                            .border(
+                                1.dp,
+                                Color(activeSpec.primaryArgb).copy(alpha = 0.40f),
+                                RoundedCornerShape(16.dp),
+                            )
+                            .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Column(Modifier.weight(1f)) {
                             Text(activeSpec.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                             Text(activeSpec.sourceDescription, color = Color(0xFFD2D6E0), fontSize = 11.sp)
                         }
-                        Box(Modifier.size(28.dp).clip(RoundedCornerShape(14.dp)).background(Color(activeSpec.primaryArgb)))
+                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            listOf(
+                                activeSpec.primaryArgb,
+                                activeSpec.secondaryArgb,
+                                activeSpec.tertiaryArgb,
+                                activeSpec.surfaceArgb,
+                            ).forEach { argb ->
+                                Box(
+                                    Modifier
+                                        .size(20.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(argb))
+                                        .border(1.dp, Color.White.copy(alpha = 0.35f), CircleShape),
+                                )
+                            }
+                        }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = { themeJsonLauncher.launch(arrayOf("application/json", "text/json", "text/plain")) }) { Text("Import JSON", color = AppPalette) }
-                        TextButton(onClick = { themeImageLauncher.launch(arrayOf("image/*")) }) { Text("Use image palette", color = AppPalette) }
-                        TextButton(onClick = {
-                            com.music.spotui.ui.theme.ThemePreferences.resetCustomTheme(context)
-                            activeThemePreset = com.music.spotui.ui.theme.ExpressiveThemePreset.SPOTUI_BLUE
-                            themeStatus = "Restored Spotui Blue."
-                        }) { Text("Reset", color = AppPalette) }
+                        TextButton(
+                            onClick = {
+                                UiSoundEngine.playTapChime(context)
+                                themeJsonLauncher.launch(arrayOf("application/json", "text/json", "text/plain"))
+                            },
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) { Text("Import JSON", color = AppPalette) }
+                        TextButton(
+                            onClick = {
+                                UiSoundEngine.playTapChime(context)
+                                themeImageLauncher.launch(arrayOf("image/*"))
+                            },
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) { Text("Use image palette", color = AppPalette) }
+                        TextButton(
+                            onClick = {
+                                UiSoundEngine.playTapChime(context)
+                                com.music.spotui.ui.theme.ThemePreferences.resetCustomTheme(context)
+                                activeThemePreset = com.music.spotui.ui.theme.ExpressiveThemePreset.CYBER_PRISM
+                                themeStatus = "Restored Cyber Prism."
+                            },
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) { Text("Reset", color = AppPalette) }
                     }
                     Text("JSON schema: name, primary, optional secondary, tertiary, background, surface, onPrimary, onBackground, and dark. Colors must be #RRGGBB or #AARRGGBB. Image palettes are calculated locally and never uploaded.", color = Color(0xFF9FA9BC), fontSize = 10.sp)
                     if (themeStatus.isNotBlank()) Text(themeStatus, color = AppPalette, fontSize = 11.sp)
@@ -2562,7 +3052,10 @@ fun SettingsScreen(navController: NavController) {
                     }
                     Slider(
                         value = accessibilityTextScale,
-                        onValueChange = { accessibilityTextScale = it },
+                        onValueChange = {
+                            accessibilityTextScale = it
+                            UiSoundEngine.playSliderTick(context, ((it - 0.85f) / 0.60f).coerceIn(0f, 1f))
+                        },
                         onValueChangeFinished = { com.music.spotui.ui.theme.ThemePreferences.setTextScale(context, accessibilityTextScale) },
                         valueRange = 0.85f..1.45f,
                         steps = 11,
@@ -2587,7 +3080,10 @@ fun SettingsScreen(navController: NavController) {
                     }
                     Slider(
                         value = accessibilityBalance,
-                        onValueChange = { accessibilityBalance = it },
+                        onValueChange = {
+                            accessibilityBalance = it
+                            UiSoundEngine.playSliderTick(context, ((it + 1f) / 2f).coerceIn(0f, 1f))
+                        },
                         onValueChangeFinished = {
                             com.music.spotui.ui.theme.ThemePreferences.setAudioBalance(context, accessibilityBalance)
                             SongPlayer.refreshAudioEffects(context)
@@ -4098,6 +4594,38 @@ fun SettingsScreen(navController: NavController) {
                                 }
                             }
                         }
+                        Spacer(Modifier.height(10.dp))
+                        Button(
+                            enabled = !dialogPipelineBusy,
+                            onClick = {
+                                dialogPipelineBusy = true
+                                scope.launch {
+                                    dialogPipelineReport = withContext(Dispatchers.IO) {
+                                        com.metrolist.spotify.SpotiFlac.verifyLosslessPipeline(
+                                            trackUrlOrId = "0VjIjW4GlUZAMYd2vX5bxg",
+                                            isrcOverride = null,
+                                            enabledProviders = ProviderRoutingPreferences.enabledProviders(context).toList(),
+                                        )
+                                    }
+                                    dialogPipelineBusy = false
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = AppPalette, contentColor = Color.Black),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("dialog_deep_spotflac_verify_button"),
+                        ) {
+                            Icon(Icons.Rounded.Verified, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(if (dialogPipelineBusy) "Verifying SpotFlac Pipeline…" else "Run Deep Pipeline Verify", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                        dialogPipelineReport?.let { rep ->
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = rep.summary,
+                                color = if (rep.overallPassed) Color(0xFF81C784) else Color(0xFFFFB74D),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                     }
                 },
                 confirmButton = {
@@ -4110,6 +4638,30 @@ fun SettingsScreen(navController: NavController) {
                 textContentColor = Color.White,
             )
         }
+        }
+        }
+    }
+}
+
+@Composable
+private fun TelemetryStatusPill(
+    label: String,
+    active: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        color = if (active) AppPalette.copy(alpha = 0.16f) else Color(0xFF161A26),
+        border = BorderStroke(1.dp, if (active) AppPalette.copy(alpha = 0.48f) else Color(0xFF282F42)),
+        shape = RoundedCornerShape(14.dp),
+    ) {
+        Text(
+            text = label,
+            color = if (active) AppPalette else Color(0xFF9EA8BA),
+            fontSize = 10.5.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+        )
     }
 }
 
@@ -4256,13 +4808,17 @@ private fun PermissionStatusRow(
     testTag: String,
     onAction: () -> Unit,
 ) {
+    val ctx = LocalContext.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(Color(0xFF12161D))
-            .clickable { onAction() }
+            .clickable {
+                UiSoundEngine.playTapChime(ctx)
+                onAction()
+            }
             .testTag(testTag)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -4290,6 +4846,7 @@ private fun QualityPicker(
     onSelectTimeout: ((LosslessTimeout) -> Unit)? = null,
     onSelect: (StreamQuality) -> Unit
 ) {
+    val ctx = LocalContext.current
     Column(modifier = Modifier.padding(vertical = 8.dp)) {
         Text(title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(8.dp))
@@ -4299,8 +4856,12 @@ private fun QualityPicker(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = 48.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .clickable { onSelect(q) }
+                        .clickable {
+                            UiSoundEngine.playTapChime(ctx)
+                            onSelect(q)
+                        }
                         .background(if (isSel) Color(0xFF1A1A20) else Color.Transparent)
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -4346,8 +4907,12 @@ private fun QualityPicker(
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
+                                        .heightIn(min = 48.dp)
                                         .clip(RoundedCornerShape(8.dp))
-                                        .clickable { onSelectTimeout(t) }
+                                        .clickable {
+                                            UiSoundEngine.playTapChime(ctx)
+                                            onSelectTimeout(t)
+                                        }
                                         .background(if (selectedT) AppPalette.copy(alpha = 0.2f) else Color(0xFF1E1E24))
                                         .border(1.dp, if (selectedT) AppPalette else Color.Transparent, RoundedCornerShape(8.dp))
                                         .padding(vertical = 8.dp, horizontal = 10.dp),

@@ -19,6 +19,7 @@ import com.music.spotui.data.preferences.FLOATER_OVERLAY_PREFS_NAME
 import com.music.spotui.util.DevConsoleManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,9 +32,10 @@ internal data class TranslationBubbleState(
     val originalText: String = "",
     val translatedEnglish: String = "",
     val detectedLangCode: String = "auto",
+    val targetLangCode: String = "en",
     val isTranslating: Boolean = false,
     val isListening: Boolean = false,
-    val statusHint: String = "Ready · Auto-detect → English",
+    val statusHint: String = "Ready · Auto-detect → EN",
     val updatedAtMs: Long = 0L,
 )
 
@@ -42,6 +44,7 @@ internal data class TranslationHistoryEntry(
     val originalText: String,
     val translatedEnglish: String,
     val detectedLangCode: String,
+    val targetLangCode: String = "en",
     val timestampMs: Long,
 )
 
@@ -53,8 +56,8 @@ internal data class GameLangOption(
 )
 
 /**
- * Foreground game detector + live speech-to-English teammate translator engine for the
- * Material 3 Expressive Floater & Top-Left Bubble overlay.
+ * Foreground game detector + live speech-to-target teammate translator engine for the
+ * Material 3 Expressive Floater, Top-Left Bubble overlay, and Settings Translator Studio.
  */
 internal object GameTranslatorEngine {
     private const val TAG = "GameTranslator"
@@ -63,9 +66,13 @@ internal object GameTranslatorEngine {
     private const val KEY_BUBBLE_TEXT_SIZE_SP = "game_trans_bubble_text_sp"
     private const val KEY_BUBBLE_OPACITY = "game_trans_bubble_opacity"
     private const val KEY_SOURCE_LANG = "game_trans_source_lang"
+    private const val KEY_TARGET_LANG = "game_trans_target_lang"
+    private const val KEY_ALWAYS_UNLOCK_TRANSLATOR = "game_trans_always_unlock"
+    private const val KEY_CONTINUOUS_LISTEN = "game_trans_continuous_listen"
 
     val supportedLanguages: List<GameLangOption> = listOf(
         GameLangOption("auto", "AUTO", "Auto Detect", null),
+        GameLangOption("en", "EN", "English", "en-US"),
         GameLangOption("es", "ES", "Spanish", "es-ES"),
         GameLangOption("ar", "AR", "Arabic", "ar-SA"),
         GameLangOption("fr", "FR", "French", "fr-FR"),
@@ -79,11 +86,17 @@ internal object GameTranslatorEngine {
         GameLangOption("tr", "TR", "Turkish", "tr-TR"),
     )
 
+    /** Target languages never include "auto". */
+    val supportedTargetLanguages: List<GameLangOption>
+        get() = supportedLanguages.filter { it.code != "auto" }
+
     private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var speechRecognizer: SpeechRecognizer? = null
     private var lastSubmittedPartial: String = ""
+    private var translateJob: Job? = null
+    private var forceDefaultLocaleOnce: Boolean = false
 
     private val _isGameActive = MutableStateFlow(false)
     val isGameActiveFlow: StateFlow<Boolean> = _isGameActive.asStateFlow()
@@ -100,6 +113,21 @@ internal object GameTranslatorEngine {
     private val _isListening = MutableStateFlow(false)
     val isListeningFlow: StateFlow<Boolean> = _isListening.asStateFlow()
 
+    private val _micRmsNormalized = MutableStateFlow(0f)
+    val micRmsNormalizedFlow: StateFlow<Float> = _micRmsNormalized.asStateFlow()
+
+    private val _speechEngineAvailable = MutableStateFlow(true)
+    val speechEngineAvailableFlow: StateFlow<Boolean> = _speechEngineAvailable.asStateFlow()
+
+    private val _speechEngineLabel = MutableStateFlow("Checking…")
+    val speechEngineLabelFlow: StateFlow<String> = _speechEngineLabel.asStateFlow()
+
+    private val _downloadedModels = MutableStateFlow<Set<String>>(emptySet())
+    val downloadedModelsFlow: StateFlow<Set<String>> = _downloadedModels.asStateFlow()
+
+    private val _modelDownloadBusy = MutableStateFlow<String?>(null)
+    val modelDownloadBusyFlow: StateFlow<String?> = _modelDownloadBusy.asStateFlow()
+
     private val _bubbleEnabled = MutableStateFlow(true)
     val bubbleEnabledFlow: StateFlow<Boolean> = _bubbleEnabled.asStateFlow()
 
@@ -114,6 +142,15 @@ internal object GameTranslatorEngine {
 
     private val _sourceLang = MutableStateFlow("auto")
     val sourceLangFlow: StateFlow<String> = _sourceLang.asStateFlow()
+
+    private val _targetLang = MutableStateFlow("en")
+    val targetLangFlow: StateFlow<String> = _targetLang.asStateFlow()
+
+    private val _alwaysUnlockTranslator = MutableStateFlow(false)
+    val alwaysUnlockTranslatorFlow: StateFlow<Boolean> = _alwaysUnlockTranslator.asStateFlow()
+
+    private val _continuousListen = MutableStateFlow(true)
+    val continuousListenFlow: StateFlow<Boolean> = _continuousListen.asStateFlow()
 
     private val _bubbleState = MutableStateFlow(TranslationBubbleState())
     val bubbleStateFlow: StateFlow<TranslationBubbleState> = _bubbleState.asStateFlow()
@@ -130,8 +167,18 @@ internal object GameTranslatorEngine {
         _bubbleWidthDp.value = p.getFloat(KEY_BUBBLE_WIDTH_DP, 248f).coerceIn(160f, 420f)
         _bubbleTextSizeSp.value = p.getFloat(KEY_BUBBLE_TEXT_SIZE_SP, 14f).coerceIn(11f, 24f)
         _bubbleOpacity.value = p.getFloat(KEY_BUBBLE_OPACITY, 0.90f).coerceIn(0.55f, 0.98f)
-        _sourceLang.value = p.getString(KEY_SOURCE_LANG, "auto").orEmpty().ifBlank { "auto" }
+        _sourceLang.value = p.getString(KEY_SOURCE_LANG, "auto").orEmpty()
+            .takeIf { lang -> supportedLanguages.any { it.code == lang } } ?: "auto"
+        _targetLang.value = p.getString(KEY_TARGET_LANG, "en").orEmpty()
+            .takeIf { lang -> supportedTargetLanguages.any { it.code == lang } } ?: "en"
+        _alwaysUnlockTranslator.value = p.getBoolean(KEY_ALWAYS_UNLOCK_TRANSLATOR, false)
+        _continuousListen.value = p.getBoolean(KEY_CONTINUOUS_LISTEN, true)
+        _bubbleState.value = _bubbleState.value.copy(
+            targetLangCode = _targetLang.value,
+            statusHint = "Ready · ${currentSourceLabel()} → ${currentTargetLabel()}",
+        )
         refreshMicPermission(context)
+        refreshTranslatorReadiness(context)
     }
 
     fun refreshMicPermission(context: Context): Boolean {
@@ -141,6 +188,26 @@ internal object GameTranslatorEngine {
         ) == PackageManager.PERMISSION_GRANTED
         _hasMicPermission.value = granted
         return granted
+    }
+
+    fun refreshTranslatorReadiness(context: Context) {
+        val app = context.applicationContext
+        val standardAvail = runCatching { SpeechRecognizer.isRecognitionAvailable(app) }.getOrDefault(false)
+        val onDeviceAvail = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            runCatching { SpeechRecognizer.isOnDeviceRecognitionAvailable(app) }.getOrDefault(false)
+        } else {
+            false
+        }
+        _speechEngineAvailable.value = standardAvail || onDeviceAvail
+        _speechEngineLabel.value = when {
+            standardAvail && onDeviceAvail -> "Cloud + On-Device Speech Ready"
+            standardAvail -> "System Speech Service Ready"
+            onDeviceAvail -> "On-Device Speech Ready"
+            else -> "No Speech Recognition Service"
+        }
+        engineScope.launch {
+            _downloadedModels.value = TranslationApi.downloadedModelLanguages()
+        }
     }
 
     fun setBubbleEnabled(context: Context, enabled: Boolean) {
@@ -166,27 +233,130 @@ internal object GameTranslatorEngine {
         prefs(context).edit().putFloat(KEY_BUBBLE_OPACITY, clamped).apply()
     }
 
+    fun setAlwaysUnlockTranslator(context: Context, enabled: Boolean) {
+        _alwaysUnlockTranslator.value = enabled
+        prefs(context).edit().putBoolean(KEY_ALWAYS_UNLOCK_TRANSLATOR, enabled).apply()
+        if (!enabled && !_isGameActive.value && _isListening.value) {
+            stopListening()
+        }
+    }
+
+    fun setContinuousListen(context: Context, continuous: Boolean) {
+        _continuousListen.value = continuous
+        prefs(context).edit().putBoolean(KEY_CONTINUOUS_LISTEN, continuous).apply()
+    }
+
     fun setSourceLanguage(context: Context, code: String) {
         val normalized = supportedLanguages.firstOrNull { it.code == code }?.code ?: "auto"
         _sourceLang.value = normalized
+        forceDefaultLocaleOnce = false
         prefs(context).edit().putString(KEY_SOURCE_LANG, normalized).apply()
         if (_isListening.value) {
             stopListening()
             startListening(context)
         } else {
-            val label = supportedLanguages.firstOrNull { it.code == normalized }?.fullName ?: "Auto Detect"
             _bubbleState.value = _bubbleState.value.copy(
-                statusHint = "$label → English",
+                statusHint = "Ready · ${currentSourceLabel()} → ${currentTargetLabel()}",
             )
+        }
+    }
+
+    fun setTargetLanguage(context: Context, code: String) {
+        val normalized = supportedTargetLanguages.firstOrNull { it.code == code }?.code ?: "en"
+        _targetLang.value = normalized
+        prefs(context).edit().putString(KEY_TARGET_LANG, normalized).apply()
+        _bubbleState.value = _bubbleState.value.copy(
+            targetLangCode = normalized,
+            statusHint = "Ready · ${currentSourceLabel()} → ${currentTargetLabel()}",
+        )
+        preloadModelPair(context, _sourceLang.value, normalized)
+    }
+
+    fun swapLanguages(context: Context) {
+        val currentSrc = _sourceLang.value
+        val currentTgt = _targetLang.value
+        if (currentSrc == "auto") return
+        _sourceLang.value = currentTgt
+        _targetLang.value = currentSrc
+        prefs(context).edit()
+            .putString(KEY_SOURCE_LANG, currentTgt)
+            .putString(KEY_TARGET_LANG, currentSrc)
+            .apply()
+        _bubbleState.value = _bubbleState.value.copy(
+            targetLangCode = currentSrc,
+            statusHint = "Swapped · ${currentSourceLabel()} → ${currentTargetLabel()}",
+        )
+        if (_isListening.value) {
+            stopListening()
+            startListening(context)
+        }
+    }
+
+    fun downloadLanguagePack(context: Context, langCode: String) {
+        val normalized = langCode.lowercase(Locale.US)
+        if (normalized == "auto" || _modelDownloadBusy.value != null) return
+        _modelDownloadBusy.value = normalized
+        engineScope.launch {
+            runCatching {
+                val updated = TranslationApi.downloadLanguageModel(normalized, allowCellular = true)
+                _downloadedModels.value = updated
+            }.onSuccess {
+                _bubbleState.value = _bubbleState.value.copy(
+                    statusHint = "Offline pack ready: ${normalized.uppercase(Locale.US)}",
+                )
+            }.onFailure { err ->
+                DevConsoleManager.log(DevConsoleManager.LogLevel.WARN, TAG, "Pack download failed ($normalized): ${err.message}")
+            }
+            _modelDownloadBusy.value = null
+            refreshTranslatorReadiness(context)
+        }
+    }
+
+    fun preloadModelPair(context: Context, sourceLang: String, targetLang: String) {
+        if (sourceLang == "auto" || sourceLang == targetLang) {
+            if (targetLang != "en") downloadLanguagePack(context, targetLang)
+            return
+        }
+        engineScope.launch {
+            _modelDownloadBusy.value = targetLang
+            runCatching {
+                TranslationApi.preloadLanguagePair(sourceLang, targetLang, allowCellular = true)
+                _downloadedModels.value = TranslationApi.downloadedModelLanguages()
+            }
+            _modelDownloadBusy.value = null
         }
     }
 
     fun clearHistory() {
         _history.value = emptyList()
         _bubbleState.value = TranslationBubbleState(
+            targetLangCode = _targetLang.value,
             isListening = _isListening.value,
-            statusHint = "Ready · Auto-detect → English",
+            statusHint = "Ready · ${currentSourceLabel()} → ${currentTargetLabel()}",
         )
+    }
+
+    /**
+     * Inspects all currently open windows provided by [AccessibilityService] (e.g., on
+     * service bind or floater reveal) so already-running foreground games are detected immediately.
+     */
+    fun inspectActiveWindows(context: Context, windows: List<Pair<String?, String?>>) {
+        val candidates = windows.filter { (pkg, _) ->
+            val clean = pkg?.trim().orEmpty()
+            clean.isNotEmpty() && !isTransientSystemUi(context, clean)
+        }
+        if (candidates.isEmpty()) return
+
+        val detectedGame = candidates.firstOrNull { (pkg, cls) ->
+            inspectGamePackage(context, pkg.orEmpty(), cls.orEmpty()).first
+        }
+        if (detectedGame != null) {
+            updateForegroundPackage(context, detectedGame.first, detectedGame.second)
+        } else {
+            val firstNonSpotUi = candidates.firstOrNull { (pkg, _) -> pkg != context.packageName }
+                ?: candidates.first()
+            updateForegroundPackage(context, firstNonSpotUi.first, firstNonSpotUi.second)
+        }
     }
 
     /**
@@ -219,11 +389,11 @@ internal object GameTranslatorEngine {
                 DevConsoleManager.LogLevel.INFO,
                 TAG,
                 if (isGame) "Game detected: $appLabel ($pkg / $cls) — Translation tab unlocked"
-                else "Non-game app foreground ($pkg) — Translation tab hidden",
+                else "Non-game app foreground ($pkg) — Game Mode exited",
             )
         }
 
-        if (!isGame && _isListening.value) {
+        if (!isGame && !_alwaysUnlockTranslator.value && _isListening.value) {
             stopListening()
         }
     }
@@ -309,6 +479,7 @@ internal object GameTranslatorEngine {
         val app = context.applicationContext
         if (!refreshMicPermission(app)) {
             _isListening.value = false
+            _micRmsNormalized.value = 0f
             _bubbleState.value = _bubbleState.value.copy(
                 isListening = false,
                 statusHint = "Microphone permission needed for live teammate voice translation",
@@ -316,28 +487,37 @@ internal object GameTranslatorEngine {
             return
         }
         mainHandler.post {
-            if (!SpeechRecognizer.isRecognitionAvailable(app)) {
+            val standardAvail = runCatching { SpeechRecognizer.isRecognitionAvailable(app) }.getOrDefault(false)
+            val onDeviceAvail = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                runCatching { SpeechRecognizer.isOnDeviceRecognitionAvailable(app) }.getOrDefault(false)
+            _speechEngineAvailable.value = standardAvail || onDeviceAvail
+
+            if (!standardAvail && !onDeviceAvail) {
                 _isListening.value = false
+                _micRmsNormalized.value = 0f
                 _bubbleState.value = _bubbleState.value.copy(
                     isListening = false,
-                    statusHint = "Speech recognition service unavailable on device",
+                    statusHint = "Install or enable Google Speech Service in Android Settings",
                 )
                 return@post
             }
+            forceDefaultLocaleOnce = false
             _isListening.value = true
             _bubbleState.value = _bubbleState.value.copy(
                 isListening = true,
-                statusHint = "Listening for teammate (${currentSourceLabel()}) → EN…",
+                targetLangCode = _targetLang.value,
+                statusHint = "Listening (${currentSourceLabel()} → ${currentTargetLabel()})…",
             )
-            beginRecognitionSessionLocked(app)
+            beginRecognitionSessionLocked(app, preferOnDevice = !standardAvail && onDeviceAvail)
         }
     }
 
     fun stopListening() {
         _isListening.value = false
+        _micRmsNormalized.value = 0f
         _bubbleState.value = _bubbleState.value.copy(
             isListening = false,
-            statusHint = "Mic paused · Ready (${currentSourceLabel()} → EN)",
+            statusHint = "Mic paused · Ready (${currentSourceLabel()} → ${currentTargetLabel()})",
         )
         mainHandler.post {
             mainHandler.removeCallbacksAndMessages(RECOGNIZER_RESTART_TOKEN)
@@ -350,48 +530,107 @@ internal object GameTranslatorEngine {
     private fun currentSourceLabel(): String =
         supportedLanguages.firstOrNull { it.code == _sourceLang.value }?.shortLabel ?: "AUTO"
 
-    private fun beginRecognitionSessionLocked(app: Context) {
+    private fun currentTargetLabel(): String =
+        supportedTargetLanguages.firstOrNull { it.code == _targetLang.value }?.shortLabel
+            ?: _targetLang.value.uppercase(Locale.US)
+
+    private fun beginRecognitionSessionLocked(app: Context, preferOnDevice: Boolean = false) {
         if (!_isListening.value) return
         runCatching { speechRecognizer?.destroy() }
-        val recognizer = SpeechRecognizer.createSpeechRecognizer(app)
+        val recognizer = if (preferOnDevice && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            SpeechRecognizer.createOnDeviceSpeechRecognizer(app)
+        } else {
+            SpeechRecognizer.createSpeechRecognizer(app)
+        }
         speechRecognizer = recognizer
 
         recognizer.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
                 _bubbleState.value = _bubbleState.value.copy(
                     isListening = true,
-                    statusHint = "Listening (${currentSourceLabel()} → EN)…",
+                    statusHint = "Listening (${currentSourceLabel()} → ${currentTargetLabel()})…",
                 )
             }
 
             override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rmsdB: Float) {}
+
+            override fun onRmsChanged(rmsdB: Float) {
+                val norm = ((rmsdB + 2f) / 12f).coerceIn(0f, 1f)
+                _micRmsNormalized.value = norm
+            }
+
             override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onEndOfSpeech() {}
+
+            override fun onEndOfSpeech() {
+                _micRmsNormalized.value = 0f
+            }
 
             override fun onError(error: Int) {
-                val retryMs = when (error) {
+                _micRmsNormalized.value = 0f
+                when (error) {
                     SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
                         refreshMicPermission(app)
                         stopListening()
                         return
                     }
+                    SpeechRecognizer.ERROR_AUDIO,
+                    SpeechRecognizer.ERROR_TOO_MANY_REQUESTS -> {
+                        _isListening.value = false
+                        _bubbleState.value = _bubbleState.value.copy(
+                            isListening = false,
+                            statusHint = if (error == SpeechRecognizer.ERROR_AUDIO) {
+                                "Mic busy (another app holds mic input)"
+                            } else {
+                                "Speech rate limit · Tap Listen to resume"
+                            },
+                        )
+                        return
+                    }
+                    12, // ERROR_LANGUAGE_NOT_SUPPORTED
+                    13 -> { // ERROR_LANGUAGE_UNAVAILABLE
+                        if (!forceDefaultLocaleOnce) {
+                            forceDefaultLocaleOnce = true
+                            _bubbleState.value = _bubbleState.value.copy(
+                                statusHint = "Locale unavailable · switching to Auto mic…",
+                            )
+                            scheduleRestartIfListening(app, 320L, preferOnDevice = false)
+                        } else {
+                            _isListening.value = false
+                            _bubbleState.value = _bubbleState.value.copy(
+                                isListening = false,
+                                statusHint = "Language voice model unavailable · type below",
+                            )
+                        }
+                        return
+                    }
+                }
+                val retryMs = when (error) {
                     SpeechRecognizer.ERROR_NO_MATCH,
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> 350L
-                    SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> 650L
+                    SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> 700L
                     else -> 1_100L
                 }
-                scheduleRestartIfListening(app, retryMs)
+                if (_continuousListen.value) {
+                    scheduleRestartIfListening(app, retryMs, preferOnDevice)
+                } else {
+                    stopListening()
+                }
             }
 
             override fun onResults(results: Bundle?) {
+                _micRmsNormalized.value = 0f
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 val phrase = matches?.firstOrNull()?.trim().orEmpty()
                 if (phrase.isNotEmpty()) {
                     lastSubmittedPartial = phrase
                     translateTextNow(phrase, recordHistory = true)
                 }
-                scheduleRestartIfListening(app, 260L)
+                if (_continuousListen.value) {
+                    scheduleRestartIfListening(app, 260L, preferOnDevice)
+                } else {
+                    _isListening.value = false
+                    _bubbleState.value = _bubbleState.value.copy(isListening = false)
+                }
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
@@ -406,7 +645,7 @@ internal object GameTranslatorEngine {
             override fun onEvent(eventType: Int, params: Bundle?) {}
         })
 
-        val langOption = supportedLanguages.firstOrNull { it.code == _sourceLang.value }
+        val langOption = if (forceDefaultLocaleOnce) null else supportedLanguages.firstOrNull { it.code == _sourceLang.value }
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
@@ -417,17 +656,17 @@ internal object GameTranslatorEngine {
             }
         }
         runCatching { recognizer.startListening(intent) }.onFailure {
-            scheduleRestartIfListening(app, 1_200L)
+            scheduleRestartIfListening(app, 1_200L, preferOnDevice)
         }
     }
 
-    private fun scheduleRestartIfListening(app: Context, delayMs: Long) {
+    private fun scheduleRestartIfListening(app: Context, delayMs: Long, preferOnDevice: Boolean = false) {
         if (!_isListening.value) return
         mainHandler.removeCallbacksAndMessages(RECOGNIZER_RESTART_TOKEN)
         mainHandler.postAtTime(
             {
                 if (_isListening.value) {
-                    beginRecognitionSessionLocked(app)
+                    beginRecognitionSessionLocked(app, preferOnDevice = preferOnDevice)
                 }
             },
             RECOGNIZER_RESTART_TOKEN,
@@ -439,39 +678,51 @@ internal object GameTranslatorEngine {
         val cleaned = phrase.trim()
         if (cleaned.isEmpty()) return
         val sourceHint = _sourceLang.value
+        val targetCode = _targetLang.value
+        val targetLabel = currentTargetLabel()
 
         _bubbleState.value = _bubbleState.value.copy(
             originalText = cleaned,
+            targetLangCode = targetCode,
             isTranslating = true,
-            statusHint = "Detecting & translating…",
+            statusHint = "Detecting & translating → $targetLabel…",
         )
 
-        engineScope.launch {
+        translateJob?.cancel()
+        translateJob = engineScope.launch {
             runCatching {
-                TranslationApi.translatePhraseToEnglish(cleaned, sourceHint)
-            }.onSuccess { (detectedCode, englishText) ->
-                val finalEnglish = englishText.ifBlank { cleaned }
+                TranslationApi.translatePhrase(cleaned, sourceHint, targetCode)
+            }.onSuccess { (detectedCode, translatedText) ->
+                val finalOutput = translatedText.ifBlank { cleaned }
                 val now = System.currentTimeMillis()
+                val detectedUpper = detectedCode.uppercase(Locale.US)
                 _bubbleState.value = _bubbleState.value.copy(
                     originalText = cleaned,
-                    translatedEnglish = finalEnglish,
+                    translatedEnglish = finalOutput,
                     detectedLangCode = detectedCode,
+                    targetLangCode = targetCode,
                     isTranslating = false,
-                    statusHint = if (_isListening.value) "Listening (${detectedCode.uppercase(Locale.US)} → EN)" else "Translated (${detectedCode.uppercase(Locale.US)} → EN)",
+                    statusHint = if (_isListening.value) {
+                        "Listening ($detectedUpper → $targetLabel)"
+                    } else {
+                        "Translated ($detectedUpper → $targetLabel)"
+                    },
                     updatedAtMs = now,
                 )
                 if (recordHistory) {
                     val entry = TranslationHistoryEntry(
                         id = now,
                         originalText = cleaned,
-                        translatedEnglish = finalEnglish,
+                        translatedEnglish = finalOutput,
                         detectedLangCode = detectedCode,
+                        targetLangCode = targetCode,
                         timestampMs = now,
                     )
                     val updated = (listOf(entry) + _history.value)
-                        .distinctBy { it.originalText }
+                        .distinctBy { "${it.originalText}|${it.targetLangCode}" }
                         .take(15)
                     _history.value = updated
+                    _downloadedModels.value = TranslationApi.downloadedModelLanguages()
                 }
             }.onFailure { err ->
                 _bubbleState.value = _bubbleState.value.copy(
@@ -484,6 +735,7 @@ internal object GameTranslatorEngine {
 
     fun destroy() {
         stopListening()
+        translateJob?.cancel()
         engineScope.cancel()
     }
 
@@ -567,6 +819,9 @@ internal object GameTranslatorEngine {
         "com.hypergryph.",
         "com.papegames.",
         "jp.co.ponos.",
+        "com.nvidia.geforcenow",
+        "com.microsoft.xcloud",
+        "com.brawl",
     )
 
     private val GAME_PACKAGE_KEYWORDS = listOf(

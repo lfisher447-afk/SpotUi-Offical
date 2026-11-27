@@ -68,8 +68,8 @@ import com.music.spotui.data.preferences.getEqPreset
 import com.music.spotui.data.preferences.getEqSubBass
 import com.music.spotui.data.preferences.getEqTreble
 import com.music.spotui.data.preferences.getEqVocal
+import com.music.spotui.data.preferences.getSpatial8dIntensity
 import com.music.spotui.data.preferences.getSpatialElevationDepth
-import com.music.spotui.data.preferences.getSpatialOrbitSpeed
 import com.music.spotui.data.preferences.getSpatialProfile
 import com.music.spotui.data.preferences.getSpatialRoomDelayMs
 import com.music.spotui.data.preferences.getSpatialStrength
@@ -78,7 +78,7 @@ import com.music.spotui.data.preferences.isEqEnabled
 import com.music.spotui.data.preferences.isEqSpatialEnabled
 import com.music.spotui.data.preferences.isHeadphoneCrossfeedEnabled
 import com.music.spotui.data.preferences.isLimiterEnabled
-import com.music.spotui.data.preferences.isSpatial8dOrbitEnabled
+import com.music.spotui.data.preferences.isSpatial8dEnabled
 import com.music.spotui.data.preferences.isSpatialCorrelationGuardEnabled
 import com.music.spotui.data.preferences.setAudioNormalizerEnabled
 import com.music.spotui.data.preferences.setAudioNormalizerGainMb
@@ -97,10 +97,10 @@ import com.music.spotui.data.preferences.setEqTreble
 import com.music.spotui.data.preferences.setEqVocal
 import com.music.spotui.data.preferences.setHeadphoneCrossfeedEnabled
 import com.music.spotui.data.preferences.setLimiterEnabled
-import com.music.spotui.data.preferences.setSpatial8dOrbitEnabled
+import com.music.spotui.data.preferences.setSpatial8dEnabled
+import com.music.spotui.data.preferences.setSpatial8dIntensity
 import com.music.spotui.data.preferences.setSpatialCorrelationGuardEnabled
 import com.music.spotui.data.preferences.setSpatialElevationDepth
-import com.music.spotui.data.preferences.setSpatialOrbitSpeed
 import com.music.spotui.data.preferences.setSpatialProfile
 import com.music.spotui.data.preferences.setSpatialRoomDelayMs
 import com.music.spotui.data.preferences.setSpatialStrength
@@ -137,8 +137,8 @@ fun AudioDspSection(
     var spatialStrength by remember { mutableStateOf(getSpatialStrength(context).toFloat()) }
     var roomDelayMs by remember { mutableStateOf(getSpatialRoomDelayMs(context)) }
     var spatialElevationDepth by remember { mutableStateOf(getSpatialElevationDepth(context)) }
-    var spatial8dOrbit by remember { mutableStateOf(isSpatial8dOrbitEnabled(context)) }
-    var spatialOrbitSpeed by remember { mutableStateOf(getSpatialOrbitSpeed(context)) }
+    var spatial8dAdvanced by remember { mutableStateOf(isSpatial8dEnabled(context)) }
+    var spatial8dIntensity by remember { mutableStateOf(getSpatial8dIntensity(context)) }
     var spatialCorrelationGuard by remember { mutableStateOf(isSpatialCorrelationGuardEnabled(context)) }
     var headphoneCrossfeed by remember { mutableStateOf(isHeadphoneCrossfeedEnabled(context)) }
 
@@ -164,8 +164,8 @@ fun AudioDspSection(
         spatialStrength = getSpatialStrength(context).toFloat()
         roomDelayMs = getSpatialRoomDelayMs(context)
         spatialElevationDepth = getSpatialElevationDepth(context)
-        spatial8dOrbit = isSpatial8dOrbitEnabled(context)
-        spatialOrbitSpeed = getSpatialOrbitSpeed(context)
+        spatial8dAdvanced = isSpatial8dEnabled(context)
+        spatial8dIntensity = getSpatial8dIntensity(context)
         spatialCorrelationGuard = isSpatialCorrelationGuardEnabled(context)
         headphoneCrossfeed = isHeadphoneCrossfeedEnabled(context)
     }
@@ -180,7 +180,7 @@ fun AudioDspSection(
     val appVolumePercent by SongPlayer.appVolumePercentFlow.collectAsState()
     var lastNonZeroVolume by remember { mutableIntStateOf(if (appVolumePercent > 0) appVolumePercent else 80) }
     var dspTelemetry by remember { mutableStateOf(SongPlayer.dspTelemetrySummary()) }
-    LaunchedEffect(eqEnabled, eqSpatial, spatial8dOrbit, headphoneCrossfeed, routeInfo) {
+    LaunchedEffect(eqEnabled, eqSpatial, spatial8dAdvanced, spatial8dIntensity, headphoneCrossfeed, routeInfo) {
         while (true) {
             dspTelemetry = SongPlayer.dspTelemetrySummary()
             delay(1200L)
@@ -189,7 +189,7 @@ fun AudioDspSection(
     val capabilities = remember(
         eqEnabled, eqSubBass, eqBass, eqLowMid, eqVocal, eqHighMid, eqTreble, eqBrilliance,
         preampDb, bassBoostStrength, limiterEnabled, audioNormalizer, eqSpatial, spatialProfile,
-        spatialStrength, roomDelayMs, spatialElevationDepth, spatial8dOrbit, spatialOrbitSpeed,
+        spatialStrength, roomDelayMs, spatialElevationDepth, spatial8dAdvanced, spatial8dIntensity,
         spatialCorrelationGuard, headphoneCrossfeed, routeInfo,
     ) {
         AudioEffectController.capabilityReport()
@@ -763,35 +763,35 @@ fun AudioDspSection(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("8D Binaural Orbit (360° Head Stage)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text("Smooth spherical-head azimuth panning around the listener", color = Color.Gray, fontSize = 11.sp)
+                        Text("Advanced 8D Holographic Audio", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Stationary multi-band out-of-head binaural field with zero dizzying orbit", color = Color.Gray, fontSize = 11.sp)
                     }
                     Switch(
-                        checked = spatial8dOrbit,
+                        checked = spatial8dAdvanced,
                         onCheckedChange = {
-                            spatial8dOrbit = it
-                            setSpatial8dOrbitEnabled(context, it)
+                            spatial8dAdvanced = it
+                            setSpatial8dEnabled(context, it)
                             applyLiveDsp()
                         },
-                        modifier = Modifier.testTag("spatial_8d_orbit_switch"),
+                        modifier = Modifier.testTag("spatial_8d_advanced_switch"),
                         colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = AppPalette),
                     )
                 }
 
-                if (spatial8dOrbit) {
+                if (spatial8dAdvanced) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("8D Orbit Rotation Speed", color = Color.White, fontSize = 13.sp)
-                        Text("${String.format("%.2f", spatialOrbitSpeed)} Hz", color = AppPalette, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text("8D Immersion Intensity", color = Color.White, fontSize = 13.sp)
+                        Text("${(spatial8dIntensity * 100f).roundToInt()}%", color = AppPalette, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                     Slider(
-                        value = spatialOrbitSpeed,
+                        value = spatial8dIntensity,
                         onValueChange = {
-                            spatialOrbitSpeed = it
-                            setSpatialOrbitSpeed(context, it)
+                            spatial8dIntensity = it
+                            setSpatial8dIntensity(context, it)
                             applyLiveDsp()
                         },
-                        valueRange = 0.10f..1.50f,
-                        modifier = Modifier.testTag("spatial_8d_speed_slider"),
+                        valueRange = 0.25f..1.50f,
+                        modifier = Modifier.testTag("spatial_8d_depth_slider"),
                         colors = SliderDefaults.colors(activeTrackColor = AppPalette, thumbColor = AppPalette),
                     )
                 }

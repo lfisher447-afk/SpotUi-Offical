@@ -156,6 +156,7 @@ class MyApplication : Application(), Configuration.Provider {
         }
         // Pre-warm the YouTube playback pipeline, SimpleCache, + embedded yt-dlp engine on IO
         appScope.launch {
+            com.music.spotui.audio.UiSoundEngine.warmup(applicationContext)
             com.music.spotui.di.SongPlayer.warmupMediaCacheAsync(applicationContext)
             runCatching { com.metrolist.innertube.NewPipeExtractor.init() }
                 .onFailure { AppDiagnostics.warning("NewPipe", "Playback pipeline warm-up failed", it) }

@@ -18,15 +18,17 @@ enum class ExpressiveThemePreset(
     val description: String,
     val seed: Int,
 ) {
-    SPOTUI_BLUE("Spotui Blue", "Focused blue with a cool, high-contrast music surface", 0xFF618DFF.toInt()),
+    CYBER_PRISM("Cyber Prism", "Electric cyan, mint emerald, and midnight sapphire studio glow", 0xFF38BDF8.toInt()),
+    CHRISTMAS("Winter Noel", "Festive pine emerald, ruby holly, and warm champagne gold", 0xFF2CE69B.toInt()),
+    SPOTUI_BLUE("Spotui Blue", "Focused cobalt blue with a cool, high-contrast music surface", 0xFF618DFF.toInt()),
     AURORA("Aurora", "Violet, cyan, and luminous night-sky highlights", 0xFF9A7BFF.toInt()),
-    THANKSGIVING("Harvest Gold", "Warm Thanksgiving amber, autumn maple, and deep espresso", 0xFFE87A24.toInt()),
+    VELVET_CRIMSON("Velvet Crimson", "Rich ruby crimson glass with warm rose-gold accents", 0xFFF43F5E.toInt()),
     SUNSET("Sunset", "Warm coral and amber with soft dark surfaces", 0xFFFF6F61.toInt()),
-    FOREST("Forest", "Deep green and mint for a calm listening environment", 0xFF46B989.toInt()),
+    FOREST("Forest", "Deep emerald and mint for a calm listening environment", 0xFF46B989.toInt()),
     MONOCHROME("Monochrome", "Minimal neutral palette with a precise electric accent", 0xFFB8C1FF.toInt()),
-    SYSTEM("System dynamic", "Android 12+ wallpaper colors when available", 0xFF618DFF.toInt()),
-    CUSTOM_JSON("Custom JSON", "Validated user-imported Material role colors", 0xFF618DFF.toInt()),
-    IMAGE_DERIVED("Image derived", "Palette generated locally from a selected image", 0xFF618DFF.toInt()),
+    SYSTEM("System dynamic", "Android 12+ wallpaper colors when available", 0xFF38BDF8.toInt()),
+    CUSTOM_JSON("Custom JSON", "Validated user-imported Material role colors", 0xFF38BDF8.toInt()),
+    IMAGE_DERIVED("Image derived", "Palette generated locally from a selected image", 0xFF38BDF8.toInt()),
 }
 
 data class SpotuiThemeSpec(
@@ -57,9 +59,12 @@ object ThemePreferences {
 
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(PREF, Context.MODE_PRIVATE)
 
-    fun preset(context: Context): ExpressiveThemePreset = runCatching {
-        ExpressiveThemePreset.valueOf(prefs(context).getString(KEY_PRESET, ExpressiveThemePreset.SPOTUI_BLUE.name).orEmpty())
-    }.getOrDefault(ExpressiveThemePreset.SPOTUI_BLUE)
+    fun preset(context: Context): ExpressiveThemePreset {
+        val raw = prefs(context).getString(KEY_PRESET, ExpressiveThemePreset.CYBER_PRISM.name).orEmpty()
+        if (raw == "THANKSGIVING") return ExpressiveThemePreset.CHRISTMAS
+        return runCatching { ExpressiveThemePreset.valueOf(raw) }
+            .getOrDefault(ExpressiveThemePreset.CYBER_PRISM)
+    }
 
     fun setPreset(context: Context, preset: ExpressiveThemePreset) {
         prefs(context).edit().putString(KEY_PRESET, preset.name).apply()
@@ -110,7 +115,7 @@ object ThemePreferences {
         val custom = prefs(context).getString(KEY_SPEC, null)?.let(::decodeSpec)
         return when (selected) {
             ExpressiveThemePreset.CUSTOM_JSON,
-            ExpressiveThemePreset.IMAGE_DERIVED -> custom ?: presetSpec(ExpressiveThemePreset.SPOTUI_BLUE)
+            ExpressiveThemePreset.IMAGE_DERIVED -> custom ?: presetSpec(ExpressiveThemePreset.CYBER_PRISM)
             else -> presetSpec(selected)
         }
     }
@@ -147,7 +152,11 @@ object ThemePreferences {
     }
 
     fun resetCustomTheme(context: Context) {
-        prefs(context).edit().remove(KEY_SPEC).remove(KEY_IMAGE_URI).putString(KEY_PRESET, ExpressiveThemePreset.SPOTUI_BLUE.name).apply()
+        prefs(context).edit()
+            .remove(KEY_SPEC)
+            .remove(KEY_IMAGE_URI)
+            .putString(KEY_PRESET, ExpressiveThemePreset.CYBER_PRISM.name)
+            .apply()
         com.music.spotui.data.preferences.signalUiSettingsChanged()
     }
 
@@ -177,8 +186,8 @@ object ThemePreferences {
         val secondary = parseColor(json.optString("secondary", colorString(lighten(primary, 0.18f))))
         val tertiary = parseColor(json.optString("tertiary", colorString(rotateHue(primary, 42f))))
         val dark = json.optBoolean("dark", true)
-        val background = parseColor(json.optString("background", colorString(if (dark) darken(primary, 0.90f) else lighten(primary, 0.93f))))
-        val surface = parseColor(json.optString("surface", colorString(if (dark) darken(primary, 0.82f) else lighten(primary, 0.86f))))
+        val background = parseColor(json.optString("background", colorString(if (dark) darken(primary, 0.92f) else lighten(primary, 0.93f))))
+        val surface = parseColor(json.optString("surface", colorString(if (dark) darken(primary, 0.84f) else lighten(primary, 0.86f))))
         val onPrimary = parseColor(json.optString("onPrimary", colorString(contrastColor(primary))))
         val onBackground = parseColor(json.optString("onBackground", colorString(contrastColor(background))))
         return SpotuiThemeSpec(name, ExpressiveThemePreset.CUSTOM_JSON, primary, secondary, tertiary, background, surface, onPrimary, onBackground, dark, json.optString("sourceDescription", "Imported JSON theme"))
@@ -188,13 +197,74 @@ object ThemePreferences {
         ?: error("The theme JSON must provide a $name color")
 
     fun presetSpec(preset: ExpressiveThemePreset): SpotuiThemeSpec = when (preset) {
-        ExpressiveThemePreset.SYSTEM -> fromSeed("System dynamic", preset, preset.seed, description = "Android wallpaper colors when available")
-        ExpressiveThemePreset.AURORA -> fromSeed("Aurora", preset, preset.seed, secondaryOverride = 0xFF56D7F1.toInt(), tertiaryOverride = 0xFFFF8FE9.toInt(), description = preset.description)
-        ExpressiveThemePreset.THANKSGIVING -> fromSeed("Harvest Gold", preset, preset.seed, secondaryOverride = 0xFFFFB74D.toInt(), tertiaryOverride = 0xFFD94F30.toInt(), description = preset.description)
-        ExpressiveThemePreset.SUNSET -> fromSeed("Sunset", preset, preset.seed, secondaryOverride = 0xFFFFB15C.toInt(), tertiaryOverride = 0xFFFFA5B4.toInt(), description = preset.description)
-        ExpressiveThemePreset.FOREST -> fromSeed("Forest", preset, preset.seed, secondaryOverride = 0xFF9EE8C9.toInt(), tertiaryOverride = 0xFF87BFFF.toInt(), description = preset.description)
-        ExpressiveThemePreset.MONOCHROME -> fromSeed("Monochrome", preset, preset.seed, secondaryOverride = 0xFFD4D8E8.toInt(), tertiaryOverride = 0xFF9AA7FF.toInt(), description = preset.description)
-        else -> fromSeed("Spotui Blue", ExpressiveThemePreset.SPOTUI_BLUE, ExpressiveThemePreset.SPOTUI_BLUE.seed, description = ExpressiveThemePreset.SPOTUI_BLUE.description)
+        ExpressiveThemePreset.CYBER_PRISM -> fromSeed(
+            name = "Cyber Prism",
+            preset = preset,
+            seed = preset.seed,
+            secondaryOverride = 0xFF1ED760.toInt(),
+            tertiaryOverride = 0xFFA78BFA.toInt(),
+            description = preset.description,
+        )
+        ExpressiveThemePreset.CHRISTMAS -> fromSeed(
+            name = "Winter Noel",
+            preset = preset,
+            seed = preset.seed,
+            secondaryOverride = 0xFFFFC857.toInt(),
+            tertiaryOverride = 0xFFE11D48.toInt(),
+            description = preset.description,
+        )
+        ExpressiveThemePreset.SYSTEM -> fromSeed(
+            name = "System dynamic",
+            preset = preset,
+            seed = preset.seed,
+            description = "Android wallpaper colors when available",
+        )
+        ExpressiveThemePreset.AURORA -> fromSeed(
+            name = "Aurora",
+            preset = preset,
+            seed = preset.seed,
+            secondaryOverride = 0xFF56D7F1.toInt(),
+            tertiaryOverride = 0xFFFF8FE9.toInt(),
+            description = preset.description,
+        )
+        ExpressiveThemePreset.VELVET_CRIMSON -> fromSeed(
+            name = "Velvet Crimson",
+            preset = preset,
+            seed = preset.seed,
+            secondaryOverride = 0xFFFDA4AF.toInt(),
+            tertiaryOverride = 0xFFF59E0B.toInt(),
+            description = preset.description,
+        )
+        ExpressiveThemePreset.SUNSET -> fromSeed(
+            name = "Sunset",
+            preset = preset,
+            seed = preset.seed,
+            secondaryOverride = 0xFFFFB15C.toInt(),
+            tertiaryOverride = 0xFFFFA5B4.toInt(),
+            description = preset.description,
+        )
+        ExpressiveThemePreset.FOREST -> fromSeed(
+            name = "Forest",
+            preset = preset,
+            seed = preset.seed,
+            secondaryOverride = 0xFF9EE8C9.toInt(),
+            tertiaryOverride = 0xFF87BFFF.toInt(),
+            description = preset.description,
+        )
+        ExpressiveThemePreset.MONOCHROME -> fromSeed(
+            name = "Monochrome",
+            preset = preset,
+            seed = preset.seed,
+            secondaryOverride = 0xFFD4D8E8.toInt(),
+            tertiaryOverride = 0xFF9AA7FF.toInt(),
+            description = preset.description,
+        )
+        else -> fromSeed(
+            name = "Spotui Blue",
+            preset = ExpressiveThemePreset.SPOTUI_BLUE,
+            seed = ExpressiveThemePreset.SPOTUI_BLUE.seed,
+            description = ExpressiveThemePreset.SPOTUI_BLUE.description,
+        )
     }
 
     private fun fromSeed(
@@ -210,8 +280,8 @@ object ThemePreferences {
         primaryArgb = seed,
         secondaryArgb = secondaryOverride ?: lighten(seed, 0.18f),
         tertiaryArgb = tertiaryOverride ?: rotateHue(seed, 42f),
-        backgroundArgb = darken(seed, 0.91f),
-        surfaceArgb = darken(seed, 0.82f),
+        backgroundArgb = blend(darken(seed, 0.93f), 0xFF060911.toInt(), 0.45f),
+        surfaceArgb = blend(darken(seed, 0.85f), 0xFF101626.toInt(), 0.35f),
         onPrimaryArgb = contrastColor(seed),
         onBackgroundArgb = 0xFFFFFFFF.toInt(),
         dark = true,

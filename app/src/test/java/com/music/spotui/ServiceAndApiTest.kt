@@ -244,7 +244,7 @@ class ServiceAndApiTest {
             nowMs = t0,
             skipNetworkProbesForTest = true,
         )
-        assertEquals(18, first.checks.size)
+        assertEquals(21, first.checks.size)
         assertTrue(com.music.spotui.util.SystemHealthChecker.remainingCooldownMs(t0 + 2_000L) > 0L)
         val cached = com.music.spotui.util.SystemHealthChecker.runFullScan(
             context,

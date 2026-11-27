@@ -33,6 +33,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ClearAll
+import androidx.compose.material.icons.rounded.CloudDone
+import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.GraphicEq
@@ -50,6 +52,7 @@ import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SpatialAudio
 import androidx.compose.material.icons.rounded.SportsEsports
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -59,6 +62,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -513,12 +517,12 @@ internal fun FloaterSpatial3dPanel(
             testTag = "floater_spatial_master_switch",
         )
 
-        // Interactive 3D Binaural Soundstage Radar
-        ExpressivePanelCard(title = "Binaural Soundstage Radar", accentColor = cs.secondary) {
+        // Stationary 8D Holographic Acoustic Halo Radar (zero orbital panning)
+        ExpressivePanelCard(title = "Holographic 8D Soundstage", accentColor = cs.secondary) {
             SpatialSoundstageRadarCanvas(
                 enabled = state.spatialEnabled,
-                orbit8dEnabled = state.orbit8dEnabled,
-                orbitSpeedHz = state.orbit8dSpeedHz,
+                advanced8dEnabled = state.advanced8dEnabled,
+                advanced8dDepth = state.advanced8dDepth,
                 strengthFraction = (state.spatialStrength / 1000f).coerceIn(0f, 1f),
                 primary = cs.primary,
                 tertiary = cs.tertiary,
@@ -566,20 +570,20 @@ internal fun FloaterSpatial3dPanel(
             )
         }
 
-        ExpressivePanelCard(title = "8D Orbit & Headphone Safe", accentColor = cs.secondary) {
+        ExpressivePanelCard(title = "Advanced 8D Audio & Headphone Safe", accentColor = cs.secondary) {
             ExpressiveToggleCard(
-                title = "8D Circular Auto-Orbit",
-                subtitle = "Slow binaural azimuth rotation",
-                checked = state.orbit8dEnabled,
-                onCheckedChange = { callbacks.onHaptic(true); callbacks.onToggle8dOrbit(it) },
+                title = "Advanced 8D Holographic Audio",
+                subtitle = "Zero-orbit stationary pinna externalization",
+                checked = state.advanced8dEnabled,
+                onCheckedChange = { callbacks.onHaptic(true); callbacks.onToggle8dAudio(it) },
                 testTag = "floater_8d_switch",
             )
-            if (state.orbit8dEnabled) {
+            if (state.advanced8dEnabled) {
                 ExpressiveSliderRow(
-                    label = "Orbit Rotation Rate",
-                    valueText = String.format(Locale.US, "%.2f Hz", state.orbit8dSpeedHz),
-                    value = ((state.orbit8dSpeedHz - 0.10f) / 1.40f).coerceIn(0f, 1f),
-                    onValueChange = { callbacks.onInteraction(); callbacks.onOrbitSpeedChange(0.10f + it * 1.40f) },
+                    label = "8D Immersion Depth",
+                    valueText = "${(state.advanced8dDepth * 100f).roundToInt()}%",
+                    value = ((state.advanced8dDepth - 0.25f) / 1.25f).coerceIn(0f, 1f),
+                    onValueChange = { callbacks.onInteraction(); callbacks.on8dDepthChange(0.25f + it * 1.25f) },
                 )
             }
             ExpressiveToggleCard(
@@ -748,47 +752,67 @@ internal fun FloaterGameTranslatePanel(
             shape = RoundedCornerShape(20.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Row(
+            Column(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Surface(
-                    color = cs.tertiary,
-                    shape = CircleShape,
-                    modifier = Modifier.size(34.dp),
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        if (translationBubble.isTranslating) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                color = cs.onTertiary,
-                                strokeWidth = 2.dp,
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Rounded.SportsEsports,
-                                contentDescription = null,
-                                tint = cs.onTertiary,
-                                modifier = Modifier.size(18.dp),
-                            )
+                    Surface(
+                        color = cs.tertiary,
+                        shape = CircleShape,
+                        modifier = Modifier.size(34.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            if (translationBubble.isTranslating) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = cs.onTertiary,
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Rounded.SportsEsports,
+                                    contentDescription = null,
+                                    tint = cs.onTertiary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
                         }
                     }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = state.activeGameLabel ?: if (state.alwaysUnlockTranslator) "Translator Studio Unlocked" else "Game Detected",
+                            color = cs.onTertiaryContainer,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = translationBubble.statusHint,
+                            color = cs.onTertiaryContainer.copy(alpha = 0.85f),
+                            fontSize = 10.5.sp,
+                            maxLines = 2,
+                        )
+                    }
                 }
-                Column(modifier = Modifier.weight(1f)) {
+                if (state.speechEngineLabel.isNotBlank()) {
                     Text(
-                        text = state.activeGameLabel ?: "Game Detected",
-                        color = cs.onTertiaryContainer,
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        text = state.speechEngineLabel,
+                        color = cs.onTertiaryContainer.copy(alpha = 0.78f),
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.SemiBold,
                     )
-                    Text(
-                        text = translationBubble.statusHint,
-                        color = cs.onTertiaryContainer.copy(alpha = 0.85f),
-                        fontSize = 10.5.sp,
-                        maxLines = 2,
+                }
+                if (isListening) {
+                    LinearProgressIndicator(
+                        progress = { state.micRmsNormalized.coerceIn(0.06f, 1f) },
+                        color = cs.primary,
+                        trackColor = cs.surfaceContainerLowest.copy(alpha = 0.55f),
+                        modifier = Modifier.fillMaxWidth().height(5.dp).clip(CircleShape),
                     )
                 }
             }
@@ -808,7 +832,7 @@ internal fun FloaterGameTranslatePanel(
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        text = "Allow RECORD_AUDIO so SpotUI can hear teammates speaking Spanish, Arabic, etc. and translate into English live.",
+                        text = "Allow RECORD_AUDIO so SpotUI can hear teammates speaking Spanish, Arabic, etc. and translate live.",
                         color = cs.onErrorContainer,
                         fontSize = 10.5.sp,
                     )
@@ -851,9 +875,40 @@ internal fun FloaterGameTranslatePanel(
                     fontWeight = FontWeight.ExtraBold,
                 )
             }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                FilterChip(
+                    selected = state.continuousListen,
+                    onClick = { callbacks.onHaptic(false); callbacks.onToggleContinuousListen(!state.continuousListen) },
+                    label = {
+                        Text(
+                            if (state.continuousListen) "Loop: Continuous" else "Loop: Single-Shot",
+                            fontSize = 10.5.sp,
+                        )
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                )
+                FilledTonalButton(
+                    onClick = { callbacks.onHaptic(false); callbacks.onSwapTranslateLanguages() },
+                    enabled = sourceLangCode != "auto",
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Icon(Icons.Rounded.SwapHoriz, contentDescription = "Swap source and target languages", modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Swap", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
 
-        ExpressivePanelCard(title = "Source Language (Auto-Detect → English)", accentColor = cs.primary) {
+        ExpressivePanelCard(
+            title = "Source → Target (${sourceLangCode.uppercase(Locale.US)} → ${state.targetLangCode.uppercase(Locale.US)})",
+            accentColor = cs.primary,
+        ) {
+            Text("Teammate Speaks", color = cs.onSurfaceVariant, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -862,9 +917,13 @@ internal fun FloaterGameTranslatePanel(
             ) {
                 GameTranslatorEngine.supportedLanguages.forEach { option ->
                     val selected = sourceLangCode == option.code
+                    val packReady = option.code == "auto" || option.code in state.downloadedModelLangs
                     FilterChip(
                         selected = selected,
                         onClick = { callbacks.onHaptic(false); callbacks.onSelectTranslateSource(option.code) },
+                        leadingIcon = if (packReady) {
+                            { Icon(Icons.Rounded.CloudDone, contentDescription = null, modifier = Modifier.size(13.dp)) }
+                        } else null,
                         label = { Text("${option.shortLabel} · ${option.fullName}", fontSize = 11.sp) },
                         shape = RoundedCornerShape(16.dp),
                         colors = FilterChipDefaults.filterChipColors(
@@ -875,12 +934,55 @@ internal fun FloaterGameTranslatePanel(
                     )
                 }
             }
+            Text("Translate Into", color = cs.onSurfaceVariant, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                GameTranslatorEngine.supportedTargetLanguages.forEach { option ->
+                    val selected = state.targetLangCode == option.code
+                    FilterChip(
+                        selected = selected,
+                        onClick = { callbacks.onHaptic(false); callbacks.onSelectTranslateTarget(option.code) },
+                        label = { Text("${option.shortLabel} · ${option.fullName}", fontSize = 11.sp) },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = cs.secondary,
+                            selectedLabelColor = cs.onSecondary,
+                        ),
+                        modifier = Modifier.heightIn(min = 48.dp).testTag("floater_target_lang_${option.code}"),
+                    )
+                }
+            }
+            val missingSourcePack = sourceLangCode != "auto" && sourceLangCode !in state.downloadedModelLangs
+            val missingTargetPack = state.targetLangCode !in state.downloadedModelLangs
+            if (missingSourcePack || missingTargetPack) {
+                val langToFetch = if (missingSourcePack) sourceLangCode else state.targetLangCode
+                val isBusy = state.modelDownloadBusyLang == langToFetch
+                OutlinedButton(
+                    onClick = { callbacks.onHaptic(true); callbacks.onDownloadLanguagePack(langToFetch) },
+                    enabled = !isBusy,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                ) {
+                    Icon(Icons.Rounded.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (isBusy) "Downloading ${langToFetch.uppercase(Locale.US)} pack…"
+                        else "Download ${langToFetch.uppercase(Locale.US)} Offline Pack",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
         }
 
         ExpressivePanelCard(title = "Top-Left Bubble Size & Width", accentColor = cs.secondary) {
             ExpressiveToggleCard(
                 title = "Show Top-Left Bubble",
-                subtitle = "Floating live English caption over game",
+                subtitle = "Floating live translation caption over game",
                 checked = bubbleEnabled,
                 onCheckedChange = { callbacks.onHaptic(true); callbacks.onToggleBubbleVisible(it) },
                 testTag = "floater_bubble_toggle",
@@ -914,7 +1016,7 @@ internal fun FloaterGameTranslatePanel(
             }
         }
 
-        ExpressivePanelCard(title = "Quick Teammate Text → EN", accentColor = cs.tertiary) {
+        ExpressivePanelCard(title = "Quick Teammate Text → ${state.targetLangCode.uppercase(Locale.US)}", accentColor = cs.tertiary) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -947,7 +1049,7 @@ internal fun FloaterGameTranslatePanel(
                         .background(cs.primary)
                         .testTag("floater_translate_send_button"),
                 ) {
-                    Icon(Icons.Rounded.Send, contentDescription = "Translate to English", tint = cs.onPrimary, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Rounded.Send, contentDescription = "Translate", tint = cs.onPrimary, modifier = Modifier.size(18.dp))
                 }
             }
         }
@@ -973,7 +1075,7 @@ internal fun FloaterGameTranslatePanel(
                     ) {
                         Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                text = "[${item.detectedLangCode.uppercase(Locale.US)} → EN] ${item.translatedEnglish}",
+                                text = "[${item.detectedLangCode.uppercase(Locale.US)} → ${item.targetLangCode.uppercase(Locale.US)}] ${item.translatedEnglish}",
                                 color = cs.onSurface,
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Bold,
@@ -1073,25 +1175,13 @@ private fun EqResponseCurveCanvas(
 @Composable
 private fun SpatialSoundstageRadarCanvas(
     enabled: Boolean,
-    orbit8dEnabled: Boolean,
-    orbitSpeedHz: Float,
+    advanced8dEnabled: Boolean,
+    advanced8dDepth: Float,
     strengthFraction: Float,
     primary: Color,
     tertiary: Color,
     gridColor: Color,
 ) {
-    val transition = rememberInfiniteTransition(label = "spatialOrbit")
-    val durationMs = (1000f / orbitSpeedHz.coerceIn(0.10f, 1.50f)).roundToInt().coerceIn(650, 10_000)
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2f * PI).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = durationMs, easing = LinearEasing),
-            repeatMode = AnimRepeatMode.Restart,
-        ),
-        label = "orbitPhase",
-    )
-
     Canvas(
         modifier = Modifier
             .fillMaxWidth()
@@ -1100,9 +1190,10 @@ private fun SpatialSoundstageRadarCanvas(
         val center = Offset(size.width * 0.5f, size.height * 0.5f)
         val maxR = (size.minDimension * 0.44f).coerceAtLeast(16f)
         val stageColor = if (enabled) primary else gridColor
+        val depthBoost = if (advanced8dEnabled) (0.7f + 0.3f * (advanced8dDepth / 1.5f)) else 0.72f
 
         // Concentric Soundstage Rings
-        listOf(0.4f, 0.72f, 1.0f).forEach { factor ->
+        listOf(0.42f, 0.72f, 1.0f).forEach { factor ->
             drawCircle(
                 color = gridColor,
                 radius = maxR * factor,
@@ -1112,10 +1203,10 @@ private fun SpatialSoundstageRadarCanvas(
         }
 
         // Expanding Depth Aura
-        val spreadR = maxR * (0.28f + 0.70f * strengthFraction)
+        val spreadR = maxR * (0.28f + 0.70f * strengthFraction * depthBoost)
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(stageColor.copy(alpha = if (enabled) 0.28f else 0.08f), Color.Transparent),
+                colors = listOf(stageColor.copy(alpha = if (enabled) 0.30f else 0.08f), Color.Transparent),
                 center = center,
                 radius = spreadR,
             ),
@@ -1124,31 +1215,37 @@ private fun SpatialSoundstageRadarCanvas(
         )
 
         // Listener Center Anchor
-        drawCircle(color = stageColor, radius = 6f, center = center)
+        drawCircle(color = stageColor, radius = 6.5f, center = center)
 
-        // 8D Orbiting Sound Source Orb
-        val angle = if (enabled && orbit8dEnabled) phase else (-PI / 3.0).toFloat()
-        val orbDist = spreadR * 0.85f
-        val orbCenter = Offset(
-            x = center.x + cos(angle) * orbDist,
-            y = center.y + sin(angle) * orbDist,
-        )
-        drawLine(
-            color = (if (enabled) tertiary else gridColor).copy(alpha = 0.5f),
-            start = center,
-            end = orbCenter,
-            strokeWidth = 2f,
-        )
-        drawCircle(
-            color = (if (enabled) tertiary else gridColor).copy(alpha = 0.30f),
-            radius = 11f,
-            center = orbCenter,
-        )
-        drawCircle(
-            color = if (enabled) tertiary else gridColor,
-            radius = 5.5f,
-            center = orbCenter,
-        )
+        // Stationary 8-Node Holographic Acoustic Halo (no orbit)
+        val nodeCount = 8
+        val haloDist = spreadR * 0.86f
+        val nodeColor = if (enabled && advanced8dEnabled) tertiary else stageColor.copy(alpha = 0.7f)
+        for (i in 0 until nodeCount) {
+            val angle = ((2.0 * PI * i) / nodeCount - PI / 2.0).toFloat()
+            val pt = Offset(
+                x = center.x + cos(angle) * haloDist,
+                y = center.y + sin(angle) * haloDist,
+            )
+            drawLine(
+                color = nodeColor.copy(alpha = if (enabled && advanced8dEnabled) 0.42f else 0.22f),
+                start = center,
+                end = pt,
+                strokeWidth = 1.5f,
+            )
+            if (enabled && advanced8dEnabled) {
+                drawCircle(
+                    color = nodeColor.copy(alpha = 0.25f),
+                    radius = 8.5f,
+                    center = pt,
+                )
+            }
+            drawCircle(
+                color = nodeColor,
+                radius = if (enabled && advanced8dEnabled) 4.2f else 3f,
+                center = pt,
+            )
+        }
     }
 }
 

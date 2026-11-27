@@ -55,15 +55,16 @@ import com.bumptech.glide.integration.compose.ExperimentalGlideComposeApi
 import com.bumptech.glide.integration.compose.GlideImage
 import com.bumptech.glide.integration.compose.placeholder
 import com.music.spotui.R
+import com.music.spotui.audio.UiSoundEngine
 import com.music.spotui.data.api.Response
 import com.music.spotui.data.entity.AlbumsModel
 import com.music.spotui.data.entity.ArtistsModel
 import com.music.spotui.data.entity.HomeFeedModel
 import com.music.spotui.data.entity.HomeItem
 import com.music.spotui.data.entity.HomeSection
+import com.music.spotui.ui.components.ChristmasCountdownBanner
 import com.music.spotui.ui.components.LiveLocationClockCard
 import com.music.spotui.ui.components.Loader
-import com.music.spotui.ui.components.ThanksgivingCountdownBanner
 import com.music.spotui.ui.navigation.Routes
 import com.music.spotui.ui.navigation.albumRoute
 import com.music.spotui.ui.navigation.artistRoute
@@ -71,9 +72,13 @@ import com.music.spotui.ui.navigation.categoryRoute
 import com.music.spotui.ui.navigation.playlistRoute
 import com.music.spotui.ui.theme.AppBackground
 import com.music.spotui.ui.theme.AppPalette
+import com.music.spotui.ui.theme.AppSecondary
 import com.music.spotui.ui.theme.GridBackground
 import com.music.spotui.ui.viewmodel.HomeViewModel
-import java.time.LocalTime
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextOverflow
 
 
 @Composable
@@ -91,22 +96,22 @@ fun HomeScreen(navController: NavController){
             12
         }
     }
-    val ambientGlowColor = remember(currentHour) {
-        when {
-            currentHour < 12 -> Color(0xFF0F3E30) // Deep pine emerald glow (Morning)
-            currentHour < 17 -> Color(0xFF132A4C) // Deep royal sapphire glow (Afternoon)
-            else -> Color(0xFF2E1343)             // Deep amethyst velvet glow (Evening)
+    val paletteAccent = AppPalette
+    val paletteBg = AppBackground
+    val gradientBrush = remember(currentHour, paletteAccent, paletteBg) {
+        val ambientGlowColor = when {
+            currentHour < 12 -> paletteAccent.copy(alpha = 0.24f)
+            currentHour < 17 -> paletteAccent.copy(alpha = 0.20f)
+            else -> paletteAccent.copy(alpha = 0.26f)
         }
-    }
-    val gradientBrush = remember(ambientGlowColor) {
         Brush.verticalGradient(
             colors = listOf(
                 ambientGlowColor,
-                Color(0xFF0B0B0F).copy(alpha = 0.95f),
-                Color(0xFF07070A)
+                paletteBg.copy(alpha = 0.96f),
+                Color(0xFF06080E)
             ),
             startY = 0f,
-            endY = 1600f
+            endY = 1400f
         )
     }
 
@@ -148,28 +153,41 @@ fun HomeScreen(navController: NavController){
                 }
 
                 else -> {
+                    val emptyCtx = LocalContext.current
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(24.dp),
                         ) {
                             Text(
                                 text = "Couldn't load music.\nCheck your connection and try again.",
                                 color = Color.White,
                                 textAlign = TextAlign.Center,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium,
                             )
-                            Spacer(modifier = Modifier.height(24.dp))
-                            Text(
-                                text = "Go to Downloads",
-                                color = Color(0xFF1ED760), // Spotify Green
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
+                            Spacer(modifier = Modifier.height(20.dp))
+                            Box(
                                 modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(Brush.horizontalGradient(listOf(AppPalette, AppSecondary)))
                                     .clickable {
+                                        UiSoundEngine.playTapChime(emptyCtx)
                                         navController.navigate(Routes.Downloads.route)
                                     }
-                                    .padding(12.dp)
-                            )
+                                    .testTag("home_empty_downloads_button")
+                                    .padding(horizontal = 24.dp, vertical = 12.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = "Go to Downloads",
+                                    color = Color(0xFF061014),
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 15.sp,
+                                )
+                            }
                         }
                     }
                 }
@@ -211,10 +229,10 @@ fun HomeFeedContent(navController: NavController, feed: HomeFeedModel) {
             LiveLocationClockCard()
         }
         item {
-            ThanksgivingCountdownBanner(
-                onAutumnMixClick = {
+            ChristmasCountdownBanner(
+                onHolidayMixClick = {
                     navController.navigate(
-                        categoryRoute("Thanksgiving Autumn Acoustic", "Thanksgiving & Autumn Vibes"),
+                        categoryRoute("Christmas Holiday Hits", "Christmas & Winter Vibes"),
                     )
                 },
             )
@@ -236,7 +254,7 @@ fun HomeFeedContent(navController: NavController, feed: HomeFeedModel) {
 @OptIn(ExperimentalGlideComposeApi::class)
 @Composable
 private fun HomeHeaderRow(navController: NavController) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     androidx.compose.runtime.LaunchedEffect(Unit) {
         com.music.spotui.data.api.ProfileCache.ensure(context)
     }
@@ -244,44 +262,53 @@ private fun HomeHeaderRow(navController: NavController) {
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 26.dp, bottom = 8.dp),
+            .padding(top = 18.dp, bottom = 8.dp),
     ) {
         val avatarUrl = com.music.spotui.data.api.ProfileCache.imageUrl
         val initial = com.music.spotui.data.api.ProfileCache.name
-            ?.trim()?.firstOrNull()?.uppercase() ?: "•"
+            ?.trim()?.firstOrNull()?.uppercase() ?: "S"
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .padding(start = 16.dp)
-                .size(34.dp)
+                .padding(start = 12.dp)
+                .size(48.dp)
                 .clip(CircleShape)
-                .background(Color(0xFFE8622C))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                ) { navController.navigate(Routes.Settings.route) },
+                .clickable {
+                    UiSoundEngine.playTapChime(context)
+                    navController.navigate(Routes.Settings.route)
+                }
+                .testTag("home_profile_button"),
         ) {
-            if (avatarUrl != null) {
-                GlideImage(
-                    model = avatarUrl,
-                    contentScale = ContentScale.Crop,
-                    contentDescription = "Profile",
-                    modifier = Modifier.size(34.dp),
-                )
-            } else {
-                Text(
-                    text = initial,
-                    color = Color.Black,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                )
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(Brush.linearGradient(listOf(AppPalette, AppSecondary)))
+                    .border(1.5.dp, Color.White.copy(alpha = 0.35f), CircleShape),
+            ) {
+                if (avatarUrl != null) {
+                    GlideImage(
+                        model = avatarUrl,
+                        contentScale = ContentScale.Crop,
+                        contentDescription = "Profile & Settings",
+                        modifier = Modifier.size(38.dp),
+                    )
+                } else {
+                    Text(
+                        text = initial,
+                        color = Color(0xFF061014),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                }
             }
         }
         // Filter pills — Podcasts/Audiobooks jump to Search (where they're indexed).
         val filters = listOf("All", "Music", "Podcasts", "Audiobooks")
         var selected by remember { androidx.compose.runtime.mutableStateOf("All") }
         LazyRow(
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.weight(1f),
         ) {
@@ -289,33 +316,37 @@ private fun HomeHeaderRow(navController: NavController) {
                 val label = filters[i]
                 val isSel = label == selected
                 Box(
+                    contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(18.dp))
+                        .heightIn(min = 40.dp)
+                        .clip(RoundedCornerShape(50))
                         .background(
                             if (isSel) Brush.horizontalGradient(
-                                listOf(Color(0xFF25E36C), Color(0xFF17B853))
+                                listOf(AppPalette, AppSecondary)
                             ) else Brush.horizontalGradient(
-                                listOf(Color(0xFF1A1F2D), Color(0xFF161A26))
+                                listOf(Color.White.copy(alpha = 0.08f), Color.White.copy(alpha = 0.05f))
                             )
                         )
                         .border(
                             1.dp,
                             if (isSel) Color.Transparent else Color.White.copy(alpha = 0.14f),
-                            RoundedCornerShape(18.dp),
+                            RoundedCornerShape(50),
                         )
                         .clickable {
+                            UiSoundEngine.playTabSound(context)
                             selected = label
                             if (label == "Podcasts" || label == "Audiobooks") {
                                 navController.navigate(Routes.Search.route)
                             }
                         }
-                        .padding(horizontal = 15.dp, vertical = 7.dp),
+                        .testTag("home_filter_${label.lowercase()}")
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     Text(
                         text = label,
-                        color = if (isSel) Color(0xFF06130B) else Color.White,
+                        color = if (isSel) Color(0xFF061014) else Color.White,
                         fontSize = 13.5.sp,
-                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.SemiBold,
+                        fontWeight = if (isSel) FontWeight.ExtraBold else FontWeight.SemiBold,
                     )
                 }
             }
@@ -326,10 +357,12 @@ private fun HomeHeaderRow(navController: NavController) {
 @OptIn(ExperimentalGlideComposeApi::class)
 @Composable
 private fun HomeShortcutGrid(navController: NavController, items: List<HomeItem>) {
+    val context = LocalContext.current
+    val surf = GridBackground
     val cellGradient = Brush.horizontalGradient(
         colors = listOf(
-            Color(0xFF1E2333),
-            Color(0xFF151924)
+            surf.copy(alpha = 0.92f),
+            Color(0xFF121622),
         )
     )
     Column(modifier = Modifier.padding(8.dp, 4.dp)) {
@@ -346,32 +379,33 @@ private fun HomeShortcutGrid(navController: NavController, items: List<HomeItem>
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .weight(1f)
-                            .height(52.dp)
+                            .height(54.dp)
                             .clip(cardShape)
                             .background(cellGradient)
-                            .border(1.dp, Color.White.copy(alpha = 0.10f), cardShape)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                            ) { onHomeItemClick(navController, item) },
+                            .border(1.dp, AppPalette.copy(alpha = 0.16f), cardShape)
+                            .clickable {
+                                UiSoundEngine.playTapChime(context)
+                                onHomeItemClick(navController, item)
+                            },
                     ) {
                         GlideImage(
                             modifier = Modifier
-                                .size(52.dp)
+                                .size(54.dp)
                                 .clip(RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp)),
                             contentScale = ContentScale.Crop,
                             model = item.imageUrl,
                             loading = placeholder(R.drawable.placeholder),
                             failure = placeholder(R.drawable.placeholder),
-                            contentDescription = "",
+                            contentDescription = item.name,
                         )
                         Text(
                             text = item.name,
                             color = Color.White,
-                            fontSize = 12.sp,
+                            fontSize = 12.5.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 2,
-                            modifier = Modifier.padding(10.dp, 4.dp),
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                         )
                     }
                 }
@@ -383,6 +417,7 @@ private fun HomeShortcutGrid(navController: NavController, items: List<HomeItem>
 
 @Composable
 private fun HomeFeedSection(navController: NavController, section: HomeSection) {
+    val context = LocalContext.current
     Text(
         text = section.title,
         color = Color.White,
@@ -393,7 +428,10 @@ private fun HomeFeedSection(navController: NavController, section: HomeSection) 
     )
     LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(10.dp, 0.dp)) {
         items(section.items.size) { i ->
-            HomeFeedCard(section.items[i]) { onHomeItemClick(navController, section.items[i]) }
+            HomeFeedCard(section.items[i]) {
+                UiSoundEngine.playTapChime(context)
+                onHomeItemClick(navController, section.items[i])
+            }
         }
     }
 }
@@ -411,38 +449,39 @@ private fun HomeFeedCard(item: HomeItem, onClick: () -> Unit) {
     Column(
         horizontalAlignment = if (isArtist) Alignment.CenterHorizontally else Alignment.Start,
         modifier = Modifier
-            .width(154.dp)
+            .width(156.dp)
             .padding(6.dp)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-            ) { onClick() },
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(2.dp),
     ) {
         GlideImage(
             modifier = Modifier
-                .size(152.dp)
+                .size(148.dp)
                 .clip(shape)
-                .border(1.dp, Color.White.copy(alpha = 0.12f), shape),
+                .border(1.dp, AppPalette.copy(alpha = 0.18f), shape),
             contentScale = ContentScale.Crop,
             model = item.imageUrl,
             loading = placeholder(R.drawable.placeholder),
             failure = placeholder(R.drawable.placeholder),
-            contentDescription = "",
+            contentDescription = item.name,
         )
-        Spacer(modifier = Modifier.height(7.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = item.name,
             color = Color.White,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontSize = 13.5.sp,
+            fontWeight = FontWeight.Bold,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             textAlign = if (isArtist) TextAlign.Center else TextAlign.Start,
         )
         Text(
             text = subtitle,
-            color = Color(0xFFB3B3B3),
-            fontSize = 11.sp,
+            color = Color(0xFFB3B8C4),
+            fontSize = 11.5.sp,
             maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
             textAlign = if (isArtist) TextAlign.Center else TextAlign.Start,
         )
     }
@@ -458,10 +497,10 @@ fun SumUpHomeScreen(navController : NavController, albums: List<AlbumsModel>, ar
 
         GreetingSection()
         LiveLocationClockCard()
-        ThanksgivingCountdownBanner(
-            onAutumnMixClick = {
+        ChristmasCountdownBanner(
+            onHolidayMixClick = {
                 navController.navigate(
-                    categoryRoute("Thanksgiving Autumn Acoustic", "Thanksgiving & Autumn Vibes"),
+                    categoryRoute("Christmas Holiday Hits", "Christmas & Winter Vibes"),
                 )
             },
         )

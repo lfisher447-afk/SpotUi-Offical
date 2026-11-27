@@ -26,7 +26,7 @@ import com.music.spotui.data.preferences.getEqSubBass
 import com.music.spotui.data.preferences.getEqTreble
 import com.music.spotui.data.preferences.getEqVocal
 import com.music.spotui.data.preferences.getSpatialElevationDepth
-import com.music.spotui.data.preferences.getSpatialOrbitSpeed
+import com.music.spotui.data.preferences.getSpatial8dIntensity
 import com.music.spotui.data.preferences.getSpatialProfile
 import com.music.spotui.data.preferences.getSpatialRoomDelayMs
 import com.music.spotui.data.preferences.getSpatialStrength
@@ -35,7 +35,7 @@ import com.music.spotui.data.preferences.isEqEnabled
 import com.music.spotui.data.preferences.isEqSpatialEnabled
 import com.music.spotui.data.preferences.isHeadphoneCrossfeedEnabled
 import com.music.spotui.data.preferences.isLimiterEnabled
-import com.music.spotui.data.preferences.isSpatial8dOrbitEnabled
+import com.music.spotui.data.preferences.isSpatial8dEnabled
 import com.music.spotui.data.preferences.isSpatialCorrelationGuardEnabled
 import com.music.spotui.ui.theme.ThemePreferences
 import com.music.spotui.util.AppDiagnostics
@@ -340,12 +340,12 @@ object AudioEffectController {
             sp.headphoneCrossfeed = isHeadphoneCrossfeedEnabled(appCtx)
             sp.autoHeadphoneHrtf = route.isPersonalListening
             sp.roomDelayMs = getSpatialRoomDelayMs(appCtx)
-            sp.orbit8dEnabled = isSpatial8dOrbitEnabled(appCtx)
-            sp.orbitSpeedHz = getSpatialOrbitSpeed(appCtx)
+            sp.advanced8dEnabled = isSpatial8dEnabled(appCtx)
+            sp.advanced8dDepth = getSpatial8dIntensity(appCtx)
             sp.elevationDepth = getSpatialElevationDepth(appCtx)
             sp.correlationGuard = isSpatialCorrelationGuardEnabled(appCtx)
             com.music.spotui.util.DevConsoleManager.logDsp(
-                "Spatial 3D sync: enabled=${sp.enabled} profile=${sp.profile.label} depth=${(sp.width * 100).roundToInt()}% orbit8D=${sp.orbit8dEnabled} crossfeed=${sp.headphoneCrossfeed} route=${route.route.label}",
+                "Spatial 3D sync: enabled=${sp.enabled} profile=${sp.profile.label} depth=${(sp.width * 100).roundToInt()}% advanced8D=${sp.advanced8dEnabled} (${(sp.advanced8dDepth * 100).roundToInt()}%) crossfeed=${sp.headphoneCrossfeed} route=${route.route.label}",
             )
         }
 

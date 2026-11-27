@@ -956,26 +956,28 @@ fun PlayerTopBar(
     contextName: String = "",
     onBackClick: () -> Unit,
 ) {
+    val context = LocalContext.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier
+        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp)
+            .padding(horizontal = 8.dp, vertical = 10.dp),
     ) {
-        Icon(
-            modifier = Modifier
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    onBackClick()
-                },
-            painter = painterResource(id = R.drawable.ic_down),
-            tint = Color.White,
-            contentDescription = ""
-        )
+        IconButton(
+            onClick = {
+                UiSoundEngine.playTapChime(context)
+                onBackClick()
+            },
+            modifier = Modifier.size(48.dp),
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.ic_down),
+                tint = Color.White,
+                contentDescription = "Minimize player",
+            )
+        }
 
-        // Spotify shows the source context here (album/playlist), not a generic label.
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = "PLAYING FROM",
@@ -993,17 +995,18 @@ fun PlayerTopBar(
                 modifier = Modifier.widthIn(max = 200.dp),
             )
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton(
+            onClick = {
+                UiSoundEngine.playTapChime(context)
+                onMenuClick()
+            },
+            modifier = Modifier.size(48.dp),
+        ) {
             Icon(
                 imageVector = Icons.Default.MoreVert,
                 tint = Color.White,
-                modifier = Modifier
-                    .size(23.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { onMenuClick() },
-                contentDescription = ""
+                modifier = Modifier.size(23.dp),
+                contentDescription = "Track options",
             )
         }
     }
@@ -1390,45 +1393,39 @@ fun PlayerFull(
             .fillMaxWidth()
             .padding(20.dp)
     ) {
-        Icon(
-            modifier = Modifier
-                .size(25.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    val nextShuffle = !shuffle
-                    UiSoundEngine.playToggleSound(context, nextShuffle)
-                    DevConsoleManager.logButtonAction("LegacyPlayer", "shuffle", nextShuffle.toString())
-                    playerViewModel.updateShuffleState(nextShuffle)
-                },
-            tint = if (shuffle) {
-                Color(0xFF1ED760)
-            } else {
-                Color.White
+        IconButton(
+            onClick = {
+                val nextShuffle = !shuffle
+                UiSoundEngine.playToggleSound(context, nextShuffle)
+                DevConsoleManager.logButtonAction("LegacyPlayer", "shuffle", nextShuffle.toString())
+                playerViewModel.updateShuffleState(nextShuffle)
             },
-            painter = painterResource(id = R.drawable.ic_player_shuffle),
-            contentDescription = ""
-        )
-        Icon(
-            modifier = Modifier
-                .size(35.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    UiSoundEngine.playTapChime(context)
-                    DevConsoleManager.logButtonAction("LegacyPlayer", "previous", "queue=${queueSongs.size}")
-                    // The queue itself is already in shuffled order when shuffle
-                    // is on (reordered once at toggle) — never re-shuffle per tap.
-                    playerViewModel.playPreviousSong(queueSongs, context)
-                    isLiked.value =
-                        isSongLiked(context, playerViewModel.currentSongId.value.toString())
-                },
-            tint = Color.White,
-            painter = painterResource(id = R.drawable.ic_player_back),
-            contentDescription = ""
-        )
+            modifier = Modifier.size(48.dp),
+        ) {
+            Icon(
+                modifier = Modifier.size(24.dp),
+                tint = if (shuffle) AppPalette else Color.White,
+                painter = painterResource(id = R.drawable.ic_player_shuffle),
+                contentDescription = "Shuffle",
+            )
+        }
+        IconButton(
+            onClick = {
+                UiSoundEngine.playTapChime(context)
+                DevConsoleManager.logButtonAction("LegacyPlayer", "previous", "queue=${queueSongs.size}")
+                playerViewModel.playPreviousSong(queueSongs, context)
+                isLiked.value =
+                    isSongLiked(context, playerViewModel.currentSongId.value.toString())
+            },
+            modifier = Modifier.size(48.dp),
+        ) {
+            Icon(
+                modifier = Modifier.size(34.dp),
+                tint = Color.White,
+                painter = painterResource(id = R.drawable.ic_player_back),
+                contentDescription = "Previous track",
+            )
+        }
         androidx.compose.foundation.layout.Box(
             modifier = Modifier
                 // requiredSize forces an exact 64×64 square even if the parent Column
@@ -1488,28 +1485,28 @@ fun PlayerFull(
             }
         }
 
-        Icon(
-            modifier = Modifier
-                .size(35.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    UiSoundEngine.playTapChime(context)
-                    DevConsoleManager.logButtonAction("LegacyPlayer", "next", "queue=${queueSongs.size}")
-                    playerViewModel.playNextSongs(queueSongs, context)
-                    isLiked.value =
-                        isSongLiked(context, playerViewModel.currentSongId.value.toString())
-                },
-            tint = Color.White,
-            painter = painterResource(id = R.drawable.ic_player_skip),
-            contentDescription = ""
-        )
+        IconButton(
+            onClick = {
+                UiSoundEngine.playTapChime(context)
+                DevConsoleManager.logButtonAction("LegacyPlayer", "next", "queue=${queueSongs.size}")
+                playerViewModel.playNextSongs(queueSongs, context)
+                isLiked.value =
+                    isSongLiked(context, playerViewModel.currentSongId.value.toString())
+            },
+            modifier = Modifier.size(48.dp),
+        ) {
+            Icon(
+                modifier = Modifier.size(34.dp),
+                tint = Color.White,
+                painter = painterResource(id = R.drawable.ic_player_skip),
+                contentDescription = "Next track",
+            )
+        }
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
             modifier = Modifier
-                .size(width = 32.dp, height = 40.dp)
+                .size(48.dp)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
@@ -1530,18 +1527,14 @@ fun PlayerFull(
             ) {
                 Icon(
                     modifier = Modifier.size(20.dp),
-                    tint = if (repeat != RepeatMode.OFF) {
-                        Color(0xFF1ED760)
-                    } else {
-                        Color.White
-                    },
+                    tint = if (repeat != RepeatMode.OFF) AppPalette else Color.White,
                     painter = painterResource(id = R.drawable.ic_repeat),
                     contentDescription = "Repeat"
                 )
                 if (repeat == RepeatMode.ONE) {
                     Text(
                         text = "1",
-                        color = Color(0xFF1ED760),
+                        color = AppPalette,
                         fontSize = 8.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.offset(y = (-1).dp)
@@ -1553,7 +1546,7 @@ fun PlayerFull(
                 Box(
                     modifier = Modifier
                         .size(4.dp)
-                        .background(Color(0xFF1ED760), shape = CircleShape)
+                        .background(AppPalette, shape = CircleShape)
                 )
             } else {
                 Spacer(modifier = Modifier.height(6.dp))
@@ -1941,9 +1934,9 @@ fun PlayerOptionsSheet(
                 picked,
                 picked.lastPathSegment.orEmpty()
             )
-            SongPlayer.invalidateResolvedStream(song.url)
+            SongPlayer.applyAlternativeStreamAndReload(context, song, alternativeKey)
             currentAlternative = getAlternativeStream(context, alternativeKey)
-            Toast.makeText(context, "Alternative stream set to local file", Toast.LENGTH_SHORT)
+            Toast.makeText(context, "Playing local audio file", Toast.LENGTH_SHORT)
                 .show()
         }
 
@@ -1979,13 +1972,13 @@ fun PlayerOptionsSheet(
                     onUseVideoId = { videoId ->
                         val song = currentSong ?: return@YouTubeSearchView
                         setYouTubeAlternativeStream(context, alternativeKey, videoId)
-                        SongPlayer.invalidateResolvedStream(song.url)
+                        SongPlayer.applyAlternativeStreamAndReload(context, song, alternativeKey)
                         currentAlternative = getAlternativeStream(context, alternativeKey)
                         showYouTubeSearch = false
                         showAlternativeStream = false
                         Toast.makeText(
                             context,
-                            "Alternative stream set to YouTube",
+                            "Playing selected YouTube video ($videoId)",
                             Toast.LENGTH_SHORT
                         ).show()
                         onDismiss()
@@ -2002,18 +1995,20 @@ fun PlayerOptionsSheet(
                         if (videoId == null) {
                             Toast.makeText(
                                 context,
-                                "Paste a YouTube video link or video ID",
+                                "Paste a valid YouTube / YT Music link or 11-char video ID",
                                 Toast.LENGTH_SHORT
                             ).show()
                         } else {
                             setYouTubeAlternativeStream(context, alternativeKey, videoId)
-                            SongPlayer.invalidateResolvedStream(song.url)
+                            SongPlayer.applyAlternativeStreamAndReload(context, song, alternativeKey)
                             currentAlternative = getAlternativeStream(context, alternativeKey)
+                            showAlternativeStream = false
                             Toast.makeText(
                                 context,
-                                "Alternative stream set to YouTube",
+                                "Playing YouTube video ($videoId)",
                                 Toast.LENGTH_SHORT
                             ).show()
+                            onDismiss()
                         }
                     },
                     onPickLocal = {
@@ -2022,7 +2017,7 @@ fun PlayerOptionsSheet(
                     onClear = {
                         val song = currentSong ?: return@AlternativeStreamEditor
                         clearAlternativeStream(context, alternativeKey)
-                        SongPlayer.invalidateResolvedStream(song.url)
+                        SongPlayer.applyAlternativeStreamAndReload(context, song, alternativeKey)
                         currentAlternative = null
                         Toast.makeText(context, "Alternative stream cleared", Toast.LENGTH_SHORT)
                             .show()
@@ -2372,11 +2367,12 @@ fun PlayerAudioQuickSheet(
     var spatialProfile by remember { mutableStateOf(com.music.spotui.data.preferences.getSpatialProfile(context)) }
     var spatialStrength by remember { mutableFloatStateOf(com.music.spotui.data.preferences.getSpatialStrength(context).toFloat()) }
     var elevationDepth by remember { mutableFloatStateOf(com.music.spotui.data.preferences.getSpatialElevationDepth(context)) }
-    var orbit8dEnabled by remember { mutableStateOf(com.music.spotui.data.preferences.isSpatial8dOrbitEnabled(context)) }
+    var advanced8dEnabled by remember { mutableStateOf(com.music.spotui.data.preferences.isSpatial8dEnabled(context)) }
+    var advanced8dDepth by remember { mutableFloatStateOf(com.music.spotui.data.preferences.getSpatial8dIntensity(context)) }
     var crossfeedEnabled by remember { mutableStateOf(com.music.spotui.data.preferences.isHeadphoneCrossfeedEnabled(context)) }
     var telemetry by remember { mutableStateOf(SongPlayer.dspTelemetrySummary()) }
 
-    LaunchedEffect(spatialEnabled, spatialProfile, orbit8dEnabled, crossfeedEnabled) {
+    LaunchedEffect(spatialEnabled, spatialProfile, advanced8dEnabled, advanced8dDepth, crossfeedEnabled) {
         while (true) {
             telemetry = SongPlayer.dspTelemetrySummary()
             delay(1000L)
@@ -2560,19 +2556,37 @@ fun PlayerAudioQuickSheet(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("8D Binaural Orbit (360°)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text("Smooth spherical-head stage orbit", color = Color.Gray, fontSize = 11.sp)
+                        Text("Advanced 8D Holographic Audio", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Stationary multi-band out-of-head immersion — zero orbit rotation", color = Color.Gray, fontSize = 11.sp)
                     }
                     Switch(
-                        checked = orbit8dEnabled,
+                        checked = advanced8dEnabled,
                         onCheckedChange = {
-                            orbit8dEnabled = it
+                            advanced8dEnabled = it
                             UiSoundEngine.playToggleSound(context, it)
-                            com.music.spotui.data.preferences.setSpatial8dOrbitEnabled(context, it)
+                            com.music.spotui.data.preferences.setSpatial8dEnabled(context, it)
                             SongPlayer.refreshAudioEffects(context)
                         },
                         modifier = Modifier.testTag("player_spatial_8d_switch"),
                         colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = AppPalette),
+                    )
+                }
+                if (advanced8dEnabled) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("8D Immersion Depth", color = Color.White, fontSize = 13.sp)
+                        Text("${(advanced8dDepth * 100f).roundToInt()}%", color = AppPalette, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Slider(
+                        value = advanced8dDepth,
+                        onValueChange = {
+                            advanced8dDepth = it
+                            com.music.spotui.data.preferences.setSpatial8dIntensity(context, it)
+                            SongPlayer.refreshAudioEffects(context)
+                            UiSoundEngine.playSliderTick(context, ((it - 0.25f) / 1.25f).coerceIn(0f, 1f))
+                        },
+                        valueRange = 0.25f..1.50f,
+                        modifier = Modifier.testTag("player_spatial_8d_depth_slider"),
+                        colors = SliderDefaults.colors(activeTrackColor = AppPalette, thumbColor = AppPalette),
                     )
                 }
             }
@@ -2740,31 +2754,64 @@ fun AlternativeStreamEditor(
             )
         }
         Spacer(Modifier.height(16.dp))
+        val detectedVideoId = remember(youtubeText) { SongPlayer.videoIdFromYouTubeLink(youtubeText) }
+        val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
         OutlinedTextField(
             value = youtubeText,
             onValueChange = { youtubeText = it },
             enabled = enabled,
             singleLine = true,
             textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp),
-            label = { Text("YouTube link or video ID", color = Color(0xFFB3B3B3)) },
+            label = { Text("YouTube / YT Music link or video ID", color = Color(0xFFB3B3B3)) },
+            placeholder = { Text("https://youtu.be/... or music.youtube.com/watch?v=...", color = Color(0xFF6B7280)) },
+            trailingIcon = {
+                TextButton(
+                    enabled = enabled,
+                    onClick = {
+                        UiSoundEngine.playTapChime(context)
+                        val clip = clipboardManager?.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty().trim()
+                        if (clip.isNotBlank()) youtubeText = clip
+                    },
+                    modifier = Modifier.testTag("alt_stream_paste_button"),
+                ) {
+                    Text("Paste", color = AppPalette, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("alt_stream_youtube_input"),
         )
+        if (youtubeText.isNotBlank()) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = if (detectedVideoId != null) {
+                    "Exact video locked: $detectedVideoId · Will play directly"
+                } else {
+                    "Paste a full YouTube / YT Music URL or 11-character video ID"
+                },
+                color = if (detectedVideoId != null) Color(0xFF4ADE80) else Color(0xFFF59E0B),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TextButton(
-                enabled = enabled && youtubeText.isNotBlank(),
+                enabled = enabled && detectedVideoId != null,
                 modifier = Modifier
                     .heightIn(min = 48.dp)
                     .testTag("alt_stream_use_youtube_button"),
-                onClick = { onUseYouTube(youtubeText) }) {
+                onClick = {
+                    UiSoundEngine.playTapChime(context)
+                    onUseYouTube(youtubeText)
+                }) {
                 Text(
                     "Use YouTube",
-                    color = if (enabled && youtubeText.isNotBlank()) AppPalette else Color.Gray
+                    color = if (enabled && detectedVideoId != null) AppPalette else Color.Gray,
+                    fontWeight = FontWeight.Bold,
                 )
             }
         }

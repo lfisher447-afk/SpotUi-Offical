@@ -244,6 +244,7 @@ object SongPlayer {
     private val trackIdRegistry = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val isrcRegistry = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val alternativeKeyRegistry = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val alternativeVideoIdCache = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     /** Register query→spotifyTrackId pairs so lossless can be resolved by query. */
     fun registerLossless(pairs: List<Pair<String, String>>) {
@@ -480,18 +481,43 @@ object SongPlayer {
         }
 
     fun videoIdFromYouTubeLink(text: String): String? =
-        YouTubeUrlParser.extractVideoId(text)
-            ?: text.trim().takeIf { it.matches(Regex("""[A-Za-z0-9_-]{11}""")) }
+        com.music.spotui.data.preferences.normalizeYouTubeVideoId(text)
 
     fun invalidateResolvedStream(song: String) {
         streamCache.remove(song)
         sourceCache.remove(song)
         qualityCache.remove(song)
+        alternativeVideoIdCache.remove(song)
         videoCandidatesCache.remove("$song|FILTER_SONG")
         videoCandidatesCache.remove("$song|FILTER_VIDEO")
         appCtx?.let { ctx ->
             com.music.spotui.data.preferences.clearCachedVideoId(ctx, song)
             com.music.spotui.data.preferences.clearCachedStream(ctx, song)
+        }
+    }
+
+    /**
+     * Registers [alternativeKey] for [song], clears any cached stream, and immediately
+     * restarts playback from 0ms if [song] is currently playing so a user-selected
+     * YouTube URL or local file starts playing right away.
+     */
+    fun applyAlternativeStreamAndReload(
+        context: Context,
+        song: com.music.spotui.data.entity.SongsModel,
+        alternativeKey: String,
+    ) {
+        val appContext = context.applicationContext
+        appCtx = appContext
+        if (song.url.isNotBlank() && alternativeKey.isNotBlank()) {
+            alternativeKeyRegistry[song.url] = alternativeKey
+        }
+        invalidateResolvedStream(song.url)
+        val state = boundState
+        val isCurrent = (song.url.isNotBlank() && (currentRequest == song.url || loadedQuery == song.url)) ||
+            (state != null && state.songId.value == song.id)
+        if (isCurrent && song.url.isNotBlank()) {
+            setRestorePoint(song.url, 0L)
+            playSong(song.url, appContext, "song/${song.id}")
         }
     }
 
@@ -547,6 +573,28 @@ object SongPlayer {
             currentQuality = song.substringAfterLast('.', "").uppercase().takeIf { it.length in 2..5 } ?: "LOCAL"
             return song
         }
+        // User-configured alternative stream always takes precedence over cached or downloaded tracks.
+        val activeAlt = alternativeStreamForPlayback(song, appContext)
+        if (activeAlt != null) {
+            if (activeAlt.isLocal) {
+                currentSource = "Alternative file"
+                currentQuality = activeAlt.label.substringAfterLast('.', "").uppercase().takeIf { it.length in 2..5 }.orEmpty()
+                return activeAlt.value
+            }
+            if (activeAlt.isYouTube) {
+                val wantVideoId = videoIdFromYouTubeLink(activeAlt.value) ?: activeAlt.value.trim()
+                val cachedUrl = streamCache[song]
+                if (cachedUrl != null &&
+                    sourceCache[song] == "Alternative YouTube" &&
+                    alternativeVideoIdCache[song] == wantVideoId
+                ) {
+                    currentSource = "Alternative YouTube"
+                    currentQuality = qualityCache[song] ?: ""
+                    return cachedUrl
+                }
+                return null
+            }
+        }
         // Downloaded & local alternative files MUST outrank remote HTTP caches so offline playback never hits expired URLs.
         val matchedDownload = com.music.spotui.data.preferences.downloadedPathForQuery(appContext, song)
             ?: currentMediaId?.let { com.music.spotui.data.preferences.downloadedPathForQuery(appContext, it) }
@@ -556,11 +604,6 @@ object SongPlayer {
             currentSource = "Downloaded"
             currentQuality = ext.uppercase().ifBlank { file.extension.uppercase() }
             return android.net.Uri.fromFile(file).toString()
-        }
-        alternativeStreamForPlayback(song, appContext)?.takeIf { it.isLocal }?.let { alt ->
-            currentSource = "Alternative file"
-            currentQuality = alt.label.substringAfterLast('.', "").uppercase().takeIf { it.length in 2..5 }.orEmpty()
-            return alt.value
         }
         streamCache[song]?.let { cached ->
             currentSource = sourceCache[song] ?: "YouTube"
@@ -1337,20 +1380,7 @@ object SongPlayer {
             }
             return song
         }
-        // Offline-first priority: check downloaded file and local alternative files BEFORE network/memory caches.
-        com.music.spotui.data.preferences.downloadedPathForQuery(appContext, song)?.let { path ->
-            val file = java.io.File(path)
-            val (ext, _) = com.music.spotui.data.preferences.detectAudioContainerAndMime(file)
-            if (forPlayback) {
-                currentSource = "Downloaded"
-                currentQuality = ext.uppercase().ifBlank { file.extension.uppercase() }
-                updateResolveStatus(false)
-            }
-            return android.net.Uri.fromFile(file).toString()
-        }
-        if (forPlayback) {
-            updateResolveStatus(true, "Checking alternative & cache...")
-        }
+        // Explicit user-configured alternative stream always wins over cached or downloaded tracks.
         alternativeStreamForPlayback(song, appContext)?.let { alt ->
             return when {
                 alt.isLocal -> {
@@ -1367,8 +1397,19 @@ object SongPlayer {
                         currentQuality = ""
                     }
                     val quality = com.music.spotui.data.preferences.currentStreamingQuality(appContext)
-                    val playback = resolveYtPlayback(alt.value, quality.audioQuality, appContext, forPlayback = forPlayback) ?: run {
-                        if (forPlayback) updateResolveStatus(false)
+                    val targetVideoId = videoIdFromYouTubeLink(alt.value) ?: alt.value.trim()
+                    val playback = resolveDirectYouTubeVideo(
+                        videoIdOrUrl = targetVideoId,
+                        audioQuality = quality.audioQuality,
+                        appContext = appContext,
+                        forPlayback = forPlayback,
+                    ) ?: run {
+                        if (forPlayback) {
+                            boundState?.updateResolveError(
+                                lastYtFailureReason ?: "Could not load selected YouTube video ($targetVideoId)",
+                            )
+                            updateResolveStatus(false)
+                        }
                         return null
                     }
                     val codec = playback.format.mimeType
@@ -1378,12 +1419,14 @@ object SongPlayer {
                         .filter { it.isNotBlank() }.joinToString(" ")
                     if (forPlayback) {
                         currentQuality = ytQuality
+                        boundState?.updateResolveDetailNote("Alternative YouTube • ID: $targetVideoId • $ytQuality")
                         updateResolveStatus(false)
                     }
 
+                    alternativeVideoIdCache[song] = targetVideoId
                     streamCache[song] = playback.streamUrl
-                    sourceCache[song] = if (forPlayback) currentSource else "Alternative YouTube"
-                    qualityCache[song] = if (forPlayback) currentQuality else ytQuality
+                    sourceCache[song] = "Alternative YouTube"
+                    qualityCache[song] = ytQuality
 
                     playback.streamUrl
                 }
@@ -1392,6 +1435,20 @@ object SongPlayer {
                     null
                 }
             }
+        }
+        // Offline-first priority: check downloaded file BEFORE network/memory caches.
+        com.music.spotui.data.preferences.downloadedPathForQuery(appContext, song)?.let { path ->
+            val file = java.io.File(path)
+            val (ext, _) = com.music.spotui.data.preferences.detectAudioContainerAndMime(file)
+            if (forPlayback) {
+                currentSource = "Downloaded"
+                currentQuality = ext.uppercase().ifBlank { file.extension.uppercase() }
+                updateResolveStatus(false)
+            }
+            return android.net.Uri.fromFile(file).toString()
+        }
+        if (forPlayback) {
+            updateResolveStatus(true, "Checking alternative & cache...")
         }
         streamCache[song]?.let {
             if (forPlayback) {
@@ -1660,11 +1717,66 @@ object SongPlayer {
         song: String,
         appContext: Context,
     ): com.music.spotui.data.preferences.AlternativeStream? {
-        val key = alternativeKeyRegistry[song]
-            ?: spotifyTrackIdForPlayback(song)?.let {
-                com.music.spotui.data.preferences.alternativeStreamKeyForSpotifyId(it)
+        val queueTrack = boundState?.queue?.value?.firstOrNull { it.url == song }
+        val candidateKeys = buildList {
+            alternativeKeyRegistry[song]?.let { add(it) }
+            spotifyTrackIdForPlayback(song)?.let {
+                add(com.music.spotui.data.preferences.alternativeStreamKeyForSpotifyId(it))
             }
-        return key?.let { com.music.spotui.data.preferences.getAlternativeStream(appContext, it) }
+            queueTrack?.let {
+                add(com.music.spotui.data.preferences.alternativeStreamKey(it))
+            }
+            if (song.isNotBlank()) {
+                add(com.music.spotui.data.preferences.alternativeStreamKeyForUrl(song))
+            }
+        }.distinct()
+        for (key in candidateKeys) {
+            com.music.spotui.data.preferences.getAlternativeStream(appContext, key)?.let { return it }
+        }
+        return null
+    }
+
+    /**
+     * Resolves an exact user-selected YouTube URL or video ID directly without performing a text
+     * search or appending "explicit"/"clean" suffixes, ensuring the exact chosen song/video plays.
+     */
+    private suspend fun resolveDirectYouTubeVideo(
+        videoIdOrUrl: String,
+        audioQuality: com.metrolist.music.constants.AudioQuality,
+        appContext: Context,
+        forPlayback: Boolean = false,
+    ): YTPlayerUtils.PlaybackData? {
+        val videoId = videoIdFromYouTubeLink(videoIdOrUrl)
+            ?: videoIdOrUrl.trim().takeIf { it.isNotBlank() }
+            ?: return null
+        lastYtFailureReason = null
+        val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        if (forPlayback) {
+            updateResolveStatus(true, "Loading YouTube video ($videoId)...")
+        }
+        val validated = YTPlayerUtils.playerResponseForPlayback(
+            videoId = videoId,
+            audioQuality = audioQuality,
+            connectivityManager = cm,
+            skipValidation = false,
+        )
+        validated.getOrNull()?.let { return it }
+        validated.exceptionOrNull()?.let {
+            lastYtFailureReason = it.message ?: "Stream validation failed"
+            Log.w(TAG, "Direct YouTube validated resolve failed for $videoId (${it.message}); retrying skipValidation=true")
+        }
+        val unvalidated = YTPlayerUtils.playerResponseForPlayback(
+            videoId = videoId,
+            audioQuality = audioQuality,
+            connectivityManager = cm,
+            skipValidation = true,
+        )
+        unvalidated.getOrNull()?.let { return it }
+        unvalidated.exceptionOrNull()?.let {
+            lastYtFailureReason = it.message ?: "YouTube video unavailable"
+            Log.e(TAG, "Direct YouTube resolve failed completely for $videoId (${it.message})")
+        }
+        return null
     }
 
     // ── Downloads (offline playback) ──
@@ -2416,6 +2528,10 @@ object SongPlayer {
             updateResolveStatus(true, "Searching YouTube videos...")
         }
         val baseSearchText = searchTextForPlayback(query)
+        // A raw YouTube link or 11-char videoId MUST be resolved directly BEFORE appending "explicit"/"clean".
+        videoIdFromYouTubeLink(baseSearchText)?.let { exactId ->
+            return listOf(exactId)
+        }
         // Append "explicit" or "clean" to the YouTube search query according to
         // Spotify track metadata + Explicit preference toggles.
         val searchText = when {
@@ -2833,8 +2949,8 @@ object SongPlayer {
         processor.headphoneCrossfeed = com.music.spotui.data.preferences.isHeadphoneCrossfeedEnabled(context)
         processor.autoHeadphoneHrtf = com.music.spotui.audio.AudioEffectController.refreshOutputRoute(context).isPersonalListening
         processor.roomDelayMs = com.music.spotui.data.preferences.getSpatialRoomDelayMs(context)
-        processor.orbit8dEnabled = com.music.spotui.data.preferences.isSpatial8dOrbitEnabled(context)
-        processor.orbitSpeedHz = com.music.spotui.data.preferences.getSpatialOrbitSpeed(context)
+        processor.advanced8dEnabled = com.music.spotui.data.preferences.isSpatial8dEnabled(context)
+        processor.advanced8dDepth = com.music.spotui.data.preferences.getSpatial8dIntensity(context)
         processor.elevationDepth = com.music.spotui.data.preferences.getSpatialElevationDepth(context)
         processor.correlationGuard = com.music.spotui.data.preferences.isSpatialCorrelationGuardEnabled(context)
     }

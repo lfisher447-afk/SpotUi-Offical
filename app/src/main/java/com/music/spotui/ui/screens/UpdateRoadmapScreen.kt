@@ -41,7 +41,7 @@ private data class ReleaseEntry(
     val details: String,
 )
 
-private const val ROADMAP_INTEGRATION_DATE = "2026-11-24"
+private const val ROADMAP_INTEGRATION_DATE = "2026-11-26"
 
 private val releaseHistory = listOf(
     ReleaseEntry("1.5.1", "Timed lyrics foundation", "Added corrected LRC timestamp parsing and sorted millisecond lyric streams."),
@@ -99,6 +99,7 @@ private val releaseHistory = listOf(
     ReleaseEntry("2.5.3", "Material 3 Expressive Overhaul, Side-Tab Settings & 2000-Entry Live Logger", "Redesigned SpotUI with Material 3 Expressive surfaces, animated Navigation Rail side-tab Settings, Turbo 8x MrBean download slices (512 KiB buffer / 32 keep-alive pool), haptic Floater corner-drag resizing, and 8-channel categorized DevConsole telemetry."),
     ReleaseEntry("2.5.4", "One UI Game Booster Floater Studio, Embedded yt-dlp + FFmpeg, Upgraded InnerTube & Spotify Auth Recovery", "Restyled the Accessibility Floater into a Samsung One UI Game Booster Studio interface with a collapsible 3-section sidebar rail (MEDIA/SOUND/PRO), 5 live tabs (Player, Queue, EQ, 3D, Tools), persistent active/last-played song display, working Play/Pause/Shuffle/Loop routing, In-App Volume control, corner resize & haptics; eliminated WebView `; wv` tokens and added XOR TOTP secret extraction + Auto-Recover for Spotify login; upgraded InnerTube with MWEB/ANDROID_MUSIC clients, 90s per-client circuit breaker, HTTP 429/5xx backoff, and NewPipe extraction; embedded on-device youtubedl-android 0.18.1 + FFmpeg directly in the APK with primary toggle and live binary updates."),
     ReleaseEntry("2.5.5", "Spotify WebView Anti-Bot Shield, Persistent CI Keystore Auto-Updater, Material 3 Expressive Floater & Game-Only Translator", "Eliminated Spotify WebView Client Hints mismatches and prototype tampering checks by aligning SYSTEM_DEFAULT User-Agent + Sec-CH-UA, stripping X-Requested-With package leaks, wiping stale cookies/WebStorage before login, and routing SSO popups seamlessly into Spotify.kt + Library Sync All; rebuilt MediaAccessibilityService around Compose Material 3 Expressive controls with conditional GAME rail & Top-Left auto-detect-to-English live teammate translation bubble inside games; fixed UpdateChecker Signing Key ID markdown parsing, unified persistent CI/local keystore setup & verification scripts, pinned Build-Tools 36.0.0 across all Android modules, and refreshed Fastlane metadata + 17-module diagnostics."),
+    ReleaseEntry("2.5.6", "Winter Noel Edition — Advanced 8D Audio, SpotFlac Verification, In-Game Mic Translator & Adaptive Settings", "Reworked 8D audio into stationary Advanced 8D Holographic Binaural externalization without spinning orbit; added full SpotFlac pipeline & binary magic-signature verification lab; repaired In-Game Mic Translator with Android Speech Recognition query visibility, initial foreground game scanning, RMS meter, multi-target ML Kit offline packs & always-unlock studio; upgraded Floater with edge-snap & 8-node radar; upgraded Settings with searchable adaptive navigation rail; plus Winter Noel countdown, Cyber Prism launcher icon, SoundPool UI chimes, and exact YouTube URL routing."),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -136,7 +137,7 @@ fun UpdateRoadmapScreen(navController: NavController) {
                 Text("Sequential release integration", color = AppPalette, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "Every release entry through v2.5.5 is recorded below. Entries were updated on $ROADMAP_INTEGRATION_DATE.",
+                    "Every release entry through v2.5.6 is recorded below. Entries were updated on $ROADMAP_INTEGRATION_DATE.",
                     color = Color(0xFFCACAD2),
                     fontSize = 13.sp,
                     lineHeight = 18.sp,

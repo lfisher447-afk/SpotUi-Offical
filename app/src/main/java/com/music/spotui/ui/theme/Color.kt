@@ -13,22 +13,34 @@ val PurpleGrey40 = Color(0xFF625B71)
 val Pink40 = Color(0xFF7D5260)
 
 /**
- * Bridge for legacy Compose screens that still reference AppPalette/AppBackground
- * directly. Values are observable Compose state, so existing screens recompose when
- * Theme Studio changes the active Material color system.
+ * Bridge for Compose screens that reference AppPalette / AppBackground / AppSecondary
+ * directly. Values are observable Compose state, so screens recompose immediately when
+ * Theme Studio changes the active Material 3 color system.
  */
 object PaletteBridge {
-    var accent by mutableStateOf(Color(0xFF618DFF))
-    var background by mutableStateOf(Color(0xFF0B0B0F))
-    var gridBackground by mutableStateOf(Color(0xFF2A2A2A))
+    var accent by mutableStateOf(Color(0xFF38BDF8))
+    var secondary by mutableStateOf(Color(0xFF2CE69B))
+    var tertiary by mutableStateOf(Color(0xFFA78BFA))
+    var background by mutableStateOf(Color(0xFF070B14))
+    var gridBackground by mutableStateOf(Color(0xFF141B2D))
 
-    fun apply(accentColor: Color, backgroundColor: Color, surfaceColor: Color) {
+    fun apply(
+        accentColor: Color,
+        backgroundColor: Color,
+        surfaceColor: Color,
+        secondaryColor: Color = accentColor,
+        tertiaryColor: Color = accentColor,
+    ) {
         accent = accentColor
+        secondary = secondaryColor
+        tertiary = tertiaryColor
         background = backgroundColor
         gridBackground = surfaceColor
     }
 }
 
 val AppPalette: Color get() = PaletteBridge.accent
+val AppSecondary: Color get() = PaletteBridge.secondary
+val AppTertiary: Color get() = PaletteBridge.tertiary
 val AppBackground: Color get() = PaletteBridge.background
 val GridBackground: Color get() = PaletteBridge.gridBackground

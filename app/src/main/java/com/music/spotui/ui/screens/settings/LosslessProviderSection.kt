@@ -10,6 +10,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,13 +28,16 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -96,6 +101,11 @@ fun LosslessProviderSection(
     var customMirrorInput by remember { mutableStateOf(getCustomLosslessMirrorUrl(context)) }
     var mirrorPingStatus by remember { mutableStateOf("") }
     var mirrorPingBusy by remember { mutableStateOf(false) }
+
+    var verifyTrackInput by remember { mutableStateOf("https://open.spotify.com/track/0VjIjW4GlUZAMYd2vX5bxg") }
+    var verifyIsrcInput by remember { mutableStateOf("") }
+    var verifyBusy by remember { mutableStateOf(false) }
+    var verifyReport by remember { mutableStateOf<SpotiFlac.SpotFlacVerificationReport?>(null) }
 
     var mirrorHealthSummary by remember { mutableStateOf("Probing mirrors…") }
 
@@ -454,6 +464,155 @@ fun LosslessProviderSection(
             }
             if (deezerStatus.isNotBlank()) {
                 Text(deezerStatus, color = AppPalette, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+            }
+        }
+
+        // SpotFlac Binary & Pipeline Verification Lab
+        @OptIn(ExperimentalLayoutApi::class)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color(0xFF1A1A20))
+                .border(1.dp, AppPalette.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Rounded.Verified, contentDescription = null, tint = AppPalette, modifier = Modifier.size(18.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("SpotFlac Pipeline Verification Lab", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Probes SpotBye, Monochrome, Odesli ISRC bridge, Qobuz, Deezer ARL, and inspects stream magic bytes (fLaC / ftyp / <MPD>).",
+                        color = Color(0xFFA8B0C2),
+                        fontSize = 11.sp,
+                    )
+                }
+            }
+            OutlinedTextField(
+                value = verifyTrackInput,
+                onValueChange = { verifyTrackInput = it },
+                singleLine = true,
+                label = { Text("Spotify Track URL, URI, or 22-char ID", fontSize = 11.sp) },
+                placeholder = { Text("https://open.spotify.com/track/...", fontSize = 11.sp) },
+                modifier = Modifier.fillMaxWidth().testTag("spotflac_verify_track_input"),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = AppPalette,
+                    unfocusedBorderColor = Color(0xFF34343F),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                ),
+            )
+            OutlinedTextField(
+                value = verifyIsrcInput,
+                onValueChange = { verifyIsrcInput = it },
+                singleLine = true,
+                label = { Text("Optional ISRC Override (e.g. USUG11904206)", fontSize = 11.sp) },
+                modifier = Modifier.fillMaxWidth().testTag("spotflac_verify_isrc_input"),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = AppPalette,
+                    unfocusedBorderColor = Color(0xFF34343F),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                ),
+            )
+            Button(
+                enabled = !verifyBusy,
+                onClick = {
+                    verifyBusy = true
+                    scope.launch {
+                        val report = withContext(Dispatchers.IO) {
+                            SpotiFlac.verifyLosslessPipeline(
+                                trackUrlOrId = verifyTrackInput,
+                                isrcOverride = verifyIsrcInput.takeIf { it.isNotBlank() },
+                                enabledProviders = enabledProviders.toList(),
+                                preferHiRes = true,
+                            )
+                        }
+                        verifyReport = report
+                        verifyBusy = false
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = AppPalette, contentColor = Color.Black),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .testTag("spotflac_verify_run_button"),
+            ) {
+                if (verifyBusy) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.Black)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Verifying Mirrors & Signatures…", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                } else {
+                    Text("Run Full SpotFlac Verification", fontWeight = FontWeight.ExtraBold, fontSize = 12.5.sp)
+                }
+            }
+            verifyReport?.let { report ->
+                Text(
+                    text = "${report.summary} · ID: ${report.resolvedTrackId ?: "none"}${report.resolvedIsrc?.let { " · ISRC: $it" } ?: ""}",
+                    color = if (report.overallPassed) Color(0xFF81C784) else Color(0xFFFFB74D),
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.testTag("spotflac_verify_summary"),
+                )
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    report.stages.forEach { st ->
+                        Surface(
+                            color = if (st.passed) Color(0xFF1E3A24) else Color(0xFF382424),
+                            shape = RoundedCornerShape(8.dp),
+                        ) {
+                            Text(
+                                text = "${st.stage}: ${if (st.passed) "OK" else "FAIL"} (${st.latencyMs}ms)",
+                                color = if (st.passed) Color(0xFF81C784) else Color(0xFFFF8A80),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
+                }
+                report.providerProbes.forEach { probe ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF23232B))
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "${probe.provider.uppercase()} · ${probe.magicSignature}",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                text = "HTTP ${probe.httpCode} · ${probe.latencyMs}ms · ${probe.detail}",
+                                color = Color(0xFFA8B0C2),
+                                fontSize = 10.sp,
+                                maxLines = 2,
+                            )
+                        }
+                        Surface(
+                            color = if (probe.streamVerified) Color(0xFF1E3A24) else Color(0xFF32323E),
+                            shape = RoundedCornerShape(6.dp),
+                        ) {
+                            Text(
+                                text = if (probe.streamVerified) "VERIFIED" else "SKIPPED",
+                                color = if (probe.streamVerified) Color(0xFF81C784) else Color(0xFFB3B3B3),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                            )
+                        }
+                    }
+                }
             }
         }
 

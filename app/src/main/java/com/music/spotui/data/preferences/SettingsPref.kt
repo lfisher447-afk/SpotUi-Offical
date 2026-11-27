@@ -575,20 +575,34 @@ fun setSpatialRoomDelayMs(c: Context, ms: Float) {
     notifyDspSettingsChanged()
 }
 
-private const val KEY_SPATIAL_8D_ORBIT = "audio_spatial_8d_orbit"
-private const val KEY_SPATIAL_ORBIT_SPEED = "audio_spatial_orbit_speed"
+private const val KEY_SPATIAL_8D_ADVANCED = "audio_spatial_8d_advanced"
+private const val KEY_SPATIAL_8D_LEGACY_ORBIT = "audio_spatial_8d_orbit"
+private const val KEY_SPATIAL_8D_INTENSITY = "audio_spatial_8d_intensity"
 private const val KEY_SPATIAL_ELEVATION_DEPTH = "audio_spatial_elevation_depth"
 private const val KEY_SPATIAL_CORRELATION_GUARD = "audio_spatial_correlation_guard"
 
-fun isSpatial8dOrbitEnabled(c: Context): Boolean = prefs(c).getBoolean(KEY_SPATIAL_8D_ORBIT, false)
-fun setSpatial8dOrbitEnabled(c: Context, enabled: Boolean) {
-    prefs(c).edit().putBoolean(KEY_SPATIAL_8D_ORBIT, enabled).apply()
+fun isSpatial8dEnabled(c: Context): Boolean {
+    val p = prefs(c)
+    return if (p.contains(KEY_SPATIAL_8D_ADVANCED)) {
+        p.getBoolean(KEY_SPATIAL_8D_ADVANCED, false)
+    } else {
+        p.getBoolean(KEY_SPATIAL_8D_LEGACY_ORBIT, false)
+    }
+}
+
+fun setSpatial8dEnabled(c: Context, enabled: Boolean) {
+    prefs(c).edit()
+        .putBoolean(KEY_SPATIAL_8D_ADVANCED, enabled)
+        .remove(KEY_SPATIAL_8D_LEGACY_ORBIT)
+        .apply()
     notifyDspSettingsChanged()
 }
 
-fun getSpatialOrbitSpeed(c: Context): Float = prefs(c).getFloat(KEY_SPATIAL_ORBIT_SPEED, 0.32f).coerceIn(0.10f, 1.50f)
-fun setSpatialOrbitSpeed(c: Context, hz: Float) {
-    prefs(c).edit().putFloat(KEY_SPATIAL_ORBIT_SPEED, hz.coerceIn(0.10f, 1.50f)).apply()
+fun getSpatial8dIntensity(c: Context): Float =
+    prefs(c).getFloat(KEY_SPATIAL_8D_INTENSITY, 0.85f).coerceIn(0.25f, 1.50f)
+
+fun setSpatial8dIntensity(c: Context, intensity: Float) {
+    prefs(c).edit().putFloat(KEY_SPATIAL_8D_INTENSITY, intensity.coerceIn(0.25f, 1.50f)).apply()
     notifyDspSettingsChanged()
 }
 

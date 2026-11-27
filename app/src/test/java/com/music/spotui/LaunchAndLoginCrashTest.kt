@@ -4,8 +4,7 @@ import android.content.ComponentName
 import android.content.Intent
 import android.os.Looper
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.media3.session.MediaLibraryService
@@ -64,7 +63,7 @@ class LaunchAndLoginCrashTest {
     val ruleChain: RuleChain = RuleChain.outerRule(playbackServiceRule).around(composeRule)
 
     @Test
-    fun coldLaunch_rendersLoginScreen_andTabs_andGuestNavigation_withoutCrashing() {
+    fun coldLaunch_rendersLoginScreen_andCookieDialog_withoutCrashing() {
         val uncaught = AtomicReference<Throwable?>(null)
         val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { _, e ->
@@ -81,28 +80,23 @@ class LaunchAndLoginCrashTest {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
 
             // Verify Login screen rendered
-            composeRule.onNodeWithText("Spotify Sign In").assertExists()
             composeRule.onNodeWithText("Log in to Spotify").assertExists()
 
-            // Switch to Web Browser tab (exercises WebView + CookieManager)
-            composeRule.onNodeWithText("Web Browser").performClick()
+            // Open Manual Cookie Login dialog
+            composeRule.onNodeWithContentDescription("Manual cookie login").performClick()
+            composeRule.mainClock.advanceTimeBy(300)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            composeRule.onNodeWithText("Manual Spotify Cookie Login").assertExists()
+            composeRule.onNodeWithText("Open Spotify in Browser").assertExists()
+
+            // Dismiss Manual Cookie Login dialog
+            composeRule.onNodeWithText("Cancel").performClick()
             composeRule.mainClock.advanceTimeBy(300)
             Shadows.shadowOf(Looper.getMainLooper()).idle()
 
-            // Switch to Cookie (sp_dc) tab
-            composeRule.onNodeWithText("Cookie (sp_dc)").performClick()
+            // Trigger WebView reload button safely
+            composeRule.onNodeWithContentDescription("Reload page").performClick()
             composeRule.mainClock.advanceTimeBy(300)
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
-            composeRule.onNodeWithText("Sign In with Session Cookie").assertExists()
-
-            // Switch back to Native Login tab
-            composeRule.onNodeWithText("Native Login").performClick()
-            composeRule.mainClock.advanceTimeBy(300)
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
-
-            // Navigate to Home via Continue as Guest
-            composeRule.onAllNodesWithText("Continue as Guest").onFirst().performClick()
-            composeRule.mainClock.advanceTimeBy(500)
             Shadows.shadowOf(Looper.getMainLooper()).idle()
 
             assertNull("Uncaught exception during launch/login flow", uncaught.get())

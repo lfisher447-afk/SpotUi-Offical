@@ -79,22 +79,25 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.testTag
+import com.music.spotui.audio.UiSoundEngine
+import com.music.spotui.ui.theme.AppPalette
+import com.music.spotui.ui.theme.AppSecondary
 import kotlinx.coroutines.launch
 
 @Composable
 fun Loader() {
-    Column(Modifier
-        .background(Color(AppBackground.toArgb())),
+    Column(
+        Modifier
+            .background(Color(AppBackground.toArgb())),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.Center,
     ) {
         CircularProgressIndicator(
-            modifier = Modifier
-                .size(45.dp),
-            color = Color(0xFF4A4AC4)
+            modifier = Modifier.size(45.dp),
+            color = AppPalette,
         )
     }
-
 }
 
 @Composable
@@ -205,23 +208,24 @@ fun MiniPlayer(navController: NavHostController) {
                 Brush.horizontalGradient(
                     colors = listOf(
                         darkVibrantColor.copy(alpha = 0.96f),
-                        Color(0xFF151A28).copy(alpha = 0.96f),
+                        Color(GridBackground.toArgb()).copy(alpha = 0.96f),
                     ),
                 ),
             )
-            .border(1.dp, Color.White.copy(alpha = 0.14f), cardShape)
-            .padding(horizontal = 10.dp, vertical = 2.dp)
+            .border(1.dp, AppPalette.copy(alpha = 0.28f), cardShape)
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+            .testTag("mini_player_card"),
     ) {
-        Row(horizontalArrangement = Arrangement.SpaceBetween,
+        Row(
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                //.background(Color.Green)
-                .padding(0.dp, 2.dp)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
-                    indication = null
+                    indication = null,
                 ) {
+                    UiSoundEngine.playTapChime(context)
                     navController.navigate(Routes.Player.route)
                 }
                 .pointerInput(Unit) {
@@ -236,28 +240,26 @@ fun MiniPlayer(navController: NavHostController) {
                         },
                         onDragEnd = {
                             if (!navigated) {
-                                // Snap back with spring animation
                                 coroutineScope.launch {
                                     val anim = Animatable(swipeOffsetY)
                                     anim.animateTo(
                                         targetValue = 0f,
                                         animationSpec = spring(
                                             dampingRatio = 0.7f,
-                                            stiffness = 400f
-                                        )
+                                            stiffness = 400f,
+                                        ),
                                     ) { swipeOffsetY = value }
                                 }
                             } else {
-                            // Continue upward + fade out while full player slides in
-                            coroutineScope.launch {
-                                val anim = Animatable(swipeOffsetY)
-                                anim.animateTo(
-                                    targetValue = -300f,
-                                    animationSpec = tween(280)
-                                ) { swipeOffsetY = value }
-                                swipeOffsetY = 0f
+                                coroutineScope.launch {
+                                    val anim = Animatable(swipeOffsetY)
+                                    anim.animateTo(
+                                        targetValue = -300f,
+                                        animationSpec = tween(280),
+                                    ) { swipeOffsetY = value }
+                                    swipeOffsetY = 0f
+                                }
                             }
-                        }
                         },
                         onDragCancel = {
                             coroutineScope.launch {
@@ -266,8 +268,8 @@ fun MiniPlayer(navController: NavHostController) {
                                     targetValue = 0f,
                                     animationSpec = spring(
                                         dampingRatio = 0.7f,
-                                        stiffness = 400f
-                                    )
+                                        stiffness = 400f,
+                                    ),
                                 ) { swipeOffsetY = value }
                             }
                         },
@@ -275,151 +277,175 @@ fun MiniPlayer(navController: NavHostController) {
                         change.consume()
                         swipeOffsetY = (swipeOffsetY + dragAmount.y).coerceAtMost(0f)
                         if (!navigated) {
-                            // Velocity detection for quick flicks
                             val now = change.uptimeMillis
                             val dtMs = if (lastEventTimeMs > 0L) now - lastEventTimeMs else 0L
                             lastEventTimeMs = now
                             val velocityPxPerSec = if (dtMs > 5) dragAmount.y / dtMs * 1000f else 0f
                             if (swipeOffsetY < -distThreshold || velocityPxPerSec < -velThreshold) {
                                 navigated = true
+                                UiSoundEngine.playTapChime(context)
                                 navController.navigate(Routes.Player.route)
                             }
                         }
                     }
-                }
-        ){
-
-            Row(horizontalArrangement = Arrangement.Start,
+                },
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.Start,
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    .width(260.dp)
-                    .clipToBounds()
+                    .weight(1f)
+                    .padding(end = 6.dp)
+                    .clipToBounds(),
             ) {
                 GlideImage(
                     modifier = Modifier
-                        .padding(0.dp, 0.dp, 10.dp, 0.dp)
+                        .padding(end = 10.dp)
                         .size(44.dp)
                         .clip(RoundedCornerShape(11.dp)),
                     model = songCoverUri,
                     contentScale = ContentScale.Crop,
                     failure = placeholder(R.drawable.placeholder),
                     loading = placeholder(R.drawable.placeholder),
-                    contentDescription = ""
+                    contentDescription = "Now playing album artwork",
                 )
-                Column(
-                    modifier = Modifier
-                        .widthIn(Dp.Unspecified, 200.dp)
-                ) {
+                Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (isCurrentSongExplicit) {
                             ExplicitBadge()
                             Spacer(Modifier.width(4.dp))
                         }
-                        Text(text = songTitle, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis )
+                        Text(
+                            text = songTitle,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        )
                     }
-                    Text(text = songSinger, color = Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    Text(
+                        text = songSinger,
+                        color = Color(0xFFD0D5E0),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    )
                 }
             }
 
             Row(
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.width(70.dp)
             ) {
-
-                // Plus = save; green check = already saved. A second tap opens the
+                // Plus = save; themed check = already saved. A second tap opens the
                 // "Saved in" sheet (Liked Songs + playlists) instead of unliking.
-                if (isLiked) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        tint = Color(0xFF1ED760),
-                        modifier = Modifier
-                            .size(22.dp)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) { showSavedIn = true },
-                        contentDescription = "Saved",
-                    )
-                } else {
-                    Icon(
-                        modifier = Modifier
-                            .size(22.dp)
-                            .combinedClickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = {
-                                    addLikedSongId(context, songId.toString())
-                                    isLiked = true
-                                    miniPlayerViewModel.updateLikeState(!likeState)
-                                    // Mirror the like to the real Spotify account.
-                                    com.music.spotui.data.api.SpotifySync.setTrackSaved(
-                                        context, currentTrack?.spotifyTrackId.orEmpty(), true)
-                                },
-                                onLongClick = { showSavedIn = true },
-                            ),
-                        painter = painterResource(id = R.drawable.ic_add),
-                        tint = Color.White,
-                        contentDescription = "Add",
-                    )
-                }
-
-
-                val isLocatingOrBuffering = miniPlayerViewModel.isResolving.value || miniPlayerViewModel.isBuffering.value
-                Box(modifier = Modifier.size(36.dp), contentAlignment = Alignment.Center) {
-                    if (isLocatingOrBuffering) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(28.dp),
-                            color = Color.White,
-                            strokeWidth = 2.5.dp
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .then(
+                            if (isLiked) {
+                                Modifier.clickable {
+                                    UiSoundEngine.playTapChime(context)
+                                    showSavedIn = true
+                                }
+                            } else {
+                                Modifier.combinedClickable(
+                                    onClick = {
+                                        UiSoundEngine.playToggleSound(context, true)
+                                        addLikedSongId(context, songId.toString())
+                                        isLiked = true
+                                        miniPlayerViewModel.updateLikeState(!likeState)
+                                        com.music.spotui.data.api.SpotifySync.setTrackSaved(
+                                            context,
+                                            currentTrack?.spotifyTrackId.orEmpty(),
+                                            true,
+                                        )
+                                    },
+                                    onLongClick = {
+                                        UiSoundEngine.playTapChime(context)
+                                        showSavedIn = true
+                                    },
+                                )
+                            },
+                        )
+                        .testTag("mini_player_save_button"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isLiked) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            tint = AppPalette,
+                            modifier = Modifier.size(22.dp),
+                            contentDescription = "Saved in library",
                         )
                     } else {
                         Icon(
-                            painter = if (songPlayingState)
-                                painterResource(id = R.drawable.ic_playing)
-                            else
-                                painterResource(id = R.drawable.play_svgrepo_com)
-                            ,
-                            contentDescription = "",
+                            modifier = Modifier.size(22.dp),
+                            painter = painterResource(id = R.drawable.ic_add),
                             tint = Color.White,
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
-                                    if (songPlayingState) {
-                                        SongPlayer.pause()
-                                        miniPlayerViewModel.updateSongState(
-                                            songCoverUri,
-                                            songTitle,
-                                            songSinger,
-                                            false,
-                                            songId,
-                                            songIndex,
-                                            songAlbum
-                                        )
-                                    } else {
-                                        SongPlayer.play()
-                                        miniPlayerViewModel.updateSongState(
-                                            songCoverUri,
-                                            songTitle,
-                                            songSinger,
-                                            true,
-                                            songId,
-                                            songIndex,
-                                            songAlbum
-                                        )
-                                    }
-                                }
+                            contentDescription = "Save track",
+                        )
+                    }
+                }
+
+                val isLocatingOrBuffering = miniPlayerViewModel.isResolving.value || miniPlayerViewModel.isBuffering.value
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable(enabled = !isLocatingOrBuffering) {
+                            UiSoundEngine.playTapChime(context)
+                            if (songPlayingState) {
+                                SongPlayer.pause()
+                                miniPlayerViewModel.updateSongState(
+                                    songCoverUri,
+                                    songTitle,
+                                    songSinger,
+                                    false,
+                                    songId,
+                                    songIndex,
+                                    songAlbum,
+                                )
+                            } else {
+                                SongPlayer.play()
+                                miniPlayerViewModel.updateSongState(
+                                    songCoverUri,
+                                    songTitle,
+                                    songSinger,
+                                    true,
+                                    songId,
+                                    songIndex,
+                                    songAlbum,
+                                )
+                            }
+                        }
+                        .testTag("mini_player_play_pause_button"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isLocatingOrBuffering) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            color = AppPalette,
+                            strokeWidth = 2.5.dp,
+                        )
+                    } else {
+                        Icon(
+                            painter = if (songPlayingState) {
+                                painterResource(id = R.drawable.ic_playing)
+                            } else {
+                                painterResource(id = R.drawable.play_svgrepo_com)
+                            },
+                            contentDescription = if (songPlayingState) "Pause" else "Play",
+                            tint = Color.White,
+                            modifier = Modifier.size(26.dp),
                         )
                     }
                 }
             }
-
-
         }
-
 
         CustomSlider(
             value = songProgress,
@@ -429,12 +455,9 @@ fun MiniPlayer(navController: NavHostController) {
             },
             valueRange = 0f..1f,
             steps = 0,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
         )
     }
-
-
-
 }
 
 
@@ -478,7 +501,7 @@ fun CustomSlider(
 
             // Inactive track
             drawLine(
-                color = Color(0xFF535353),
+                color = Color.White.copy(alpha = 0.16f),
                 start = Offset(0f, trackY),
                 end = Offset(size.width, trackY),
                 strokeWidth = trackHeightPx,
@@ -486,7 +509,9 @@ fun CustomSlider(
             )
             // Active track
             drawLine(
-                color = Color.White,
+                brush = Brush.horizontalGradient(
+                    colors = listOf(AppPalette, AppSecondary, Color.White),
+                ),
                 start = Offset(0f, trackY),
                 end = Offset(thumbX, trackY),
                 strokeWidth = trackHeightPx,
@@ -549,8 +574,12 @@ fun SwipeToPlayNextWrapper(
                 contentAlignment = Alignment.CenterStart,
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xFF1DB954)) // Spotify Green
-                    .padding(horizontal = 24.dp)
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(AppPalette.copy(alpha = 0.85f), AppSecondary.copy(alpha = 0.70f)),
+                        ),
+                    )
+                    .padding(horizontal = 24.dp),
             ) {
                 Icon(
                     painter = painterResource(id = R.drawable.ic_queue_add),
