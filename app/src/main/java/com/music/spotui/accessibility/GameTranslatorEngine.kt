@@ -305,7 +305,7 @@ internal object GameTranslatorEngine {
                     statusHint = "Offline pack ready: ${normalized.uppercase(Locale.US)}",
                 )
             }.onFailure { err ->
-                DevConsoleManager.log(DevConsoleManager.LogLevel.WARN, TAG, "Pack download failed ($normalized): ${err.message}")
+                DevConsoleManager.log(DevConsoleManager.LogLevel.WARNING, TAG, "Pack download failed ($normalized): ${err.message}")
             }
             _modelDownloadBusy.value = null
             refreshTranslatorReadiness(context)

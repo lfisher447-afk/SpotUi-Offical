@@ -716,7 +716,7 @@ fun SettingsScreen(navController: NavController) {
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = AppBackground)
             )
         }
-    } { padding ->
+    ) { padding ->
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
@@ -4603,8 +4603,8 @@ fun SettingsScreen(navController: NavController) {
                                     dialogPipelineReport = withContext(Dispatchers.IO) {
                                         com.metrolist.spotify.SpotiFlac.verifyLosslessPipeline(
                                             trackUrlOrId = "0VjIjW4GlUZAMYd2vX5bxg",
-                                            isrcOverride = null,
-                                            enabledProviders = ProviderRoutingPreferences.enabledProviders(context).toList(),
+                                            isrc = null,
+                                            enabledProviders = ProviderRoutingPreferences.enabledProviders(context),
                                         )
                                     }
                                     dialogPipelineBusy = false
@@ -4621,7 +4621,7 @@ fun SettingsScreen(navController: NavController) {
                             Spacer(Modifier.height(8.dp))
                             Text(
                                 text = rep.summary,
-                                color = if (rep.overallPassed) Color(0xFF81C784) else Color(0xFFFFB74D),
+                                color = if (rep.verifiedStreamsCount > 0) Color(0xFF81C784) else Color(0xFFFFB74D),
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Bold,
                             )

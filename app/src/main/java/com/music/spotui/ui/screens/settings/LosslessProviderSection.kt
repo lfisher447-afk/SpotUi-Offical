@@ -524,8 +524,8 @@ fun LosslessProviderSection(
                         val report = withContext(Dispatchers.IO) {
                             SpotiFlac.verifyLosslessPipeline(
                                 trackUrlOrId = verifyTrackInput,
-                                isrcOverride = verifyIsrcInput.takeIf { it.isNotBlank() },
-                                enabledProviders = enabledProviders.toList(),
+                                isrc = verifyIsrcInput.takeIf { it.isNotBlank() },
+                                enabledProviders = enabledProviders,
                                 preferHiRes = true,
                             )
                         }
@@ -550,8 +550,8 @@ fun LosslessProviderSection(
             }
             verifyReport?.let { report ->
                 Text(
-                    text = "${report.summary} · ID: ${report.resolvedTrackId ?: "none"}${report.resolvedIsrc?.let { " · ISRC: $it" } ?: ""}",
-                    color = if (report.overallPassed) Color(0xFF81C784) else Color(0xFFFFB74D),
+                    text = "${report.summary} · ID: ${report.spotifyTrackId}${report.isrcUsed?.let { " · ISRC: $it" } ?: ""}",
+                    color = if (report.verifiedStreamsCount > 0) Color(0xFF81C784) else Color(0xFFFFB74D),
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.testTag("spotflac_verify_summary"),
@@ -567,7 +567,7 @@ fun LosslessProviderSection(
                             shape = RoundedCornerShape(8.dp),
                         ) {
                             Text(
-                                text = "${st.stage}: ${if (st.passed) "OK" else "FAIL"} (${st.latencyMs}ms)",
+                                text = "${st.label}: ${if (st.passed) "OK" else "FAIL"} (${st.latencyMs}ms)",
                                 color = if (st.passed) Color(0xFF81C784) else Color(0xFFFF8A80),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -587,25 +587,25 @@ fun LosslessProviderSection(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "${probe.provider.uppercase()} · ${probe.magicSignature}",
+                                text = "${probe.providerName} · ${probe.headerSignature}",
                                 color = Color.White,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                             )
                             Text(
-                                text = "HTTP ${probe.httpCode} · ${probe.latencyMs}ms · ${probe.detail}",
+                                text = "HTTP ${probe.httpStatus ?: "—"} · ${probe.latencyMs}ms · ${probe.detail}",
                                 color = Color(0xFFA8B0C2),
                                 fontSize = 10.sp,
                                 maxLines = 2,
                             )
                         }
                         Surface(
-                            color = if (probe.streamVerified) Color(0xFF1E3A24) else Color(0xFF32323E),
+                            color = if (probe.streamFound) Color(0xFF1E3A24) else Color(0xFF32323E),
                             shape = RoundedCornerShape(6.dp),
                         ) {
                             Text(
-                                text = if (probe.streamVerified) "VERIFIED" else "SKIPPED",
-                                color = if (probe.streamVerified) Color(0xFF81C784) else Color(0xFFB3B3B3),
+                                text = if (probe.streamFound) "VERIFIED" else "SKIPPED",
+                                color = if (probe.streamFound) Color(0xFF81C784) else Color(0xFFB3B3B3),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
