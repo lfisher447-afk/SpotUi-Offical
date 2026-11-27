@@ -16,6 +16,12 @@ dist/
 .env.*
 !*.env.example
 
+# Offline Speech & Translation Models (downloaded at runtime)
+*.zip
+*.onnx
+*.tflite
+models/
+
 # IDE state
 .idea/
 *.swp

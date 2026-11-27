@@ -16,6 +16,10 @@ import android.speech.SpeechRecognizer
 import androidx.core.content.ContextCompat
 import com.music.spotui.data.api.TranslationApi
 import com.music.spotui.data.preferences.FLOATER_OVERLAY_PREFS_NAME
+import com.music.spotui.translator.GameVoiceTranslatorEngine
+import com.music.spotui.translator.MultiEngineTranslationRouter
+import com.music.spotui.translator.TranslationEnginePreferences
+import com.music.spotui.translator.VoiceCaptureSource
 import com.music.spotui.util.DevConsoleManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -97,6 +101,8 @@ internal object GameTranslatorEngine {
     private var lastSubmittedPartial: String = ""
     private var translateJob: Job? = null
     private var forceDefaultLocaleOnce: Boolean = false
+    @Volatile
+    private var cachedAppContext: Context? = null
 
     private val _isGameActive = MutableStateFlow(false)
     val isGameActiveFlow: StateFlow<Boolean> = _isGameActive.asStateFlow()
@@ -162,6 +168,8 @@ internal object GameTranslatorEngine {
         context.applicationContext.getSharedPreferences(FLOATER_OVERLAY_PREFS_NAME, Context.MODE_PRIVATE)
 
     fun hydratePreferences(context: Context) {
+        cachedAppContext = context.applicationContext
+        TranslationEnginePreferences.hydrateIfNeeded(context.applicationContext)
         val p = prefs(context)
         _bubbleEnabled.value = p.getBoolean(KEY_BUBBLE_ENABLED, true)
         _bubbleWidthDp.value = p.getFloat(KEY_BUBBLE_WIDTH_DP, 248f).coerceIn(160f, 420f)
@@ -475,14 +483,63 @@ internal object GameTranslatorEngine {
             .ifBlank { pkg }
     }
 
+    fun updateExternalRms(norm: Float) {
+        _micRmsNormalized.value = norm.coerceIn(0f, 1f)
+    }
+
+    fun publishExternalTranslation(
+        original: String,
+        translated: String,
+        detectedLang: String,
+        targetLang: String,
+        statusHint: String,
+        recordHistory: Boolean,
+    ) {
+        val now = System.currentTimeMillis()
+        _bubbleState.value = _bubbleState.value.copy(
+            originalText = original,
+            translatedEnglish = translated,
+            detectedLangCode = detectedLang,
+            targetLangCode = targetLang,
+            isTranslating = false,
+            isListening = _isListening.value || GameVoiceTranslatorEngine.isCaptureActive(),
+            statusHint = statusHint,
+            updatedAtMs = now,
+        )
+        if (recordHistory && original.isNotBlank()) {
+            val entry = TranslationHistoryEntry(
+                id = now,
+                originalText = original,
+                translatedEnglish = translated,
+                detectedLangCode = detectedLang,
+                targetLangCode = targetLang,
+                timestampMs = now,
+            )
+            _history.value = (listOf(entry) + _history.value)
+                .distinctBy { "${it.originalText}|${it.targetLangCode}" }
+                .take(20)
+        }
+    }
+
     fun startListening(context: Context) {
         val app = context.applicationContext
+        cachedAppContext = app
+        val config = TranslationEnginePreferences.hydrateIfNeeded(app)
+
+        // Zero-mic-locking Internal Game Audio path when enabled on Android 10+
+        if (config.captureSource != VoiceCaptureSource.MICROPHONE_FALLBACK &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        ) {
+            GameVoiceTranslatorEngine.requestInternalCapture(app)
+            return
+        }
+
         if (!refreshMicPermission(app)) {
             _isListening.value = false
             _micRmsNormalized.value = 0f
             _bubbleState.value = _bubbleState.value.copy(
                 isListening = false,
-                statusHint = "Microphone permission needed for live teammate voice translation",
+                statusHint = "Microphone permission needed for fallback speech mode",
             )
             return
         }
@@ -497,7 +554,7 @@ internal object GameTranslatorEngine {
                 _micRmsNormalized.value = 0f
                 _bubbleState.value = _bubbleState.value.copy(
                     isListening = false,
-                    statusHint = "Install or enable Google Speech Service in Android Settings",
+                    statusHint = "Use Internal Game Audio capture or enable Speech Service",
                 )
                 return@post
             }
@@ -515,9 +572,14 @@ internal object GameTranslatorEngine {
     fun stopListening() {
         _isListening.value = false
         _micRmsNormalized.value = 0f
+        cachedAppContext?.let { ctx ->
+            if (GameVoiceTranslatorEngine.isCaptureActive()) {
+                GameVoiceTranslatorEngine.stopCapture(ctx)
+            }
+        }
         _bubbleState.value = _bubbleState.value.copy(
             isListening = false,
-            statusHint = "Mic paused · Ready (${currentSourceLabel()} → ${currentTargetLabel()})",
+            statusHint = "Capture paused · Ready (${currentSourceLabel()} → ${currentTargetLabel()})",
         )
         mainHandler.post {
             mainHandler.removeCallbacksAndMessages(RECOGNIZER_RESTART_TOKEN)
@@ -690,45 +752,53 @@ internal object GameTranslatorEngine {
 
         translateJob?.cancel()
         translateJob = engineScope.launch {
-            runCatching {
-                TranslationApi.translatePhrase(cleaned, sourceHint, targetCode)
-            }.onSuccess { (detectedCode, translatedText) ->
-                val finalOutput = translatedText.ifBlank { cleaned }
-                val now = System.currentTimeMillis()
-                val detectedUpper = detectedCode.uppercase(Locale.US)
-                _bubbleState.value = _bubbleState.value.copy(
-                    originalText = cleaned,
-                    translatedEnglish = finalOutput,
-                    detectedLangCode = detectedCode,
-                    targetLangCode = targetCode,
-                    isTranslating = false,
-                    statusHint = if (_isListening.value) {
-                        "Listening ($detectedUpper → $targetLabel)"
-                    } else {
-                        "Translated ($detectedUpper → $targetLabel)"
-                    },
-                    updatedAtMs = now,
-                )
-                if (recordHistory) {
-                    val entry = TranslationHistoryEntry(
-                        id = now,
-                        originalText = cleaned,
-                        translatedEnglish = finalOutput,
-                        detectedLangCode = detectedCode,
-                        targetLangCode = targetCode,
-                        timestampMs = now,
+            val appCtx = cachedAppContext
+            if (appCtx != null) {
+                runCatching {
+                    MultiEngineTranslationRouter.translate(
+                        context = appCtx,
+                        rawText = cleaned,
+                        sourceHint = sourceHint,
+                        targetLang = targetCode,
                     )
-                    val updated = (listOf(entry) + _history.value)
-                        .distinctBy { "${it.originalText}|${it.targetLangCode}" }
-                        .take(15)
-                    _history.value = updated
+                }.onSuccess { routed ->
+                    val statusText = "${routed.engineUsed.badge} · ${routed.detectedSourceLang.uppercase(Locale.US)} → $targetLabel (${routed.latencyMs}ms)"
+                    publishExternalTranslation(
+                        original = cleaned,
+                        translated = routed.translatedText.ifBlank { cleaned },
+                        detectedLang = routed.detectedSourceLang,
+                        targetLang = targetCode,
+                        statusHint = statusText,
+                        recordHistory = recordHistory,
+                    )
                     _downloadedModels.value = TranslationApi.downloadedModelLanguages()
+                }.onFailure { err ->
+                    _bubbleState.value = _bubbleState.value.copy(
+                        isTranslating = false,
+                        statusHint = "Model downloading or offline: ${err.message ?: "retry"}",
+                    )
                 }
-            }.onFailure { err ->
-                _bubbleState.value = _bubbleState.value.copy(
-                    isTranslating = false,
-                    statusHint = "Model downloading or offline: ${err.message ?: "retry"}",
-                )
+            } else {
+                runCatching {
+                    TranslationApi.translatePhrase(cleaned, sourceHint, targetCode)
+                }.onSuccess { (detectedCode, translatedText) ->
+                    val finalOutput = translatedText.ifBlank { cleaned }
+                    val detectedUpper = detectedCode.uppercase(Locale.US)
+                    publishExternalTranslation(
+                        original = cleaned,
+                        translated = finalOutput,
+                        detectedLang = detectedCode,
+                        targetLang = targetCode,
+                        statusHint = "Translated ($detectedUpper → $targetLabel)",
+                        recordHistory = recordHistory,
+                    )
+                    _downloadedModels.value = TranslationApi.downloadedModelLanguages()
+                }.onFailure { err ->
+                    _bubbleState.value = _bubbleState.value.copy(
+                        isTranslating = false,
+                        statusHint = "Model downloading or offline: ${err.message ?: "retry"}",
+                    )
+                }
             }
         }
     }

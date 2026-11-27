@@ -58,6 +58,9 @@ import com.music.spotui.data.preferences.getSpatialRoomDelayMs
 import com.music.spotui.data.preferences.getSpatialStrength
 import com.music.spotui.data.preferences.isAudioNormalizerEnabled
 import com.music.spotui.data.preferences.isEqEnabled
+import com.music.spotui.translator.GameVoiceTranslatorEngine
+import com.music.spotui.translator.TranslationEnginePreferences
+import com.music.spotui.translator.TranslatorModelManager
 import com.music.spotui.data.preferences.isEqSpatialEnabled
 import com.music.spotui.data.preferences.isFloaterEqAnd3dEnabled
 import com.music.spotui.data.preferences.isFloaterHapticsEnabled
@@ -269,11 +272,13 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
                 GameTranslatorEngine.alwaysUnlockTranslatorFlow,
                 GameTranslatorEngine.bubbleEnabledFlow,
                 GameTranslatorEngine.isListeningFlow,
-            ) { isGame, alwaysUnlocked, bubbleOn, listening ->
-                val unlocked = isGame || alwaysUnlocked
-                unlocked to ((isGame || (alwaysUnlocked && listening)) && bubbleOn)
+                GameVoiceTranslatorEngine.captionState,
+            ) { isGame, alwaysUnlocked, bubbleOn, listening, caption ->
+                val unlocked = isGame || alwaysUnlocked || caption.captureActive
+                val showBubble = (isGame || caption.captureActive || (alwaysUnlocked && listening)) && bubbleOn
+                Triple(unlocked, showBubble, caption.captureActive)
             }
-                .collectLatest { (unlocked, shouldShowBubble) ->
+                .collectLatest { (unlocked, shouldShowBubble, _) ->
                     if (!unlocked && activeTab == FloaterTab.TRANSLATE) {
                         activeTab = FloaterTab.PLAYER
                         val v = overlayView
@@ -285,11 +290,18 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
                     }
                     if (shouldShowBubble) {
                         showTranslationBubble()
+                        updateTranslationBubbleTouchMode()
                     } else {
                         hideTranslationBubble()
                     }
                     refreshUiState()
                 }
+        }
+        serviceScope.launch {
+            TranslationEnginePreferences.state.collectLatest {
+                updateTranslationBubbleTouchMode()
+                refreshUiState()
+            }
         }
     }
 
@@ -442,13 +454,24 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
         val savedX = prefs.getInt(KEY_BUBBLE_X, dpToPx(10)).coerceIn(dpToPx(4), (metrics.widthPixels - dpToPx(140)).coerceAtLeast(dpToPx(4)))
         val savedY = prefs.getInt(KEY_BUBBLE_Y, dpToPx(24)).coerceIn(dpToPx(8), (metrics.heightPixels - dpToPx(80)).coerceAtLeast(dpToPx(8)))
 
+        TranslationEnginePreferences.hydrateIfNeeded(applicationContext)
+        val clickThrough = TranslationEnginePreferences.state.value.clickThroughLocked &&
+            GameVoiceTranslatorEngine.captionState.value.captureActive
+        val bubbleFlags = if (clickThrough) {
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+        } else {
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+        }
+
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            bubbleFlags,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -461,27 +484,31 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
             setContent {
                 SpotuiTheme(darkTheme = true, dynamicColor = true) {
+                    val captionState by GameVoiceTranslatorEngine.captionState.collectAsStateWithLifecycle()
+                    val transConfig by TranslationEnginePreferences.state.collectAsStateWithLifecycle()
                     val bubble by GameTranslatorEngine.bubbleStateFlow.collectAsStateWithLifecycle()
                     val widthDp by GameTranslatorEngine.bubbleWidthDpFlow.collectAsStateWithLifecycle()
                     val textSizeSp by GameTranslatorEngine.bubbleTextSizeSpFlow.collectAsStateWithLifecycle()
                     val opacity by GameTranslatorEngine.bubbleOpacityFlow.collectAsStateWithLifecycle()
                     val gameLabel by GameTranslatorEngine.activeGameLabelFlow.collectAsStateWithLifecycle()
 
-                    TranslationBubbleOverlayContent(
+                    GameLiveCaptionHost(
+                        captionState = captionState,
+                        config = transConfig,
                         bubble = bubble,
                         widthDp = widthDp,
                         textSizeSp = textSizeSp,
                         opacity = opacity,
                         gameLabel = gameLabel,
                         onBubbleDrag = { dx, dy ->
-                            val v = bubbleView ?: return@TranslationBubbleOverlayContent
-                            val p = bubbleParams ?: return@TranslationBubbleOverlayContent
+                            val v = bubbleView ?: return@GameLiveCaptionHost
+                            val p = bubbleParams ?: return@GameLiveCaptionHost
                             p.x = (p.x + dx.roundToInt()).coerceIn(dpToPx(4), (resources.displayMetrics.widthPixels - dpToPx(120)).coerceAtLeast(dpToPx(4)))
                             p.y = (p.y + dy.roundToInt()).coerceIn(dpToPx(8), (resources.displayMetrics.heightPixels - dpToPx(64)).coerceAtLeast(dpToPx(8)))
                             runCatching { if (v.isAttachedToWindow) windowManager?.updateViewLayout(v, p) }
                         },
                         onBubbleDragEnd = {
-                            val p = bubbleParams ?: return@TranslationBubbleOverlayContent
+                            val p = bubbleParams ?: return@GameLiveCaptionHost
                             prefs.edit().putInt(KEY_BUBBLE_X, p.x).putInt(KEY_BUBBLE_Y, p.y).apply()
                         },
                         onBubbleResizeWidthPx = { dx ->
@@ -526,6 +553,23 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
         bubbleView = container
         bubbleParams = params
         bubbleLifecycleOwner = owner
+    }
+
+    private fun updateTranslationBubbleTouchMode() {
+        val v = bubbleView ?: return
+        val p = bubbleParams ?: return
+        val clickThrough = TranslationEnginePreferences.state.value.clickThroughLocked &&
+            GameVoiceTranslatorEngine.captionState.value.captureActive
+        p.flags = if (clickThrough) {
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+        } else {
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+        }
+        runCatching { if (v.isAttachedToWindow) windowManager?.updateViewLayout(v, p) }
     }
 
     private fun hideTranslationBubble() {
@@ -670,6 +714,11 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
             speechEngineLabel = GameTranslatorEngine.speechEngineLabelFlow.value,
             downloadedModelLangs = GameTranslatorEngine.downloadedModelsFlow.value,
             modelDownloadBusyLang = GameTranslatorEngine.modelDownloadBusyFlow.value,
+            internalCaptureActive = GameVoiceTranslatorEngine.isCaptureActive(),
+            clickThroughLocked = TranslationEnginePreferences.hydrateIfNeeded(applicationContext).clickThroughLocked,
+            translationEngineBadge = TranslationEnginePreferences.hydrateIfNeeded(applicationContext).engineBackend.badge,
+            voskModelReady = TranslatorModelManager.hasValidVoskModel(applicationContext),
+            showDualLineCaption = TranslationEnginePreferences.hydrateIfNeeded(applicationContext).showDualLineCaption,
         )
     }
 
@@ -1109,6 +1158,23 @@ class MediaAccessibilityService : AccessibilityService(), FloaterCallbacks {
         } else {
             GameTranslatorEngine.startListening(applicationContext)
         }
+    }
+
+    override fun onToggleInternalCapture() {
+        resetAutoDismissTimer()
+        if (GameVoiceTranslatorEngine.isCaptureActive()) {
+            GameVoiceTranslatorEngine.stopCapture(applicationContext)
+        } else {
+            GameVoiceTranslatorEngine.requestInternalCapture(applicationContext)
+        }
+        refreshUiState()
+    }
+
+    override fun onToggleClickThroughLock(locked: Boolean) {
+        resetAutoDismissTimer()
+        TranslationEnginePreferences.setClickThroughLocked(applicationContext, locked)
+        updateTranslationBubbleTouchMode()
+        refreshUiState()
     }
 
     override fun onSelectTranslateSource(code: String) {

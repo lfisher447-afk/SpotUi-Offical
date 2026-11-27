@@ -39,6 +39,8 @@ import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Headphones
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MicOff
 import androidx.compose.material.icons.rounded.MusicNote
@@ -849,12 +851,78 @@ internal fun FloaterGameTranslatePanel(
                 }
             }
         } else {
+            val internalBtnBg by animateColorAsState(
+                targetValue = if (state.internalCaptureActive) cs.tertiary else cs.primary,
+                label = "internalCaptureBtnBg",
+            )
+            val internalBtnFg by animateColorAsState(
+                targetValue = if (state.internalCaptureActive) cs.onTertiary else cs.onPrimary,
+                label = "internalCaptureBtnFg",
+            )
+            Button(
+                onClick = { callbacks.onHaptic(true); callbacks.onToggleInternalCapture() },
+                colors = ButtonDefaults.buttonColors(containerColor = internalBtnBg, contentColor = internalBtnFg),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("floater_internal_capture_button"),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Headphones,
+                    contentDescription = "Capture internal teammate voice",
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = if (state.internalCaptureActive) "Stop Team Game Audio Capture" else "Capture Team Game Audio (Zero Mic Lock)",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                FilterChip(
+                    selected = state.clickThroughLocked,
+                    onClick = { callbacks.onHaptic(false); callbacks.onToggleClickThroughLock(!state.clickThroughLocked) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = if (state.clickThroughLocked) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
+                            contentDescription = "Click-through lock toggle",
+                            modifier = Modifier.size(14.dp),
+                        )
+                    },
+                    label = {
+                        Text(
+                            if (state.clickThroughLocked) "Pass-Through: Locked" else "Pass-Through: Drag",
+                            fontSize = 10.sp,
+                        )
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("floater_click_through_chip"),
+                )
+                Surface(
+                    color = cs.secondaryContainer,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 10.dp)) {
+                        Text(
+                            text = "${state.translationEngineBadge} · ${if (state.voskModelReady) "Vosk ✓" else "ML/Web"}",
+                            color = cs.onSecondaryContainer,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+            }
+
             val micBg by animateColorAsState(
-                targetValue = if (isListening) cs.error else cs.primary,
+                targetValue = if (isListening) cs.error else cs.surfaceContainerHigh,
                 label = "micBtnBg",
             )
             val micFg by animateColorAsState(
-                targetValue = if (isListening) cs.onError else cs.onPrimary,
+                targetValue = if (isListening) cs.onError else cs.onSurface,
                 label = "micBtnFg",
             )
             Button(
@@ -870,9 +938,9 @@ internal fun FloaterGameTranslatePanel(
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    text = if (isListening) "Stop Live Voice Translation" else "Start Live Voice Translation",
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.ExtraBold,
+                    text = if (isListening) "Stop Speech Recognizer Fallback" else "Start Mic Speech Fallback",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Bold,
                 )
             }
             Row(

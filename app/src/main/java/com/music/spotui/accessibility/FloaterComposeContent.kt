@@ -30,6 +30,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -769,41 +770,76 @@ internal fun FloaterExpressiveConsole(
                                 }
                             }
 
-                            // Active Tab Body Content with Expressive Transition
+                            // Active Tab Body Content with Pinned Quick-Switch Tab Bar + Expressive Transition
                             val translateUnlocked = state.isGameActive || state.alwaysUnlockTranslator
                             val effectiveTab = if (state.activeTab == FloaterTab.TRANSLATE && !translateUnlocked) {
                                 FloaterTab.PLAYER
                             } else {
                                 state.activeTab
                             }
-                            AnimatedContent(
-                                targetState = effectiveTab,
-                                transitionSpec = {
-                                    (fadeIn(tween(180)) + scaleIn(initialScale = 0.96f)) togetherWith
-                                        fadeOut(tween(120))
-                                },
-                                label = "floaterTabBody",
-                                modifier = Modifier.weight(1f).fillMaxHeight(),
-                            ) { tab ->
-                                when (tab) {
-                                    FloaterTab.PLAYER -> FloaterPlayerPanel(state, callbacks)
-                                    FloaterTab.QUEUE -> FloaterQueuePanel(state, callbacks)
-                                    FloaterTab.EQ -> FloaterEqPanel(state, callbacks)
-                                    FloaterTab.SPATIAL_3D -> FloaterSpatial3dPanel(state, callbacks)
-                                    FloaterTab.TOOLS -> FloaterToolsPanel(state, callbacks)
-                                    FloaterTab.TRANSLATE -> FloaterGameTranslatePanel(
-                                        state = state,
-                                        translationBubble = translationBubble,
-                                        history = translationHistory,
-                                        hasMicPermission = hasMicPermission,
-                                        isListening = isListening,
-                                        sourceLangCode = translateSourceLang,
-                                        bubbleEnabled = bubbleEnabled,
-                                        bubbleWidthDp = bubbleWidthDp,
-                                        bubbleTextSizeSp = bubbleTextSizeSp,
-                                        bubbleOpacity = bubbleOpacity,
-                                        callbacks = callbacks,
-                                    )
+                            Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(cs.surfaceContainerLow)
+                                        .horizontalScroll(rememberScrollState())
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        .testTag("floater_pinned_tabs_bar"),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    FloaterTab.entries.forEach { tabItem ->
+                                        if (tabItem == FloaterTab.TRANSLATE && !translateUnlocked) return@forEach
+                                        val isSelected = effectiveTab == tabItem
+                                        Surface(
+                                            onClick = {
+                                                callbacks.onHaptic(true)
+                                                callbacks.onSelectTab(tabItem)
+                                            },
+                                            color = if (isSelected) cs.primaryContainer else cs.surfaceContainerHigh,
+                                            shape = CircleShape,
+                                            modifier = Modifier.testTag("floater_pinned_tab_${tabItem.key}"),
+                                        ) {
+                                            Text(
+                                                text = tabItem.label,
+                                                color = if (isSelected) cs.onPrimaryContainer else cs.onSurfaceVariant,
+                                                fontSize = 10.sp,
+                                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                            )
+                                        }
+                                    }
+                                }
+
+                                AnimatedContent(
+                                    targetState = effectiveTab,
+                                    transitionSpec = {
+                                        (fadeIn(tween(180)) + scaleIn(initialScale = 0.96f)) togetherWith
+                                            fadeOut(tween(120))
+                                    },
+                                    label = "floaterTabBody",
+                                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                                ) { tab ->
+                                    when (tab) {
+                                        FloaterTab.PLAYER -> FloaterPlayerPanel(state, callbacks)
+                                        FloaterTab.QUEUE -> FloaterQueuePanel(state, callbacks)
+                                        FloaterTab.EQ -> FloaterEqPanel(state, callbacks)
+                                        FloaterTab.SPATIAL_3D -> FloaterSpatial3dPanel(state, callbacks)
+                                        FloaterTab.TOOLS -> FloaterToolsPanel(state, callbacks)
+                                        FloaterTab.TRANSLATE -> FloaterGameTranslatePanel(
+                                            state = state,
+                                            translationBubble = translationBubble,
+                                            history = translationHistory,
+                                            hasMicPermission = hasMicPermission,
+                                            isListening = isListening,
+                                            sourceLangCode = translateSourceLang,
+                                            bubbleEnabled = bubbleEnabled,
+                                            bubbleWidthDp = bubbleWidthDp,
+                                            bubbleTextSizeSp = bubbleTextSizeSp,
+                                            bubbleOpacity = bubbleOpacity,
+                                            callbacks = callbacks,
+                                        )
+                                    }
                                 }
                             }
                         }

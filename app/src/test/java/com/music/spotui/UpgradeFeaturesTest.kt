@@ -107,8 +107,22 @@ class UpgradeFeaturesTest {
         assertEquals("dQw4w9WgXcQ", normalizeYouTubeVideoId("  dQw4w9WgXcQ  "))
         assertNull(normalizeYouTubeVideoId("not a youtube id"))
 
-        val unsavedSongA = SongsModel(id = 0, url = "spotify:track:AAA|Track A Artist")
-        val unsavedSongB = SongsModel(id = 0, url = "spotify:track:BBB|Track B Artist")
+        val unsavedSongA = SongsModel(
+            id = 0,
+            title = "Track A",
+            album = "",
+            singer = "Artist",
+            coverUri = "",
+            url = "spotify:track:AAA|Track A Artist",
+        )
+        val unsavedSongB = SongsModel(
+            id = 0,
+            title = "Track B",
+            album = "",
+            singer = "Artist",
+            coverUri = "",
+            url = "spotify:track:BBB|Track B Artist",
+        )
         assertNotEquals(alternativeStreamKey(unsavedSongA), alternativeStreamKey(unsavedSongB))
         assertEquals(alternativeStreamKeyForUrl(unsavedSongA.url), alternativeStreamKey(unsavedSongA))
     }

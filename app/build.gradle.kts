@@ -182,9 +182,11 @@ dependencies {
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.json)
 
-    // ML Kit on-device translation & language identification (free, no API key, works offline after model download)
+    // ML Kit on-device translation & language identification + Vosk offline speech recognition
     implementation(libs.mlkit.translate)
     implementation(libs.mlkit.language.id)
+    implementation("com.alphacephei:vosk-android:0.3.75")
+    implementation("net.java.dev.jna:jna:5.14.0@aar")
 
     // Embedded APK-native yt-dlp + FFmpeg engine
     implementation(libs.youtubedl.library)

@@ -193,10 +193,13 @@ import com.music.spotui.data.cache.CacheStorageManager
 import com.music.spotui.data.export.NovaAcExportManager
 import com.music.spotui.di.SongPlayer
 import com.music.spotui.ui.components.PatchNotesDialog
+import com.music.spotui.ui.screens.settings.AdvancedPlaybackSection
 import com.music.spotui.ui.screens.settings.AudioDspSection
 import com.music.spotui.ui.screens.settings.LosslessProviderSection
 import com.music.spotui.ui.screens.settings.ModuleLibsSettingsSection
 import com.music.spotui.ui.screens.settings.PlaybackAndToolsSection
+import com.music.spotui.ui.screens.settings.ProAudioChainSection
+import com.music.spotui.ui.screens.settings.TranslationsSettingsSection
 import com.music.spotui.ui.screens.settings.UiSoundAndStyleSection
 import com.music.spotui.accessibility.AccessibilityHelper
 import com.music.spotui.data.preferences.FloaterHapticStrength
@@ -224,7 +227,8 @@ private enum class SettingsSideTab(
 ) {
     STYLE("Style", "Expressive Style & UI", "Themes, SongPlay shapes, tactile chimes & AI", "M3E", Icons.Rounded.Palette, listOf("theme", "noel", "prism", "color", "sound", "chime", "icon", "font", "ui", "gemini")),
     AUDIO("Audio", "3D Studio & Quality", "7-Band EQ, Advanced 8D Audio, SpotFlac & Crossfade", "8D", Icons.Rounded.GraphicEq, listOf("eq", "8d", "spatial", "spotflac", "lossless", "deezer", "qobuz", "tidal", "crossfade", "volume", "quality", "verify")),
-    FLOATER("Floater", "Floater & Translator", "In-app volume, snap-edge, haptics & Live Mic Translator", "A11Y", Icons.Rounded.PictureInPictureAlt, listOf("floater", "overlay", "mic", "translate", "translation", "game", "ml kit", "pack", "bubble", "haptic", "accessibility")),
+    FLOATER("Floater", "Floater & Overlay", "In-app volume, snap-edge, haptics & Live Caption overlay", "A11Y", Icons.Rounded.PictureInPictureAlt, listOf("floater", "overlay", "bubble", "haptic", "accessibility", "resize")),
+    TRANSLATIONS("Translate", "Game Voice & Translations", "Internal game audio capture, Vosk offline ASR, ML Kit & 7 engines", "LIVE", Icons.Rounded.Translate, listOf("translate", "translation", "vosk", "ml kit", "lingva", "libre", "caption", "game", "voice", "language", "lexicon", "capture")),
     MODULES("Modules", "17 Library Modules", "Toggle & verify Spotify, InnerTube, yt-dlp, Lyrics & Shazam", "17", Icons.Rounded.Extension, listOf("module", "yt-dlp", "ffmpeg", "innertube", "newpipe", "shazam", "lyrics", "spotify", "library")),
     TURBO("Turbo", "MrBean & Storage", "8x HTTP/2 slices, connection pool & NovaAc cache", "8x", Icons.Rounded.Bolt, listOf("mrbean", "download", "cache", "novaac", "storage", "slice", "chunk", "pool")),
     NETWORK("Network", "DNS, Auth & Sync", "DoH resolver, PoToken, proxy pool & YTM sync", "DoH", Icons.Rounded.Public, listOf("dns", "doh", "proxy", "potoken", "youtube", "cookie", "sync", "oauth", "explicit")),
@@ -240,9 +244,9 @@ private data class SettingsQuickTopic(
 )
 
 private val settingsQuickTopics = listOf(
-    SettingsQuickTopic("Advanced 8D Audio", "8d spatial holographic binaural eq", SettingsSideTab.AUDIO),
+    SettingsQuickTopic("Advanced 8D Audio", "8d spatial holographic binaural eq offload harmonic", SettingsSideTab.AUDIO),
     SettingsQuickTopic("SpotFlac Verify", "spotflac lossless verify mirror deezer qobuz", SettingsSideTab.AUDIO),
-    SettingsQuickTopic("Mic Translator", "in game mic translator language mlkit bubble", SettingsSideTab.FLOATER),
+    SettingsQuickTopic("Game Translator", "game voice translator vosk mlkit lingva libre caption", SettingsSideTab.TRANSLATIONS),
     SettingsQuickTopic("Floater Overlay", "floater accessibility volume resize haptic", SettingsSideTab.FLOATER),
     SettingsQuickTopic("yt-dlp & Modules", "ytdlp ffmpeg innertube newpipe modules", SettingsSideTab.MODULES),
     SettingsQuickTopic("MrBean 8x Turbo", "mrbean cache storage novaac download speed", SettingsSideTab.TURBO),
@@ -488,6 +492,7 @@ fun SettingsScreen(navController: NavController) {
                 oneUiSectionExpanded = true
                 accessibilitySectionExpanded = true
             }
+            SettingsSideTab.TRANSLATIONS -> Unit
             SettingsSideTab.MODULES -> moduleLibsExpanded = true
             SettingsSideTab.TURBO -> {
                 mrbeanSectionExpanded = true
@@ -994,7 +999,7 @@ fun SettingsScreen(navController: NavController) {
                         TelemetryStatusPill(
                             label = if (hasMicTranslatorPerm && translatorSpeechReady) "Translator: Ready" else "Translator: Setup",
                             active = hasMicTranslatorPerm && translatorSpeechReady,
-                            onClick = { activeSideTab = SettingsSideTab.FLOATER },
+                            onClick = { activeSideTab = SettingsSideTab.TRANSLATIONS },
                         )
                         TelemetryStatusPill(
                             label = layoutTierLabel,
@@ -1614,225 +1619,26 @@ fun SettingsScreen(navController: NavController) {
 
                     if (showTab(SettingsSideTab.FLOATER)) {
                         Spacer(Modifier.height(14.dp))
-                        Surface(
+                        Button(
+                            onClick = { activeSideTab = SettingsSideTab.TRANSLATIONS },
+                            colors = ButtonDefaults.buttonColors(containerColor = AppPalette.copy(alpha = 0.16f), contentColor = AppPalette),
                             shape = RoundedCornerShape(14.dp),
-                            color = Color(0xFF1F2330),
-                            border = BorderStroke(
-                                1.dp,
-                                if (hasMicTranslatorPerm && translatorSpeechReady) AppPalette.copy(alpha = 0.45f) else Color(0xFF393E52),
-                            ),
-                            modifier = Modifier.fillMaxWidth().testTag("settings_translator_studio_card"),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("floater_open_translations_tab_btn"),
                         ) {
-                            Column(
-                                modifier = Modifier.padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(38.dp)
-                                            .clip(CircleShape)
-                                            .background(AppPalette.copy(alpha = 0.2f)),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Icon(Icons.Rounded.Translate, contentDescription = null, tint = AppPalette, modifier = Modifier.size(20.dp))
-                                    }
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text("In-Game Mic Translator Studio", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
-                                        Text(
-                                            text = if (translatorIsGameActive) {
-                                                "Game active: ${translatorActiveGameLabel ?: "Detected"} · ${translatorSpeechLabel}"
-                                            } else {
-                                                "${translatorSpeechLabel} · ${translatorDownloadedPacks.size} offline packs installed"
-                                            },
-                                            color = Color(0xFFB7C0D1),
-                                            fontSize = 11.sp,
-                                        )
-                                    }
-                                    Surface(
-                                        color = if (hasMicTranslatorPerm) Color(0xFF1E3A24) else Color(0xFF3D2A1C),
-                                        shape = RoundedCornerShape(10.dp),
-                                    ) {
-                                        Text(
-                                            text = if (hasMicTranslatorPerm) "MIC OK" else "MIC OFF",
-                                            color = if (hasMicTranslatorPerm) Color(0xFF81C784) else Color(0xFFFFB74D),
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        )
-                                    }
-                                }
-
-                                if (!hasMicTranslatorPerm) {
-                                    Button(
-                                        onClick = { translatorMicPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
-                                        colors = ButtonDefaults.buttonColors(containerColor = AppPalette, contentColor = Color.Black),
-                                        shape = RoundedCornerShape(12.dp),
-                                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("settings_translator_grant_mic"),
-                                    ) {
-                                        Icon(Icons.Rounded.Mic, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(Modifier.width(6.dp))
-                                        Text("Grant Microphone Permission for Live Translator", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-
-                                SettingsSwitchRow(
-                                    title = "Keep Translator Unlocked Outside Games",
-                                    subtitle = "Pin the Translate tab inside the Floater for Discord, lobby chat, or unsupported games",
-                                    checked = translatorAlwaysUnlocked,
-                                ) { enabled ->
-                                    GameTranslatorEngine.setAlwaysUnlockTranslator(context, enabled)
-                                }
-                                SettingsSwitchRow(
-                                    title = "Continuous Hands-Free Listening",
-                                    subtitle = "Automatically restarts speech recognizer after each teammate callout",
-                                    checked = translatorContinuous,
-                                ) { continuous ->
-                                    GameTranslatorEngine.setContinuousListen(context, continuous)
-                                }
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        text = "Source (${translatorSourceLang.uppercase()}) → Target (${translatorTargetLang.uppercase()})",
-                                        color = Color.White,
-                                        fontSize = 12.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                    TextButton(
-                                        enabled = translatorSourceLang != "auto",
-                                        onClick = { GameTranslatorEngine.swapLanguages(context) },
-                                        modifier = Modifier.heightIn(min = 48.dp),
-                                    ) {
-                                        Icon(Icons.Rounded.SwapHoriz, contentDescription = "Swap languages", tint = AppPalette, modifier = Modifier.size(16.dp))
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("Swap", color = AppPalette, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-
-                                Text("Source Voice Language", color = Color(0xFFB3B3B3), fontSize = 11.sp)
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                ) {
-                                    GameTranslatorEngine.supportedLanguages.forEach { lang ->
-                                        FilterChip(
-                                            selected = translatorSourceLang == lang.code,
-                                            onClick = { GameTranslatorEngine.setSourceLanguage(context, lang.code) },
-                                            label = { Text("${lang.shortLabel} · ${lang.fullName}", fontSize = 11.sp) },
-                                            modifier = Modifier.heightIn(min = 48.dp),
-                                        )
-                                    }
-                                }
-
-                                Text("Target Output Language", color = Color(0xFFB3B3B3), fontSize = 11.sp)
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                ) {
-                                    GameTranslatorEngine.supportedTargetLanguages.forEach { lang ->
-                                        FilterChip(
-                                            selected = translatorTargetLang == lang.code,
-                                            onClick = { GameTranslatorEngine.setTargetLanguage(context, lang.code) },
-                                            label = { Text("${lang.shortLabel} · ${lang.fullName}", fontSize = 11.sp) },
-                                            modifier = Modifier.heightIn(min = 48.dp),
-                                        )
-                                    }
-                                }
-
-                                Text("Offline ML Kit Language Packs (Tap to Download)", color = Color(0xFFD0D6E0), fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
-                                FlowRow(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                                ) {
-                                    GameTranslatorEngine.supportedTargetLanguages.forEach { lang ->
-                                        val downloaded = lang.code in translatorDownloadedPacks
-                                        val isBusy = translatorBusyPack == lang.code
-                                        FilterChip(
-                                            selected = downloaded,
-                                            enabled = !isBusy,
-                                            onClick = { GameTranslatorEngine.downloadLanguagePack(context, lang.code) },
-                                            leadingIcon = {
-                                                Icon(
-                                                    imageVector = if (downloaded) Icons.Rounded.CloudDone else Icons.Rounded.CloudDownload,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(14.dp),
-                                                )
-                                            },
-                                            label = {
-                                                Text(
-                                                    if (isBusy) "${lang.shortLabel}…" else "${lang.shortLabel} ${if (downloaded) "✓" else ""}",
-                                                    fontSize = 10.5.sp,
-                                                )
-                                            },
-                                            colors = FilterChipDefaults.filterChipColors(
-                                                selectedContainerColor = Color(0xFF1E3A24),
-                                                selectedLabelColor = Color(0xFF81C784),
-                                            ),
-                                            modifier = Modifier.heightIn(min = 48.dp),
-                                        )
-                                    }
-                                }
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    OutlinedTextField(
-                                        value = translatorTestDraft,
-                                        onValueChange = { translatorTestDraft = it },
-                                        singleLine = true,
-                                        placeholder = { Text("Test phrase (e.g. Hola amigos, يلا)", fontSize = 11.sp) },
-                                        modifier = Modifier.weight(1f).testTag("settings_translator_test_input"),
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedBorderColor = AppPalette,
-                                            unfocusedBorderColor = Color(0xFF34343F),
-                                            focusedTextColor = Color.White,
-                                            unfocusedTextColor = Color.White,
-                                        ),
-                                    )
-                                    Button(
-                                        onClick = {
-                                            if (translatorTestDraft.isNotBlank()) {
-                                                GameTranslatorEngine.translateTextNow(translatorTestDraft, recordHistory = true)
-                                            }
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = AppPalette, contentColor = Color.Black),
-                                        modifier = Modifier.heightIn(min = 48.dp).testTag("settings_translator_test_button"),
-                                    ) {
-                                        Text("Test", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                                if (translatorBubbleState.translatedEnglish.isNotBlank()) {
-                                    Text(
-                                        text = "[${translatorBubbleState.detectedLangCode.uppercase()} → ${translatorBubbleState.targetLangCode.uppercase()}] ${translatorBubbleState.translatedEnglish}",
-                                        color = Color(0xFF81C784),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                } else {
-                                    Text(
-                                        text = translatorBubbleState.statusHint,
-                                        color = Color(0xFFA8B0C2),
-                                        fontSize = 11.sp,
-                                    )
-                                }
-                            }
+                            Icon(Icons.Rounded.Translate, contentDescription = "Open Translations Studio tab", modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Open Dedicated Game Voice & Translations Studio", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
                         }
                     }
                 }
             }
 
             Spacer(Modifier.height(16.dp))
+            }
+
+            if (showTab(SettingsSideTab.TRANSLATIONS)) {
+                TranslationsSettingsSection()
+                Spacer(Modifier.height(16.dp))
             }
 
             if (showTab(SettingsSideTab.NETWORK)) {
@@ -1960,11 +1766,13 @@ fun SettingsScreen(navController: NavController) {
             if (showTab(SettingsSideTab.AUDIO)) {
             CollapsibleSettingsSection(
                 title = "Studio Audio FX, 7-Band EQ & 3D Spatial",
-                subtitle = "Parametric Biquad EQ, Preamp, Limiter, Normalizer, and Binaural Soundstage",
+                subtitle = "Parametric Biquad EQ, Preamp, Limiter, Normalizer, Offload Guard & Binaural Soundstage",
                 expanded = audioSectionExpanded,
                 onExpandedChange = { audioSectionExpanded = it },
             ) {
                 AudioDspSection()
+                Spacer(Modifier.height(14.dp))
+                ProAudioChainSection()
             }
 
             Spacer(Modifier.height(16.dp))
@@ -3539,6 +3347,8 @@ fun SettingsScreen(navController: NavController) {
                     navController.navigate(com.music.spotui.ui.navigation.Routes.DeveloperConsole.route)
                 },
             )
+            Spacer(Modifier.height(10.dp))
+            AdvancedPlaybackSection()
             }
                 }
             }

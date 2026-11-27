@@ -47,6 +47,11 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
     @Volatile var advanced8dDepth: Float = 0.85f
     @Volatile var elevationDepth: Float = 0.70f
     @Volatile var correlationGuard: Boolean = true
+    @Volatile var azimuthSpread: Float = 1.0f
+    @Volatile var reflectionDensity: Float = 1.0f
+    @Volatile var airShimmer: Float = 0.45f
+    @Volatile var subBassCrossoverHz: Float = 110f
+    @Volatile var frontRearBalance: Float = 0.55f
 
     @Volatile var activeDescription: String = "Bypassed"
         private set
@@ -365,8 +370,9 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
         delayL[writePos] = left
         delayR[writePos] = right
 
-        // 2-pole cascaded sub-110 Hz mono-bass anchor + air absorption LP
-        val bassAlpha = ((2.0 * PI * 110.0) / sr).toFloat().coerceIn(0.002f, 0.16f)
+        // 2-pole cascaded configurable mono-bass anchor + air absorption LP
+        val bassHz = subBassCrossoverHz.coerceIn(75f, 160f).toDouble()
+        val bassAlpha = ((2.0 * PI * bassHz) / sr).toFloat().coerceIn(0.002f, 0.22f)
         val airAlpha = (14500f / sr).coerceIn(0.08f, 0.65f)
         bassLp1L += (left - bassLp1L) * bassAlpha
         bassLp2L += (bassLp1L - bassLp2L) * bassAlpha
@@ -456,7 +462,8 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
                 airLpL += ((apOutL3 * 0.58f + earlyL * 0.42f) - airLpL) * airAlpha
                 airLpR += ((apOutR3 * 0.58f + earlyR * 0.42f) - airLpR) * airAlpha
 
-                val wetRoom = (profileReflectionAmount(profile) * (0.42f + 0.78f * smoothedElevation) * intensity * (0.72f + 0.28f * hpFactor)).coerceIn(0f, 0.62f)
+                val wetRoom = (profileReflectionAmount(profile) * reflectionDensity.coerceIn(0.2f, 1.5f) *
+                    (0.42f + 0.78f * smoothedElevation) * intensity * (0.72f + 0.28f * hpFactor)).coerceIn(0f, 0.68f)
                 stageL = stageL * (1f - wetRoom * 0.16f) + (airLpL * 0.76f + airLpR * 0.24f) * wetRoom
                 stageR = stageR * (1f - wetRoom * 0.16f) + (airLpR * 0.76f + airLpL * 0.24f) * wetRoom
 
@@ -478,27 +485,32 @@ class SpatialWideningAudioProcessor : BaseAudioProcessor() {
 
                 // 4. Stationary Advanced 8D Holographic Binaural Immersion (Zero dizzying orbit panning)
                 if (smoothedAdvanced8d > 0.002f) {
+                    val spread = azimuthSpread.coerceIn(0.4f, 1.5f)
+                    val shimmer = airShimmer.coerceIn(0f, 1f)
+                    val frontBias = frontRearBalance.coerceIn(0f, 1f)
+                    val rearWeight = (1.15f - frontBias * 0.75f).coerceIn(0.35f, 1.15f)
                     val holoDepth = (smoothedAdvanced8d * corrFactor * (0.55f + 0.45f * smoothedWidth)).coerceIn(0f, 1.35f)
                     val stMid = (stageL + stageR) * 0.5f
                     val stSide = (stageL - stageR) * 0.5f
                     val stHighMid = stMid - lowMono
                     val stHighSide = stSide - (bassLp2L - bassLp2R) * 0.25f
 
-                    // Micro-asymmetric Woodworth ITD (~0.34ms L, ~0.49ms R) creates wide out-of-head binaural anchor
-                    val microItdL = readDelayInterp(reflectBufL, (0.00034f * sr).coerceIn(2f, 96f))
-                    val microItdR = readDelayInterp(reflectBufR, (0.00049f * sr).coerceIn(3f, 128f))
+                    // Micro-asymmetric Woodworth ITD (~0.34ms L, ~0.49ms R) scaled by azimuthSpread
+                    val microItdL = readDelayInterp(reflectBufL, (0.00034f * spread * sr).coerceIn(2f, 128f))
+                    val microItdR = readDelayInterp(reflectBufR, (0.00049f * spread * sr).coerceIn(3f, 160f))
 
                     // Subtle cross-channel diffuse surround envelope + dual front/rear Pinna externalization
-                    val surroundDiffL = (airLpL * 0.62f - airLpR * 0.38f) * (0.24f * holoDepth)
-                    val surroundDiffR = (airLpR * 0.62f - airLpL * 0.38f) * (0.24f * holoDepth)
-                    val rearShadowL = (rearPinnaL - stMid) * (0.14f * hpFactor * holoDepth)
-                    val rearShadowR = (rearPinnaR - stMid) * (0.14f * hpFactor * holoDepth)
+                    val reflGain = (0.24f * holoDepth * reflectionDensity.coerceIn(0.2f, 1.5f)).coerceAtMost(0.38f)
+                    val surroundDiffL = (airLpL * 0.62f - airLpR * 0.38f) * reflGain
+                    val surroundDiffR = (airLpR * 0.62f - airLpL * 0.38f) * reflGain
+                    val rearShadowL = (rearPinnaL - stMid) * (0.14f * rearWeight * hpFactor * holoDepth)
+                    val rearShadowR = (rearPinnaR - stMid) * (0.14f * rearWeight * hpFactor * holoDepth)
 
                     // Anchored center vocals + saturated upper-band M/S holographic arc + silky air shimmer
-                    val vocalFocusGain = 1f + (0.06f * holoDepth).coerceAtMost(0.08f)
-                    val wideSideArc = tanh((stHighSide * (1f + 0.42f * holoDepth)).toDouble()).toFloat()
-                    val airHarmonicL = (microItdL - shadowL * 0.16f) * (0.18f * holoDepth)
-                    val airHarmonicR = (microItdR - shadowR * 0.16f) * (0.18f * holoDepth)
+                    val vocalFocusGain = 1f + (0.06f * (0.5f + 0.5f * frontBias) * holoDepth).coerceAtMost(0.09f)
+                    val wideSideArc = tanh((stHighSide * (1f + 0.42f * spread * holoDepth)).toDouble()).toFloat()
+                    val airHarmonicL = (microItdL - shadowL * 0.16f) * (0.12f + 0.18f * shimmer) * holoDepth
+                    val airHarmonicR = (microItdR - shadowR * 0.16f) * (0.12f + 0.18f * shimmer) * holoDepth
 
                     stageL = lowMono + stHighMid * vocalFocusGain + wideSideArc + surroundDiffL + rearShadowL + airHarmonicL
                     stageR = lowMono + stHighMid * vocalFocusGain - wideSideArc + surroundDiffR + rearShadowR + airHarmonicR

@@ -92,6 +92,11 @@ data class FloaterUiModel(
     val speechEngineLabel: String = "",
     val downloadedModelLangs: Set<String> = emptySet(),
     val modelDownloadBusyLang: String? = null,
+    val internalCaptureActive: Boolean = false,
+    val clickThroughLocked: Boolean = true,
+    val translationEngineBadge: String = "AUTO",
+    val voskModelReady: Boolean = false,
+    val showDualLineCaption: Boolean = true,
 )
 
 interface FloaterCallbacks {
@@ -164,6 +169,8 @@ interface FloaterCallbacks {
     // Game Live Translation
     fun onRequestMicPermission()
     fun onToggleListening()
+    fun onToggleInternalCapture()
+    fun onToggleClickThroughLock(locked: Boolean)
     fun onSelectTranslateSource(code: String)
     fun onSelectTranslateTarget(code: String)
     fun onSwapTranslateLanguages()

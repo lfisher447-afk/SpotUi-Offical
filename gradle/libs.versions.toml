@@ -111,9 +111,11 @@ okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 okhttp-dnsoverhttps = { module = "com.squareup.okhttp3:okhttp-dnsoverhttps", version.ref = "okhttp" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 
-# ML Kit Translation & Language Identification (on-device, free, no API key)
+# ML Kit Translation & Language Identification + Vosk Offline Speech Recognition
 mlkit-translate = { module = "com.google.mlkit:translate", version.ref = "mlkitTranslate" }
 mlkit-language-id = { module = "com.google.mlkit:language-id", version.ref = "mlkitLanguageId" }
+vosk-android = { module = "com.alphacephei:vosk-android", version = "0.3.75" }
+jna = { module = "net.java.dev.jna:jna", version = "5.14.0" }
 
 # Embedded APK-native yt-dlp + FFmpeg runtime
 youtubedl-library = { module = "io.github.junkfood02.youtubedl-android:library", version.ref = "youtubedlAndroid" }

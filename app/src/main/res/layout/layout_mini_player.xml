@@ -56,6 +56,21 @@
                     android:textStyle="bold" />
             </LinearLayout>
 
+            <TextView
+                android:id="@+id/tv_mini_dsp_pill"
+                android:layout_width="wrap_content"
+                android:layout_height="22dp"
+                android:layout_marginStart="5dp"
+                android:background="@drawable/bg_mini_mute_pill"
+                android:gravity="center"
+                android:maxLines="1"
+                android:paddingStart="7dp"
+                android:paddingEnd="7dp"
+                android:text="8D · PCM"
+                android:textColor="#FF8AB4F8"
+                android:textSize="8.5sp"
+                android:textStyle="bold" />
+
             <FrameLayout
                 android:id="@+id/layout_drag_pill_area"
                 android:layout_width="0dp"
@@ -671,20 +686,129 @@
                 </LinearLayout>
             </ScrollView>
 
-            <!-- Right Tab Content Area -->
-            <ScrollView
-                android:id="@+id/scroll_studio_drawer"
+            <!-- Right Fixed Pinned Tab Strip + Scrollable Tab Content Area -->
+            <LinearLayout
+                android:id="@+id/layout_studio_content_column"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:fadeScrollbars="false"
-                android:overScrollMode="ifContentScrolls">
+                android:orientation="vertical">
 
-                <LinearLayout
+                <HorizontalScrollView
+                    android:id="@+id/scroll_pinned_tabs"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:paddingBottom="4dp">
+                    android:layout_height="30dp"
+                    android:layout_marginBottom="6dp"
+                    android:background="@drawable/bg_mini_card_inner"
+                    android:paddingStart="5dp"
+                    android:paddingEnd="5dp"
+                    android:scrollbars="none">
+
+                    <LinearLayout
+                        android:id="@+id/layout_floater_pinned_tabs"
+                        android:layout_width="wrap_content"
+                        android:layout_height="match_parent"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/pinned_tab_player"
+                            android:layout_width="wrap_content"
+                            android:layout_height="22dp"
+                            android:layout_marginEnd="4dp"
+                            android:background="@drawable/bg_mini_chip_active"
+                            android:gravity="center"
+                            android:paddingStart="9dp"
+                            android:paddingEnd="9dp"
+                            android:text="@string/mini_player_tab_player"
+                            android:textColor="#FF06130B"
+                            android:textSize="9.5sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/pinned_tab_queue"
+                            android:layout_width="wrap_content"
+                            android:layout_height="22dp"
+                            android:layout_marginEnd="4dp"
+                            android:background="@drawable/bg_mini_chip_inactive"
+                            android:gravity="center"
+                            android:paddingStart="9dp"
+                            android:paddingEnd="9dp"
+                            android:text="@string/mini_player_tab_queue"
+                            android:textColor="#FFD5DCE6"
+                            android:textSize="9.5sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/pinned_tab_eq"
+                            android:layout_width="wrap_content"
+                            android:layout_height="22dp"
+                            android:layout_marginEnd="4dp"
+                            android:background="@drawable/bg_mini_chip_inactive"
+                            android:gravity="center"
+                            android:paddingStart="9dp"
+                            android:paddingEnd="9dp"
+                            android:text="@string/mini_player_tab_eq"
+                            android:textColor="#FFD5DCE6"
+                            android:textSize="9.5sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/pinned_tab_3d"
+                            android:layout_width="wrap_content"
+                            android:layout_height="22dp"
+                            android:layout_marginEnd="4dp"
+                            android:background="@drawable/bg_mini_chip_inactive"
+                            android:gravity="center"
+                            android:paddingStart="9dp"
+                            android:paddingEnd="9dp"
+                            android:text="@string/mini_player_tab_3d"
+                            android:textColor="#FFD5DCE6"
+                            android:textSize="9.5sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/pinned_tab_tools"
+                            android:layout_width="wrap_content"
+                            android:layout_height="22dp"
+                            android:layout_marginEnd="4dp"
+                            android:background="@drawable/bg_mini_chip_inactive"
+                            android:gravity="center"
+                            android:paddingStart="9dp"
+                            android:paddingEnd="9dp"
+                            android:text="@string/mini_player_tab_tools"
+                            android:textColor="#FFD5DCE6"
+                            android:textSize="9.5sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/pinned_tab_translate"
+                            android:layout_width="wrap_content"
+                            android:layout_height="22dp"
+                            android:background="@drawable/bg_mini_chip_inactive"
+                            android:gravity="center"
+                            android:paddingStart="9dp"
+                            android:paddingEnd="9dp"
+                            android:text="@string/mini_player_tab_translate"
+                            android:textColor="#FF1ED760"
+                            android:textSize="9.5sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+                </HorizontalScrollView>
+
+                <ScrollView
+                    android:id="@+id/scroll_studio_drawer"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:fadeScrollbars="false"
+                    android:overScrollMode="ifContentScrolls">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:paddingBottom="4dp">
 
                     <!-- TAB 1: PLAYER (Interactive SeekBar, Timestamps, +/-10s, Modes, Output Route) -->
                     <LinearLayout
@@ -1767,7 +1891,7 @@
                         </LinearLayout>
                     </LinearLayout>
 
-                    <!-- TAB 6: TRANSLATE (Teammate Voice/Chat Translation Bubble for Games) -->
+                    <!-- TAB 6: TRANSLATE (Internal Game Audio Capture + Multi-Engine Caption Studio) -->
                     <LinearLayout
                         android:id="@+id/panel_floater_translate"
                         android:layout_width="match_parent"
@@ -1779,33 +1903,90 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:background="@drawable/bg_mini_card_inner"
+                            android:elevation="4dp"
                             android:orientation="vertical"
-                            android:padding="10dp">
+                            android:padding="11dp">
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal">
+
+                                <TextView
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="@string/translation_bubble_title"
+                                    android:textColor="#FF1ED760"
+                                    android:textSize="12sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/tv_translate_engine_badge"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:background="@drawable/bg_mini_mute_pill"
+                                    android:paddingStart="7dp"
+                                    android:paddingTop="2dp"
+                                    android:paddingEnd="7dp"
+                                    android:paddingBottom="2dp"
+                                    android:text="Vosk + ML Kit · AUTO"
+                                    android:textColor="#FF8AB4F8"
+                                    android:textSize="9sp"
+                                    android:textStyle="bold" />
+                            </LinearLayout>
 
                             <TextView
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:text="@string/translation_bubble_title"
-                                android:textColor="#FF1ED760"
-                                android:textSize="11.5sp"
-                                android:textStyle="bold" />
-
-                            <TextView
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="3dp"
-                                android:text="Auto-detects teammate speech (Spanish, Arabic, Portuguese) &amp; translates to English in a top-left floating bubble."
+                                android:layout_marginTop="4dp"
+                                android:text="Captures internal game voice chat via MediaProjection (zero mic locking), auto-detects teammate language, and renders click-through captions."
                                 android:textColor="#FFB8C0CE"
                                 android:textSize="10sp" />
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="7dp"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal">
+
+                                <TextView
+                                    android:id="@+id/badge_internal_capture_mode"
+                                    android:layout_width="0dp"
+                                    android:layout_height="26dp"
+                                    android:layout_marginEnd="5dp"
+                                    android:layout_weight="1"
+                                    android:background="@drawable/bg_mini_mute_pill"
+                                    android:gravity="center"
+                                    android:text="Internal Audio · Zero Mic Lock"
+                                    android:textColor="#FF81C784"
+                                    android:textSize="9.5sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/tv_translate_click_through_status"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="26dp"
+                                    android:background="@drawable/bg_mini_mute_pill"
+                                    android:gravity="center"
+                                    android:paddingStart="8dp"
+                                    android:paddingEnd="8dp"
+                                    android:text="Pass-Through Locked"
+                                    android:textColor="#FFD5DCE6"
+                                    android:textSize="9.5sp"
+                                    android:textStyle="bold" />
+                            </LinearLayout>
 
                             <TextView
                                 android:id="@+id/toggle_translate_bubble"
                                 android:layout_width="match_parent"
-                                android:layout_height="28dp"
+                                android:layout_height="30dp"
                                 android:layout_marginTop="8dp"
                                 android:background="@drawable/bg_mini_chip_active"
                                 android:gravity="center"
-                                android:text="Floating Bubble: ON"
+                                android:text="Floating Bubble: ON (4s Auto-Hide)"
                                 android:textColor="#FF06130B"
                                 android:textSize="10sp"
                                 android:textStyle="bold" />
@@ -1866,14 +2047,15 @@
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="8dp"
                                 android:background="@drawable/bg_mini_mute_pill"
-                                android:padding="8dp"
-                                android:text="[Teammate - ES]: ¡Cuidado, hay enemigos a la derecha! -> [EN]: Watch out, enemies on the right!"
+                                android:padding="9dp"
+                                android:text="[AUTO: ES -> EN · LEXICON 1ms]\nTeammate: ¡Revíveme detrás del muro!\nCaption: Revive me behind the wall!"
                                 android:textColor="#FF8BE9FD"
                                 android:textSize="10.5sp" />
                         </LinearLayout>
                     </LinearLayout>
                 </LinearLayout>
             </ScrollView>
+            </LinearLayout>
         </LinearLayout>
 
         <!-- Bottom Corner Resize Grip Bar (Bottom-Left + Hint + Bottom-Right) -->

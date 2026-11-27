@@ -193,8 +193,8 @@ fun ChristmasCountdownBanner(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Image(
-                painter = painterResource(id = R.drawable.spotui_christmas_badge),
-                contentDescription = "Christmas Winter Badge",
+                painter = painterResource(id = R.drawable.spotui_logo_santa_cookie),
+                contentDescription = "SpotUI Festive Christmas Logo",
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .size(54.dp)

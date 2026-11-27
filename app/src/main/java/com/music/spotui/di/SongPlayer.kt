@@ -130,12 +130,26 @@ object SongPlayer {
         return v
     }
 
-    /** Perceptual exponential volume curve so 10%..100% feels smooth and independent of OS media volume. */
+    /** Perceptual exponential volume curve so 10%..100% feels smooth and independent of OS media volume, scaled by teammate voice ducking. */
     fun appVolumeGain(): Float {
         val pct = _appVolumePercent.value.coerceIn(0, 100)
-        if (pct <= 0) return 0f
-        if (pct >= 100) return 1f
-        return Math.pow(pct / 100.0, 1.65).toFloat().coerceIn(0f, 1f)
+        val base = when {
+            pct <= 0 -> 0f
+            pct >= 100 -> 1f
+            else -> Math.pow(pct / 100.0, 1.65).toFloat().coerceIn(0f, 1f)
+        }
+        return (base * PlaybackAutomationManager.currentDuckingGain()).coerceIn(0f, 1f)
+    }
+
+    /** Re-applies live player volume immediately when ducking or user volume changes. */
+    fun refreshLiveVolume() {
+        val gain = appVolumeGain()
+        runOnMain {
+            if (!isCrossfading) {
+                player?.volume = gain
+            }
+            SpotifyWebPlayer.setVolume(gain)
+        }
     }
 
     /** Adjusts SpotUI's internal audio gain (0–100%) without changing Android OS volume. */
@@ -150,15 +164,23 @@ object SongPlayer {
                 player?.volume = gain
             }
             SpotifyWebPlayer.setVolume(gain)
+            refreshAudioOffloadPolicy(appContext)
         }
     }
 
     fun dspTelemetrySummary(): String {
         val sp = currentSpatialProcessor
         val dsp = currentDspProcessor
-        val frames = (sp?.processedFrames ?: 0L) + (dsp?.processedFrames ?: 0L)
+        val harm = currentHarmonicProcessor
+        val frames = (sp?.processedFrames ?: 0L) + (dsp?.processedFrames ?: 0L) + (harm?.processedFrames ?: 0L)
         return sp?.telemetrySummary() ?: "DSP idle · ${frames / 1000}k frames"
     }
+
+    fun harmonicTelemetry(): com.music.spotui.audio.HarmonicDynamicsTelemetry =
+        currentHarmonicProcessor?.telemetry?.value ?: com.music.spotui.audio.HarmonicDynamicsTelemetry()
+
+    fun spatialCorrelation(): Float =
+        currentSpatialProcessor?.currentCorrelation ?: 1f
 
     fun shouldPlayWhenResolved(): Boolean = playWhenResolved
 
@@ -2787,6 +2809,7 @@ object SongPlayer {
     private data class PlayerPipeline(
         val player: ExoPlayer,
         val dsp: com.music.spotui.audio.SpotuiDspAudioProcessor,
+        val harmonic: com.music.spotui.audio.HarmonicAndDynamicsProcessor,
         val filter: com.music.spotui.audio.CrossfadeFilterAudioProcessor,
         val spatial: com.music.spotui.audio.SpatialWideningAudioProcessor,
     )
@@ -2797,9 +2820,11 @@ object SongPlayer {
         handleAudioFocus: Boolean,
     ): PlayerPipeline {
         val dsp = com.music.spotui.audio.SpotuiDspAudioProcessor()
+        val harmonic = com.music.spotui.audio.HarmonicAndDynamicsProcessor()
         val filter = com.music.spotui.audio.CrossfadeFilterAudioProcessor()
         val spatial = com.music.spotui.audio.SpatialWideningAudioProcessor()
         applySoftwareDsp(context, dsp)
+        applySoftwareHarmonic(context, harmonic)
         applySoftwareSpatial(context, spatial)
 
         val focusMode = com.music.spotui.data.preferences.getAudioFocusMode(context)
@@ -2827,6 +2852,7 @@ object SongPlayer {
                     .setAudioProcessorChain(
                         androidx.media3.exoplayer.audio.DefaultAudioSink.DefaultAudioProcessorChain(
                             dsp,
+                            harmonic,
                             filter,
                             spatial,
                         ),
@@ -2857,10 +2883,12 @@ object SongPlayer {
                 it.volume = appVolumeGain()
                 applyAudioOffloadPolicy(context, it)
             }
-        return PlayerPipeline(p, dsp, filter, spatial)
+        return PlayerPipeline(p, dsp, harmonic, filter, spatial)
     }
 
     private fun shouldBypassOffloadForSoftwareDsp(context: Context): Boolean {
+        val pro = com.music.spotui.data.preferences.ProAudioPreferences.hydrateIfNeeded(context)
+        if (pro.harmonicEnabled) return true
         if (com.music.spotui.data.preferences.isEqSpatialEnabled(context)) return true
         if (com.music.spotui.data.preferences.isHeadphoneCrossfeedEnabled(context)) return true
         if (com.music.spotui.data.preferences.getBassBoostStrength(context) > 0) return true
@@ -2887,7 +2915,16 @@ object SongPlayer {
     private fun applyAudioOffloadPolicy(context: Context, exo: ExoPlayer) {
         val userWantsOffload = com.music.spotui.data.preferences.isAudioOffloadEnabled(context)
         val dspActive = shouldBypassOffloadForSoftwareDsp(context)
-        val allowOffload = userWantsOffload && !dspActive
+        val decision = com.music.spotui.audio.AudioOffloadMonitor.inspectEnvironment(
+            context = context,
+            userWantsOffload = userWantsOffload,
+            softwareDspActive = dspActive,
+            floatOutputEnabled = com.music.spotui.data.preferences.isFloatAudioOutput(context),
+            appVolumePercent = _appVolumePercent.value,
+            playbackSpeed = com.music.spotui.data.preferences.getPlaybackSpeedPref(context),
+            playbackPitch = com.music.spotui.data.preferences.getPlaybackPitchPref(context),
+        )
+        val allowOffload = decision.allowHardwareOffload
         val prevMode = exo.trackSelectionParameters.audioOffloadPreferences.audioOffloadMode
         val mode = if (allowOffload) {
             androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED
@@ -2903,8 +2940,8 @@ object SongPlayer {
         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
             .setAudioOffloadPreferences(prefs)
             .build()
-        // If user just turned Spatial/DSP ON while audio offload was running, nudge seek position so Media3
-        // flushes the offloaded sink and routes immediately through our in-process 3D/EQ AudioProcessors.
+        // If Spatial/DSP/mic/internal-capture triggered software fallback while offload was running, nudge seek
+        // so Media3 flushes the offloaded sink and routes immediately through software PCM AudioProcessors.
         if (prevMode == androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED &&
             !allowOffload &&
             exo.mediaItemCount > 0 &&
@@ -2937,10 +2974,24 @@ object SongPlayer {
         processor.normalizerBoostDb = (com.music.spotui.data.preferences.getAudioNormalizerGainMb(context) / 100f).coerceIn(0f, 6f)
     }
 
+    private fun applySoftwareHarmonic(
+        context: Context,
+        processor: com.music.spotui.audio.HarmonicAndDynamicsProcessor,
+    ) {
+        val pro = com.music.spotui.data.preferences.ProAudioPreferences.hydrateIfNeeded(context)
+        processor.enabled = pro.harmonicEnabled
+        processor.tubeWarmth = pro.tubeWarmth
+        processor.airExciter = pro.airExciter
+        processor.subHarmonicPunch = pro.subHarmonicPunch
+        processor.haasDelayAlignMs = pro.haasDelayAlignMs
+        processor.compressorRatio = pro.compressorRatio
+    }
+
     private fun applySoftwareSpatial(
         context: Context,
         processor: com.music.spotui.audio.SpatialWideningAudioProcessor,
     ) {
+        val pro = com.music.spotui.data.preferences.ProAudioPreferences.hydrateIfNeeded(context)
         processor.enabled = com.music.spotui.data.preferences.isEqSpatialEnabled(context)
         processor.width = (com.music.spotui.data.preferences.getSpatialStrength(context) / 1000f).coerceIn(0f, 1f)
         processor.profile = com.music.spotui.data.preferences.getSpatialProfile(context)
@@ -2953,6 +3004,11 @@ object SongPlayer {
         processor.advanced8dDepth = com.music.spotui.data.preferences.getSpatial8dIntensity(context)
         processor.elevationDepth = com.music.spotui.data.preferences.getSpatialElevationDepth(context)
         processor.correlationGuard = com.music.spotui.data.preferences.isSpatialCorrelationGuardEnabled(context)
+        processor.azimuthSpread = pro.azimuthSpread
+        processor.reflectionDensity = pro.reflectionDensity
+        processor.airShimmer = pro.airShimmer
+        processor.subBassCrossoverHz = pro.subBassCrossoverHz
+        processor.frontRearBalance = pro.frontRearBalance
     }
 
     private fun syncCachedPlayerState(p: Player) {
@@ -2971,7 +3027,9 @@ object SongPlayer {
             override fun onAudioSessionIdChanged(audioSessionId: Int) {
                 lastKnownSessionId = audioSessionId
                 val ctx = appCtx ?: return
-                com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(ctx, currentDspProcessor, currentSpatialProcessor)
+                com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(
+                    ctx, currentDspProcessor, currentSpatialProcessor, currentHarmonicProcessor
+                )
                 com.music.spotui.audio.AudioEffectController.attach(ctx, audioSessionId)
             }
 
@@ -3005,20 +3063,28 @@ object SongPlayer {
 
     private fun ensurePlayer(context: Context) {
         appCtx = context.applicationContext
+        PlaybackAutomationManager.ensureStarted(context.applicationContext)
         _appVolumePercent.value = com.music.spotui.data.preferences.getAppVolumePercent(context.applicationContext)
         if (player == null) {
             val pipeline = createPlayerWithFilter(context, handleAudioFocus = true)
             val p = pipeline.player
             player = p
             currentDspProcessor = pipeline.dsp
+            currentHarmonicProcessor = pipeline.harmonic
             currentPlayerFilter = pipeline.filter
             currentSpatialProcessor = pipeline.spatial
             com.music.spotui.audio.AudioEffectController.onRouteChanged = { ctx ->
                 refreshAudioOffloadPolicy(ctx)
             }
+            com.music.spotui.audio.AudioOffloadMonitor.onOffloadEnvironmentChanged = { ctx ->
+                refreshAudioOffloadPolicy(ctx)
+            }
+            com.music.spotui.audio.AudioOffloadMonitor.ensureStarted(context.applicationContext)
             attachStateTrackingListener(p)
             syncCachedPlayerState(p)
-            com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(context, currentDspProcessor, currentSpatialProcessor)
+            com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(
+                context, currentDspProcessor, currentSpatialProcessor, currentHarmonicProcessor
+            )
             com.music.spotui.audio.AudioEffectController.attach(context, p.audioSessionId)
             onPlayerCreated?.invoke(p)
         }
@@ -3030,16 +3096,20 @@ object SongPlayer {
     /** Make sure the player exists (used by the media-session service). */
     fun ensureCreated(context: Context) = ensurePlayer(context.applicationContext)
 
-    /** Re-applies equalizer, preamp, normalizer, and spatial-audio preferences immediately. */
+    /** Re-applies equalizer, preamp, normalizer, harmonic dynamics, and spatial-audio preferences immediately. */
     fun refreshAudioEffects(context: Context) {
         val appContext = context.applicationContext
         runOnMain {
             ensurePlayer(appContext)
             currentDspProcessor?.let { applySoftwareDsp(appContext, it) }
             secondaryDspProcessor?.let { applySoftwareDsp(appContext, it) }
+            currentHarmonicProcessor?.let { applySoftwareHarmonic(appContext, it) }
+            secondaryHarmonicProcessor?.let { applySoftwareHarmonic(appContext, it) }
             currentSpatialProcessor?.let { applySoftwareSpatial(appContext, it) }
             secondarySpatialProcessor?.let { applySoftwareSpatial(appContext, it) }
-            com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(appContext, currentDspProcessor, currentSpatialProcessor)
+            com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(
+                appContext, currentDspProcessor, currentSpatialProcessor, currentHarmonicProcessor
+            )
             com.music.spotui.audio.AudioEffectController.attach(appContext, player?.audioSessionId ?: 0)
             com.music.spotui.audio.AudioEffectController.applyPreferences(appContext)
             player?.let { applyAudioOffloadPolicy(appContext, it) }
@@ -3428,10 +3498,12 @@ object SongPlayer {
     @Volatile private var appCtx: Context? = null
     @Volatile private var boundState: CurrentSongState? = null
     @Volatile private var currentDspProcessor: com.music.spotui.audio.SpotuiDspAudioProcessor? = null
+    @Volatile private var currentHarmonicProcessor: com.music.spotui.audio.HarmonicAndDynamicsProcessor? = null
     @Volatile private var currentPlayerFilter: com.music.spotui.audio.CrossfadeFilterAudioProcessor? = null
     @Volatile private var currentSpatialProcessor: com.music.spotui.audio.SpatialWideningAudioProcessor? = null
     @Volatile private var secondaryPlayer: ExoPlayer? = null
     @Volatile private var secondaryDspProcessor: com.music.spotui.audio.SpotuiDspAudioProcessor? = null
+    @Volatile private var secondaryHarmonicProcessor: com.music.spotui.audio.HarmonicAndDynamicsProcessor? = null
     @Volatile private var secondaryPlayerFilter: com.music.spotui.audio.CrossfadeFilterAudioProcessor? = null
     @Volatile private var secondarySpatialProcessor: com.music.spotui.audio.SpatialWideningAudioProcessor? = null
     @Volatile private var isCrossfading = false
@@ -3465,6 +3537,7 @@ object SongPlayer {
         secondaryPlayerFilter?.enabled = false
         runCatching { secondaryPlayer?.release() }
         secondaryDspProcessor = null
+        secondaryHarmonicProcessor = null
         secondaryPlayerFilter = null
         secondarySpatialProcessor = null
         secondaryPlayer = null
@@ -3598,6 +3671,7 @@ object SongPlayer {
                     val sp = pipeline.player
                     secondaryPlayer = sp
                     secondaryDspProcessor = pipeline.dsp
+                    secondaryHarmonicProcessor = pipeline.harmonic
                     secondaryPlayerFilter = pipeline.filter
                     secondarySpatialProcessor = pipeline.spatial
                     val nextMime = streamMimeType(
@@ -3623,6 +3697,9 @@ object SongPlayer {
     private suspend fun performCrossfade(effectiveMs: Int, djMode: Boolean) {
         val steps = 50
         val delayPerStep = (effectiveMs / steps).coerceAtLeast(20)
+        val curve = appCtx?.let {
+            com.music.spotui.data.preferences.ProAudioPreferences.hydrateIfNeeded(it).crossfadeCurveShape
+        } ?: com.music.spotui.data.preferences.CrossfadeCurveShape.EQUAL_POWER
         if (djMode) {
             currentPlayerFilter?.apply {
                 filterType = com.music.spotui.audio.BiquadFilter.FilterType.LOW_PASS
@@ -3639,11 +3716,29 @@ object SongPlayer {
                 for (step in 0..steps) {
                     if (!isActive) break
                     val progress = step.toFloat() / steps
-                    val angle = (progress * PI / 2).toFloat()
                     val targetGain = appVolumeGain()
+                    val (outGain, inGain) = when (curve) {
+                        com.music.spotui.data.preferences.CrossfadeCurveShape.EQUAL_POWER -> {
+                            val angle = (progress * PI / 2).toFloat()
+                            cos(angle) to sin(angle)
+                        }
+                        com.music.spotui.data.preferences.CrossfadeCurveShape.S_CURVE -> {
+                            val sp = sigmoid(progress)
+                            (1f - sp) to sp
+                        }
+                        com.music.spotui.data.preferences.CrossfadeCurveShape.LINEAR -> {
+                            (1f - progress) to progress
+                        }
+                        com.music.spotui.data.preferences.CrossfadeCurveShape.FAST_CUT -> {
+                            if (progress < 0.75f) 1f to 0f else {
+                                val t = ((progress - 0.75f) / 0.25f).coerceIn(0f, 1f)
+                                (1f - t) to t
+                            }
+                        }
+                    }
                     withContext(Dispatchers.Main) {
-                        player?.volume = cos(angle) * targetGain
-                        secondaryPlayer?.volume = sin(angle) * targetGain
+                        player?.volume = outGain * targetGain
+                        secondaryPlayer?.volume = inGain * targetGain
                         if (djMode) {
                             val fp = sigmoid(progress)
                             currentPlayerFilter?.cutoffFrequencyHz = expInterpolate(CF_LPF_START_HZ, CF_LPF_END_HZ, fp)
@@ -3670,10 +3765,12 @@ object SongPlayer {
             secondaryPlayerFilter?.enabled = false
             player = incoming
             currentDspProcessor = secondaryDspProcessor
+            currentHarmonicProcessor = secondaryHarmonicProcessor
             currentPlayerFilter = secondaryPlayerFilter
             currentSpatialProcessor = secondarySpatialProcessor
             secondaryPlayer = null
             secondaryDspProcessor = null
+            secondaryHarmonicProcessor = null
             secondaryPlayerFilter = null
             secondarySpatialProcessor = null
             incoming.volume = appVolumeGain()
@@ -3685,7 +3782,9 @@ object SongPlayer {
             attachStateTrackingListener(incoming)
             syncCachedPlayerState(incoming)
             if (ctx != null) {
-                com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(ctx, currentDspProcessor, currentSpatialProcessor)
+                com.music.spotui.audio.AudioEffectController.bindSoftwareProcessors(
+                    ctx, currentDspProcessor, currentSpatialProcessor, currentHarmonicProcessor
+                )
                 com.music.spotui.audio.AudioEffectController.attach(ctx, incoming.audioSessionId)
                 refreshAudioEffects(ctx)
             }

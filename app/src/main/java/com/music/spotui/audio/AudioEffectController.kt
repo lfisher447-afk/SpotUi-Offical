@@ -106,6 +106,7 @@ object AudioEffectController {
     private var lastBassEnabled: Boolean? = null
 
     @Volatile private var softwareDspRef: SpotuiDspAudioProcessor? = null
+    @Volatile private var softwareHarmonicRef: HarmonicAndDynamicsProcessor? = null
     @Volatile private var softwareSpatialRef: SpatialWideningAudioProcessor? = null
     @Volatile private var deviceCallbackRegistered = false
     @Volatile var onRouteChanged: ((Context) -> Unit)? = null
@@ -299,15 +300,18 @@ object AudioEffectController {
         context: Context,
         dsp: SpotuiDspAudioProcessor?,
         spatial: SpatialWideningAudioProcessor?,
+        harmonic: HarmonicAndDynamicsProcessor? = softwareHarmonicRef,
     ) {
         softwareDspRef = dsp
         softwareSpatialRef = spatial
+        softwareHarmonicRef = harmonic
         syncSoftwareProcessors(context.applicationContext)
     }
 
     fun syncSoftwareProcessors(context: Context) {
         val appCtx = context.applicationContext
         val route = refreshOutputRoute(appCtx)
+        val pro = com.music.spotui.data.preferences.ProAudioPreferences.hydrateIfNeeded(appCtx)
         val bypassHwBassOnBluetooth = route.isBluetooth
         val hwBassActive = !bypassHwBassOnBluetooth && bassBoost != null && bassBoostStrengthSupported
 
@@ -331,6 +335,15 @@ object AudioEffectController {
             dsp.normalizerBoostDb = (getAudioNormalizerGainMb(appCtx) / 100f).coerceIn(0f, 6f)
         }
 
+        softwareHarmonicRef?.let { harm ->
+            harm.enabled = pro.harmonicEnabled
+            harm.tubeWarmth = pro.tubeWarmth
+            harm.airExciter = pro.airExciter
+            harm.subHarmonicPunch = pro.subHarmonicPunch
+            harm.haasDelayAlignMs = pro.haasDelayAlignMs
+            harm.compressorRatio = pro.compressorRatio
+        }
+
         softwareSpatialRef?.let { sp ->
             sp.enabled = isEqSpatialEnabled(appCtx)
             sp.width = (getSpatialStrength(appCtx) / 1000f).coerceIn(0f, 1f)
@@ -344,14 +357,19 @@ object AudioEffectController {
             sp.advanced8dDepth = getSpatial8dIntensity(appCtx)
             sp.elevationDepth = getSpatialElevationDepth(appCtx)
             sp.correlationGuard = isSpatialCorrelationGuardEnabled(appCtx)
+            sp.azimuthSpread = pro.azimuthSpread
+            sp.reflectionDensity = pro.reflectionDensity
+            sp.airShimmer = pro.airShimmer
+            sp.subBassCrossoverHz = pro.subBassCrossoverHz
+            sp.frontRearBalance = pro.frontRearBalance
             com.music.spotui.util.DevConsoleManager.logDsp(
-                "Spatial 3D sync: enabled=${sp.enabled} profile=${sp.profile.label} depth=${(sp.width * 100).roundToInt()}% advanced8D=${sp.advanced8dEnabled} (${(sp.advanced8dDepth * 100).roundToInt()}%) crossfeed=${sp.headphoneCrossfeed} route=${route.route.label}",
+                "Spatial 3D sync: enabled=${sp.enabled} profile=${sp.profile.label} depth=${(sp.width * 100).roundToInt()}% advanced8D=${sp.advanced8dEnabled} (${(sp.advanced8dDepth * 100).roundToInt()}%) harmonic=${pro.harmonicEnabled} route=${route.route.label}",
             )
         }
 
         val sysSp = inspectSystemSpatializer(appCtx)
         latestCapabilities = latestCapabilities.copy(
-            softwareDspAttached = softwareDspRef != null || softwareSpatialRef != null,
+            softwareDspAttached = softwareDspRef != null || softwareSpatialRef != null || softwareHarmonicRef != null,
             activeRoute = route.route,
             activeDeviceName = route.deviceName,
             bluetoothSafeBypassActive = route.isBluetooth || softwareSpatialRef != null,

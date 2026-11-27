@@ -3,6 +3,6 @@
     <item
         android:width="66dp"
         android:height="66dp"
-        android:drawable="@drawable/spotui_icon_v2"
+        android:drawable="@drawable/spotui_logo_main"
         android:gravity="center" />
 </layer-list>

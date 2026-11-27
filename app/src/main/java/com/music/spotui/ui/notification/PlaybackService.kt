@@ -137,6 +137,12 @@ class PlaybackService : MediaLibraryService() {
                         return
                     }
                 }
+                if (com.music.spotui.di.PlaybackAutomationManager.consumeFinishTrackSleepIfArmed(applicationContext)) {
+                    SongPlayer.pause()
+                    currentSongState.updatePlayingState(false)
+                    AppDiagnostics.info("PlaybackService", "Sleep Timer: Paused cleanly after finishing current track")
+                    return
+                }
                 when (currentSongState.repeat.value) {
                     RepeatMode.ONE -> {
                         val queue = currentSongState.queue.value
@@ -200,6 +206,12 @@ class PlaybackService : MediaLibraryService() {
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+                if (com.music.spotui.di.PlaybackAutomationManager.consumeFinishTrackSleepIfArmed(applicationContext)) {
+                    SongPlayer.pause()
+                    currentSongState.updatePlayingState(false)
+                    AppDiagnostics.info("PlaybackService", "Sleep Timer: Paused cleanly before next track")
+                    return
+                }
                 val queue = currentSongState.queue.value
                 val mediaId = mediaItem?.mediaId
                 if (queue.isNotEmpty() && !mediaId.isNullOrBlank()) {
@@ -728,6 +740,7 @@ class PlaybackService : MediaLibraryService() {
         const val NOTIFICATION_ID = 1001
         const val CHANNEL_ID = com.music.spotui.engine.MediaNotificationAdapter.CHANNEL_ID
         const val ACTION_ENSURE_FOREGROUND = "com.music.spotui.action.ENSURE_FOREGROUND"
+        const val ACTION_PROMOTE_MEDIA_PROJECTION = "com.music.spotui.action.PROMOTE_MEDIA_PROJECTION"
         const val ACTION_REFRESH_NOTIFICATION = "com.music.spotui.action.REFRESH_NOTIFICATION"
         const val ACTION_LOCAL_BIND = "com.music.spotui.action.LOCAL_BIND"
         const val ACTION_MEDIA_NOTIFICATION_DISMISSED = "com.music.spotui.action.MEDIA_NOTIFICATION_DISMISSED"
@@ -811,6 +824,44 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
+        @Volatile
+        internal var projectionForegroundActive = false
+            private set
+
+        fun promoteForMediaProjection(context: Context, onReady: () -> Unit = {}) {
+            val appContext = context.applicationContext
+            projectionForegroundActive = true
+            val existing = activeInstance
+            if (existing != null) {
+                mainHandler.post {
+                    existing.promoteForegroundNowIfNeeded(forceProjectionType = true)
+                    onReady()
+                }
+                return
+            }
+            val intent = Intent(appContext, PlaybackService::class.java).apply {
+                action = ACTION_PROMOTE_MEDIA_PROJECTION
+            }
+            runCatching {
+                ContextCompat.startForegroundService(appContext, intent)
+            }.onFailure {
+                runCatching { appContext.startService(intent) }
+            }
+            mainHandler.postDelayed({
+                activeInstance?.promoteForegroundNowIfNeeded(forceProjectionType = true)
+                onReady()
+            }, 180L)
+        }
+
+        fun demoteMediaProjection(context: Context) {
+            projectionForegroundActive = false
+            val existing = activeInstance ?: return
+            mainHandler.post {
+                existing.promoteForegroundNowIfNeeded(forceProjectionType = false)
+                existing.scheduleIdleStopCheck()
+            }
+        }
+
         fun refreshNotification(context: Context) {
             notifyPlaybackStateChanged(context)
         }
@@ -860,10 +911,12 @@ class PlaybackService : MediaLibraryService() {
 
     private fun scheduleIdleStopCheck() {
         idleStopJob?.cancel()
+        val translatorCapturing = com.music.spotui.translator.GameVoiceTranslatorEngine.isCaptureActive()
         val isActive = SongPlayer.isPlaying() ||
             SongPlayer.isResolvingTrack ||
             SpotifyWebPlayer.isPlaying ||
-            currentSongState.playingState.value
+            currentSongState.playingState.value ||
+            translatorCapturing
         if (isActive || currentSongState.title.value.isBlank()) {
             idleStopJob = null
             return
@@ -873,7 +926,8 @@ class PlaybackService : MediaLibraryService() {
             val stillIdle = !SongPlayer.isPlaying() &&
                 !SongPlayer.isResolvingTrack &&
                 !SpotifyWebPlayer.isPlaying &&
-                !currentSongState.playingState.value
+                !currentSongState.playingState.value &&
+                !com.music.spotui.translator.GameVoiceTranslatorEngine.isCaptureActive()
             if (stillIdle) {
                 widgetDebouncer?.reset()
                 widgetSink?.serviceStopped()
@@ -1399,7 +1453,7 @@ class PlaybackService : MediaLibraryService() {
         return f
     }
 
-    private fun promoteForegroundNowIfNeeded() {
+    private fun promoteForegroundNowIfNeeded(forceProjectionType: Boolean = false) {
         com.music.spotui.engine.MediaNotificationAdapter.ensureChannel(this)
         val existingLiveNotification = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             runCatching {
@@ -1424,11 +1478,20 @@ class PlaybackService : MediaLibraryService() {
         }
         runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val useProjection = forceProjectionType ||
+                    projectionForegroundActive ||
+                    com.music.spotui.translator.GameVoiceTranslatorEngine.isCaptureActive()
+                val serviceType = if (useProjection) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                } else {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                }
                 ServiceCompat.startForeground(
                     this,
                     NOTIFICATION_ID,
                     notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
+                    serviceType,
                 )
             } else {
                 startForeground(NOTIFICATION_ID, notification)
@@ -1442,10 +1505,19 @@ class PlaybackService : MediaLibraryService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
 
+        if (action == ACTION_PROMOTE_MEDIA_PROJECTION) {
+            projectionForegroundActive = true
+            promoteForegroundNowIfNeeded(forceProjectionType = true)
+            syncSessionStateFromApp()
+            super.onStartCommand(intent, flags, startId)
+            return START_STICKY
+        }
+
         if (action == ACTION_MEDIA_NOTIFICATION_DISMISSED) {
             val shouldKeepAlive = SongPlayer.isPlaying() ||
                 SpotifyWebPlayer.isPlaying ||
-                SongPlayer.isResolvingTrack
+                SongPlayer.isResolvingTrack ||
+                com.music.spotui.translator.GameVoiceTranslatorEngine.isCaptureActive()
             if (!shouldKeepAlive) {
                 hasPromotedForeground = false
                 idleStopJob?.cancel()
@@ -1525,8 +1597,9 @@ class PlaybackService : MediaLibraryService() {
         // Stop cleanly if playback is paused/idle so the notification isn't left orphaned,
         // and show the quick Play/Pause mini-notification if enabled.
         val p = mediaSession?.player
-        val keepAlive = ServiceSessionHolder.isResumable(p) &&
-            (p?.playWhenReady == true || SongPlayer.isResolvingTrack || SpotifyWebPlayer.isPlaying)
+        val keepAlive = com.music.spotui.translator.GameVoiceTranslatorEngine.isCaptureActive() ||
+            (ServiceSessionHolder.isResumable(p) &&
+                (p?.playWhenReady == true || SongPlayer.isResolvingTrack || SpotifyWebPlayer.isPlaying))
         if (!keepAlive) {
             hasPromotedForeground = false
             widgetDebouncer?.reset()
